@@ -95,7 +95,7 @@ func (m *Manager) downloadLocked(ctx context.Context, p model.Package, events ch
 	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
 		return "", err
 	}
-	tmp, err := os.CreateTemp(filepath.Dir(path), ".download-")
+	tmp, err := os.CreateTemp(filepath.Dir(path), ".download-"+sha+"-")
 	if err != nil {
 		return "", err
 	}

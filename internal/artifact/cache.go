@@ -7,23 +7,22 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/shqingda/gobrew/internal/platform"
 )
 
-// Cleanup evicts the oldest completed, unleased entries until both logical-byte
-// budgets are met. Installed kegs are independent of these disposable caches.
+// Cleanup reclaims identifiable abandoned staging entries, then evicts the
+// oldest completed, unleased entries until both logical-byte budgets are met.
+// Installed kegs are independent of these disposable caches.
 func (m *Manager) Cleanup(ctx context.Context) ([]string, error) {
 	var removed []string
 	for _, tier := range []struct {
-		name, lock string
-		budget     int64
-	}{{"blobs", "blob-", m.cfg.BlobBudget}, {"trees", "tree-", m.cfg.TreeBudget}} {
-		if tier.budget < 0 {
-			continue
-		}
+		name, lock, temporary string
+		budget                int64
+	}{{"blobs", "blob-", ".download-", m.cfg.BlobBudget}, {"trees", "tree-", ".prepare-", m.cfg.TreeBudget}} {
 		dir := filepath.Join(m.cfg.CacheDir, tier.name)
 		entries, err := os.ReadDir(dir)
 		if errors.Is(err, os.ErrNotExist) {
@@ -40,6 +39,33 @@ func (m *Manager) Cleanup(ctx context.Context) ([]string, error) {
 		var candidates []candidate
 		var total int64
 		for _, e := range entries {
+			if err := ctx.Err(); err != nil {
+				return removed, err
+			}
+			if key, ok := temporaryKey(e.Name(), tier.temporary); ok {
+				// The producer acquires this same lease before creating any
+				// temporary entry. An unheld lease proves no operation can still
+				// be writing or about to publish it, regardless of its age.
+				if tier.name == "trees" && !e.IsDir() || tier.name == "blobs" && !e.Type().IsRegular() {
+					continue
+				}
+				release, acquired, err := platform.TryLock(filepath.Join(m.cfg.CacheDir, "locks", tier.lock+key))
+				if err != nil {
+					return removed, err
+				}
+				if acquired {
+					path := filepath.Join(dir, e.Name())
+					err = errors.Join(os.RemoveAll(path), release())
+					if err != nil {
+						return removed, err
+					}
+					removed = append(removed, path)
+				}
+				continue
+			}
+			if tier.budget < 0 {
+				continue // Unlimited completed cache still reclaims abandoned work.
+			}
 			if len(e.Name()) != 64 || strings.Trim(e.Name(), "0123456789abcdef") != "" {
 				continue
 			}
@@ -92,4 +118,26 @@ func (m *Manager) Cleanup(ctx context.Context) ([]string, error) {
 		}
 	}
 	return removed, nil
+}
+
+// os.CreateTemp/MkdirTemp append a decimal uint32 suffix in the pinned Go
+// runtime. Only our exact keyed namespace is owned; old anonymous and unusual
+// names are deliberately left alone because no lease can prove their status.
+func temporaryKey(name, prefix string) (string, bool) {
+	if !strings.HasPrefix(name, prefix) {
+		return "", false
+	}
+	value := strings.TrimPrefix(name, prefix)
+	if len(value) < 66 || value[64] != '-' {
+		return "", false
+	}
+	key, suffix := value[:64], value[65:]
+	if strings.Trim(key, "0123456789abcdef") != "" || len(suffix) > 10 || strings.Trim(suffix, "0123456789") != "" {
+		return "", false
+	}
+	number, err := strconv.ParseUint(suffix, 10, 32)
+	if err != nil || strconv.FormatUint(number, 10) != suffix {
+		return "", false
+	}
+	return key, true
 }

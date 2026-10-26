@@ -226,7 +226,7 @@ func (m *Manager) prepare(ctx context.Context, p model.Package, downloads, prepa
 	if err := os.MkdirAll(filepath.Dir(entry), 0700); err != nil {
 		return result, err
 	}
-	stage, err := os.MkdirTemp(filepath.Dir(entry), ".prepare-")
+	stage, err := os.MkdirTemp(filepath.Dir(entry), ".prepare-"+key+"-")
 	if err != nil {
 		return result, err
 	}
