@@ -11,6 +11,7 @@ import (
 
 func TestBaselineEnvironmentSeparatesUserConfiguration(t *testing.T) {
 	t.Setenv("HOMEBREW_CACHE", "/user-cache")
+	t.Setenv("HOMEBREW_TEMP", "/tmp")
 	t.Setenv("HOMEBREW_NO_INSTALL_FROM_API", "1")
 	t.Setenv("XDG_CONFIG_HOME", "/user-config")
 	cache := filepath.Join(t.TempDir(), "brew-cache")
@@ -21,6 +22,9 @@ func TestBaselineEnvironmentSeparatesUserConfiguration(t *testing.T) {
 	}
 	if values["HOMEBREW_CACHE"] != cache || values["XDG_CONFIG_HOME"] != filepath.Join(filepath.Dir(cache), "brew-config") || values["HOMEBREW_NO_INSTALL_FROM_API"] != "" {
 		t.Fatal("baseline inherited user Homebrew configuration")
+	}
+	if values["HOMEBREW_TEMP"] != filepath.Join(filepath.Dir(cache), "brew-temp") {
+		t.Fatal("baseline temporary directory overlaps the disposable prefix")
 	}
 	config := filepath.Join(t.TempDir(), "brew.env")
 	if err := os.WriteFile(config, []byte("HOMEBREW_CACHE=/user-cache\n"), 0600); err != nil {

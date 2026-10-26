@@ -15,6 +15,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -225,6 +226,19 @@ func (c Client) publish(ctx context.Context, snapshot Snapshot) error {
 }
 
 func (c Client) Load() (Snapshot, error) {
+	return c.load(nil, false)
+}
+
+// LoadForPlan reads named formulae and their current dependency closure. Callers
+// must include both request roots and every installed name so that the resolver
+// can consider newer recipes of reverse dependents. An alias or missing key
+// falls back to the full snapshot, preserving global alias/conflict semantics.
+// Both paths use one short read-only transaction and the same index checks.
+func (c Client) LoadForPlan(names []string) (Snapshot, error) {
+	return c.load(names, true)
+}
+
+func (c Client) load(names []string, selective bool) (Snapshot, error) {
 	current, err := os.ReadFile(filepath.Join(c.Dir, "CURRENT"))
 	if err != nil {
 		return Snapshot{}, fmt.Errorf("load catalog (run gobrew update): %w", err)
@@ -250,7 +264,7 @@ func (c Client) Load() (Snapshot, error) {
 		if string(meta.Get([]byte("generation"))) != generation || string(meta.Get([]byte("schema"))) != schemaVersion || string(meta.Get([]byte("platform"))) != string(platformJSON) {
 			return errors.New("catalog platform or schema changed; run gobrew update")
 		}
-		return formulas.ForEach(func(k, v []byte) error {
+		decode := func(k, v []byte) error {
 			var f model.Formula
 			if err := json.Unmarshal(v, &f); err != nil {
 				return err
@@ -260,7 +274,30 @@ func (c Client) Load() (Snapshot, error) {
 			}
 			snapshot.Formulae[f.Name] = f
 			return nil
-		})
+		}
+		if selective {
+			pending := slices.Clone(names)
+			for len(pending) > 0 {
+				name := strings.TrimPrefix(pending[len(pending)-1], "homebrew/core/")
+				pending = pending[:len(pending)-1]
+				if _, loaded := snapshot.Formulae[name]; loaded {
+					continue
+				}
+				value := formulas.Get([]byte(name))
+				if value == nil {
+					// Alias ambiguity and genuinely absent names remain the
+					// resolver's responsibility, with the complete catalog.
+					snapshot.Formulae = map[string]model.Formula{}
+					return formulas.ForEach(decode)
+				}
+				if err := decode([]byte(name), value); err != nil {
+					return err
+				}
+				pending = append(pending, snapshot.Formulae[name].Dependencies...)
+			}
+			return nil
+		}
+		return formulas.ForEach(decode)
 	})
 	return snapshot, err
 }

@@ -226,7 +226,21 @@ func (e *Engine) Plan(ctx context.Context, req model.Request) (model.Plan, error
 	if err != nil {
 		return model.Plan{}, err
 	}
-	cat, err := e.Catalog(ctx)
+	client, err := e.client()
+	if err != nil {
+		return model.Plan{}, err
+	}
+	// Include every installed recipe: a changed dependency can require an
+	// installed reverse dependent and that recipe's new forward dependencies.
+	names := make([]string, 0, len(req.Names)+len(snap.Records))
+	names = append(names, req.Names...)
+	for name := range snap.Records {
+		names = append(names, name)
+	}
+	cat, err := client.LoadForPlan(names)
+	if errors.Is(err, os.ErrNotExist) || errors.Is(err, model.ErrNotFound) {
+		cat, err = client.Update(ctx)
+	}
 	if err != nil {
 		return model.Plan{}, err
 	}

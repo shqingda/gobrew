@@ -362,6 +362,11 @@ func openBaseline(ctx context.Context, binary, expected, backup string) (*brewBa
 	if err := rejectBaselineConfig("/etc/homebrew/brew.env"); err != nil {
 		return nil, err
 	}
+	// A disposable prefix may live under /tmp. Homebrew forbids putting its
+	// prefix inside HOMEBREW_TEMP, so give it a separate owned work directory.
+	if err := os.MkdirAll(filepath.Join(filepath.Dir(backup), "brew-temp"), 0700); err != nil {
+		return nil, err
+	}
 	b := &brewBaseline{runner: runner{context: ctx, binary: binary, env: brewEnvironment(backup + "-cache")}, backup: backup}
 	_, reported, err := b.runner.run("--prefix")
 	if err != nil {
@@ -559,7 +564,7 @@ func brewEnvironment(cache string) []string {
 			env = append(env, entry)
 		}
 	}
-	return append(env, "PATH=/usr/bin:/bin:/usr/sbin:/sbin", "XDG_CONFIG_HOME="+filepath.Join(filepath.Dir(cache), "brew-config"), "HOMEBREW_CACHE="+cache, "HOMEBREW_LOGS="+filepath.Join(filepath.Dir(cache), "brew-logs"), "HOMEBREW_NO_AUTO_UPDATE=1", "HOMEBREW_NO_ANALYTICS=1", "HOMEBREW_NO_INSTALL_CLEANUP=1")
+	return append(env, "PATH=/usr/bin:/bin:/usr/sbin:/sbin", "XDG_CONFIG_HOME="+filepath.Join(filepath.Dir(cache), "brew-config"), "HOMEBREW_TEMP="+filepath.Join(filepath.Dir(cache), "brew-temp"), "HOMEBREW_CACHE="+cache, "HOMEBREW_LOGS="+filepath.Join(filepath.Dir(cache), "brew-logs"), "HOMEBREW_NO_AUTO_UPDATE=1", "HOMEBREW_NO_ANALYTICS=1", "HOMEBREW_NO_INSTALL_CLEANUP=1")
 }
 
 // Snapshot only the original mutable directories, outside measured intervals.

@@ -128,6 +128,11 @@ An already-installed install is a local no-op; upgrade is explicit. Help, versio
 and installed queries do not load the catalog or network. Catalog refresh builds
 an immutable indexed generation and atomically publishes it.
 
+Planning reads only requested roots, every installed recipe, and their current
+dependency closures in one short index transaction. Including installed recipes
+preserves reverse-dependent upgrades. Unknown keys and aliases fall back to the
+complete snapshot in that same transaction; search still reads the full catalog.
+
 Downloads share a Transport and have a separate concurrency limit from CPU/disk
 preparation. Blob keys are SHA-256. Prepared tree keys include the blob digest,
 prefix, Cellar, platform, path mappings and relocation implementation version.
