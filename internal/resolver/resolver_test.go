@@ -1,0 +1,130 @@
+package resolver
+
+import (
+	"errors"
+	"strings"
+	"testing"
+
+	"github.com/shqingda/gobrew/internal/model"
+)
+
+var host = model.Platform{OS: "darwin", Arch: "arm64", Major: 15}
+
+func formula(name, version string, deps ...string) model.Formula {
+	return model.Formula{Name: name, Version: version, Dependencies: deps, Bottles: map[string]model.Bottle{"arm64_sequoia": {Tag: "arm64_sequoia", Cellar: ":any", URL: "https://ghcr.io/v2/homebrew/core/" + name + "/blobs/sha256:" + strings.Repeat("a", 64), SHA256: strings.Repeat("a", 64)}}}
+}
+
+func TestPlanDependencyOrderAliasAndCycle(t *testing.T) {
+	a, b := formula("a", "1", "b"), formula("b", "1")
+	a.Aliases = []string{"alias"}
+	plan, err := Build(model.Request{Action: "install", Names: []string{"alias"}}, "snapshot", map[string]model.Formula{"a": a, "b": b}, model.Snapshot{}, host, "/opt/gobrew")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(plan.Packages) != 2 || plan.Packages[0].Formula.Name != "b" || plan.Packages[1].Formula.Name != "a" {
+		t.Fatalf("wrong order: %+v", plan.Packages)
+	}
+	b.Dependencies = []string{"a"}
+	if _, err = Build(model.Request{Action: "install", Names: []string{"a"}}, "snapshot", map[string]model.Formula{"a": a, "b": b}, model.Snapshot{}, host, "/opt/gobrew"); err == nil {
+		t.Fatal("cycle accepted")
+	}
+}
+
+func TestUpgradePinnedReverseDependencyBlocksBeforeChanges(t *testing.T) {
+	lib, app := formula("lib", "2"), formula("app", "2", "lib")
+	state := model.Snapshot{Records: map[string]model.Record{"lib": {Formula: formula("lib", "1"), Status: model.Ready}, "app": {Formula: formula("app", "1", "lib"), Pinned: true, Status: model.Ready, Dependencies: []model.RuntimeDependency{{Name: "lib", Version: "1"}}}}}
+	_, err := Build(model.Request{Action: "upgrade", Names: []string{"lib"}}, "snapshot", map[string]model.Formula{"lib": lib, "app": app}, state, host, "/opt/gobrew")
+	if !errors.Is(err, model.ErrConflict) {
+		t.Fatalf("expected pinned conflict, got %v", err)
+	}
+	appRecord := state.Records["app"]
+	appRecord.Pinned = false
+	state.Records["app"] = appRecord
+	plan, err := Build(model.Request{Action: "upgrade", Names: []string{"lib"}}, "snapshot", map[string]model.Formula{"lib": lib, "app": app}, state, host, "/opt/gobrew")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(plan.Packages) != 2 {
+		t.Fatalf("missing reverse dependency: %+v", plan)
+	}
+}
+
+func TestVersionOrdering(t *testing.T) {
+	for _, pair := range [][2]string{{"1.9", "1.10"}, {"1.0rc1", "1.0"}, {"1.0", "1.0p1"}, {"2025.1", "2026.1"}, {"1.0alpha1", "1.0beta1"}} {
+		if Compare(formula("a", pair[0]), formula("a", pair[1])) >= 0 {
+			t.Errorf("%s must be older than %s", pair[0], pair[1])
+		}
+	}
+	a, b := formula("a", "13"), formula("a", "1.0")
+	b.VersionScheme = 1
+	if Compare(a, b) >= 0 {
+		t.Fatal("version_scheme not respected")
+	}
+}
+
+func TestBottleNeverFallsForwardOrAcrossArchitecture(t *testing.T) {
+	f := formula("a", "1")
+	f.Bottles = map[string]model.Bottle{"arm64_tahoe": {Tag: "arm64_tahoe"}, "sequoia": {Tag: "sequoia"}}
+	if _, err := SelectBottle(f, host, "/opt/gobrew"); !errors.Is(err, model.ErrUnsupported) {
+		t.Fatalf("unexpected bottle selection: %v", err)
+	}
+}
+
+func TestRuntimeMinimumIsNotBypassedByCompatibilityVersion(t *testing.T) {
+	compat := 1
+	lib := formula("lib", "1")
+	lib.CompatibilityVersion = &compat
+	state := model.Snapshot{Records: map[string]model.Record{"lib": {Formula: lib, Status: model.Ready}}}
+	prepared := []model.PreparedPackage{{Package: model.Package{Formula: formula("app", "1")}, RuntimeDependencies: []model.RuntimeDependency{{Name: "lib", Version: "2", CompatibilityVersion: &compat}}}}
+	if err := ValidateRuntime(model.Plan{}, prepared, state); !errors.Is(err, model.ErrConflict) {
+		t.Fatalf("runtime lower bound ignored: %v", err)
+	}
+}
+
+func TestInstallExistingPackageIsNoOp(t *testing.T) {
+	old, current := formula("demo", "1"), formula("demo", "2")
+	state := model.Snapshot{Records: map[string]model.Record{"demo": {Formula: old, Status: model.Ready}}}
+	plan, err := Build(model.Request{Action: "install", Names: []string{"demo"}}, "snapshot", map[string]model.Formula{"demo": current}, state, host, "/opt/gobrew")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(plan.Packages) != 0 || len(plan.Unchanged) != 1 {
+		t.Fatalf("existing install changed: %+v", plan)
+	}
+}
+
+func TestExistingPackageActionsRejectMissingRoot(t *testing.T) {
+	for _, action := range []string{"upgrade", "reinstall"} {
+		t.Run(action, func(t *testing.T) {
+			f := formula("demo", "1")
+			f.Aliases = []string{"alias"}
+			_, err := Build(model.Request{Action: action, Names: []string{"alias"}}, "snapshot", map[string]model.Formula{"demo": f}, model.Snapshot{}, host, "/opt/gobrew")
+			if !errors.Is(err, model.ErrNotFound) {
+				t.Fatalf("%s installed missing package: %v", action, err)
+			}
+		})
+	}
+}
+
+func TestConflictDeclaredByInstalledFormulaIsHonored(t *testing.T) {
+	installed := formula("old", "1")
+	installed.Conflicts = []string{"new"}
+	_, err := Build(model.Request{Action: "install", Names: []string{"new"}}, "snapshot", map[string]model.Formula{"new": formula("new", "1")}, model.Snapshot{Records: map[string]model.Record{"old": {Formula: installed, Status: model.Ready}}}, host, "/opt/gobrew")
+	if !errors.Is(err, model.ErrConflict) {
+		t.Fatalf("existing conflict ignored: %v", err)
+	}
+}
+
+func TestNoLinkageDependencyDoesNotForceReverseUpgrade(t *testing.T) {
+	old, new := formula("certs", "1"), formula("certs", "2")
+	app := formula("app", "1", "certs")
+	app.NoLinkageDependencies = []string{"certs"}
+	state := model.Snapshot{Records: map[string]model.Record{"certs": {Formula: old, Status: model.Ready}, "app": {Formula: app, Status: model.Ready, Pinned: true}}}
+	plan, err := Build(model.Request{Action: "upgrade", Names: []string{"certs"}}, "snapshot", map[string]model.Formula{"certs": new, "app": app}, state, host, "/opt/gobrew")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(plan.Packages) != 1 || plan.Packages[0].Formula.Name != "certs" {
+		t.Fatalf("unexpected reverse upgrade: %+v", plan)
+	}
+}
