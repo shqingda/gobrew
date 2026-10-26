@@ -1,0 +1,41 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  checks:
+    runs-on: macos-15
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
+      - name: Formatting
+        run: |
+          unformatted=$(gofmt -l .)
+          if [[ -n "$unformatted" ]]; then
+            echo "$unformatted"
+            exit 1
+          fi
+      - run: go mod verify
+      - run: go vet ./...
+      - run: go test -race ./...
+      - name: Verify complete tutorial examples
+        run: go run ./scripts/check-tutorial.go
+      - name: Build without CGO
+        run: go build -trimpath -o bin/gobrew ./cmd/gobrew
+        env:
+          CGO_ENABLED: '0'
+      - name: Vulnerability analysis
+        run: go run golang.org/x/vuln/cmd/govulncheck@v1.9.0 ./...

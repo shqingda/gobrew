@@ -1,0 +1,59 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    uses: ./.github/workflows/ci.yml
+  bottles:
+    uses: ./.github/workflows/smoke.yml
+  performance:
+    uses: ./.github/workflows/benchmark.yml
+    with:
+      compare_brew: true
+  publish:
+    needs: [verify, bottles, performance]
+    runs-on: macos-15
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: benchmark-darwin-arm64
+          path: performance
+      - name: Package the measured release binary
+        run: |
+          if [[ ! "$GITHUB_REF_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[A-Za-z0-9.-]+)?$ ]]; then
+            echo 'Release tags must be semantic versions beginning with v.' >&2
+            exit 1
+          fi
+          release_dir="gobrew_${GITHUB_REF_NAME#v}_darwin_arm64"
+          mkdir -p "dist/$release_dir"
+          cp performance/bin/gobrew "dist/$release_dir/gobrew"
+          chmod 0755 "dist/$release_dir/gobrew"
+          cp README.md LICENSE THIRD_PARTY_NOTICES.md "dist/$release_dir/"
+          cp internal/catalog/HOMEBREW-LICENSE.txt "dist/$release_dir/"
+          cp performance/benchmark.json dist/benchmark.json
+          tar -czf "dist/$release_dir.tar.gz" -C dist "$release_dir"
+          cd dist
+          shasum -a 256 "$release_dir.tar.gz" benchmark.json > checksums.txt
+          shasum -a 256 -c checksums.txt
+      - name: Publish tagged release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          flags=()
+          if [[ "$GITHUB_REF_NAME" == *-* ]]; then
+            flags+=(--prerelease)
+          fi
+          gh release create "$GITHUB_REF_NAME" dist/*.tar.gz dist/checksums.txt dist/benchmark.json \
+            --repo "$GITHUB_REPOSITORY" --verify-tag --generate-notes "${flags[@]}"

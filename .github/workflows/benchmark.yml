@@ -1,0 +1,65 @@
+name: Benchmarks
+
+on:
+  workflow_dispatch:
+    inputs:
+      compare_brew:
+        description: Compare an isolated Homebrew and enforce the release performance gate
+        type: boolean
+        default: false
+  workflow_call:
+    inputs:
+      compare_brew:
+        description: Compare an isolated Homebrew and enforce the release performance gate
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+jobs:
+  benchmark:
+    runs-on: macos-15
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
+      - name: Build the release binary for measurement
+        env:
+          CGO_ENABLED: '0'
+        run: |
+          build_date=$(git show -s --format=%cI HEAD)
+          go build -trimpath -ldflags "-s -w -X main.version=$GITHUB_REF_NAME -X main.commit=$GITHUB_SHA -X main.date=$build_date" -o bin/gobrew ./cmd/gobrew
+      - name: Measure cold, warm and already-installed runs
+        env:
+          COMPARE_BREW: ${{ inputs.compare_brew }}
+          # Reviewed official Homebrew/brew HEAD on 2026-10-27; update explicitly.
+          # https://github.com/Homebrew/brew/commit/c6069d2a943b71b0a90d91fc1ac93cb9c1634dcc
+          HOMEBREW_BENCHMARK_COMMIT: c6069d2a943b71b0a90d91fc1ac93cb9c1634dcc
+        run: |
+          args=(--gobrew "$PWD/bin/gobrew" --rounds 5 --packages hello,jq,ca-certificates)
+          if [[ "$COMPARE_BREW" == true ]]; then
+            baseline_dir=$(mktemp -d /tmp/gbperf.XXXXXX)
+            trap 'rm -rf "$baseline_dir"' EXIT
+            git clone --filter=blob:none --no-checkout --depth 1 --branch main \
+              https://github.com/Homebrew/brew.git "$baseline_dir/Homebrew"
+            git -C "$baseline_dir/Homebrew" fetch --depth 1 origin "$HOMEBREW_BENCHMARK_COMMIT"
+            git -C "$baseline_dir/Homebrew" checkout --detach "$HOMEBREW_BENCHMARK_COMMIT"
+            test "$(git -C "$baseline_dir/Homebrew" rev-parse HEAD)" = "$HOMEBREW_BENCHMARK_COMMIT"
+            args+=(--brew "$baseline_dir/Homebrew/bin/brew" --brew-prefix "$baseline_dir/Homebrew" --require-faster)
+          fi
+          scripts/benchmark.sh "${args[@]}" > benchmark.json 2> >(tee benchmark.log >&2)
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: benchmark-darwin-arm64
+          path: |
+            benchmark.json
+            benchmark.log
+            bin/gobrew
+          if-no-files-found: error
