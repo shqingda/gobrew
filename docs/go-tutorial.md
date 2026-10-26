@@ -113,6 +113,7 @@ import (
 func parseLimit(s string) (int, error) {
 	n, err := strconv.Atoi(s)
 	if err != nil {
+		// 保留底层错误，调用方仍可识别转换失败的原因。
 		return 0, fmt.Errorf("parse limit %q: %w", s, err)
 	}
 	if n < 1 {
@@ -178,11 +179,13 @@ type Profile struct {
 }
 
 func rename(p *Profile, name string) {
+	// 参数复制了地址；字段赋值通过这个地址修改调用方的数据。
 	p.Name = name
 }
 
 func main() {
 	a := Profile{Name: "Ada", Tags: []string{"reader"}}
+	// 复制整个结构体，但其中的 slice 仍指向同一个底层数组。
 	b := a
 	b.Name = "Grace"
 	b.Tags[0] = "writer"
@@ -250,18 +253,22 @@ func main() {
 	fmt.Println()
 
 	items := []int{10, 20, 30}
+	// view 是视图；修改元素会反映到 items 中。
 	view := items[:2]
 	view[0] = 99
+	// int 元素没有更深层的引用，因此此处 Clone 足以隔离修改。
 	independent := slices.Clone(view)
 	independent[0] = 7
 	fmt.Println(items, independent)
 
 	var names []string
+	// append 可能分配新数组，要接收它返回的 slice。
 	names = append(names, "Ada")
 	fmt.Println(names, len(names))
 
 	counts := make(map[string]int)
 	counts["go"]++
+	// exists 区分“键不存在”和“键存在但值恰好为零”。
 	count, exists := counts["rust"]
 	fmt.Println(count, exists)
 	delete(counts, "go")
@@ -311,14 +318,17 @@ func filter(values []string, keep func(string) bool) []string {
 
 func main() {
 	prefix := "go"
+	// 闭包捕获 prefix 变量；若之后修改它，后续调用会读到新值。
 	keep := func(s string) bool {
 		return strings.HasPrefix(s, prefix)
 	}
 	fmt.Println(filter([]string{"go", "rust", "gopher"}, keep))
 
 	n := 1
+	// 参数现在求值，调用要等到 main 返回前才发生。
 	defer fmt.Println("argument:", n)
 	defer func() {
+		// 函数体届时才读取 n；后注册的 defer 先执行。
 		fmt.Println("closure:", n)
 	}()
 	n = 2
@@ -390,6 +400,7 @@ func NewLabel(text string) Label {
 }
 
 func (l Label) Upper() Label {
+	// 值接收者得到副本；调用方只有接收返回值才会得到修改结果。
 	l.text = strings.ToUpper(l.text)
 	return l
 }
@@ -453,6 +464,7 @@ type User struct {
 }
 
 func (u *User) Name() string {
+	// nil 指针可以进入方法；能否安全调用取决于方法是否处理它。
 	if u == nil {
 		return "anonymous"
 	}
@@ -461,10 +473,12 @@ func (u *User) Name() string {
 
 func main() {
 	var pointer *User
+	// 接口已有动态类型 *User，即使内部指针为 nil，接口也不等于 nil。
 	var named Namer = pointer
 	fmt.Println(pointer == nil, named == nil, named.Name())
 
 	if user, ok := named.(*User); ok {
+		// 断言成功只说明类型匹配，并不保证取出的指针非 nil。
 		fmt.Println(user == nil)
 	}
 
@@ -512,6 +526,7 @@ func (e *InputError) Error() string {
 }
 
 func (e *InputError) Unwrap() error {
+	// 让 errors.Is/As 能继续检查被包装的原因。
 	return e.Err
 }
 
@@ -535,6 +550,7 @@ func main() {
 	fmt.Println(errors.Is(err, ErrInvalidPort))
 
 	var input *InputError
+	// As 要更新 input 本身，所以传入指针变量的地址。
 	if errors.As(err, &input) {
 		fmt.Println(input.Value)
 	}
@@ -583,12 +599,14 @@ func (s *Stack[T]) Pop() (T, bool) {
 	i := len(s.items) - 1
 	value := s.items[i]
 	var zero T
+	// 缩短 slice 不会清除底层数组；先释放这个位置保留的引用。
 	s.items[i] = zero
 	s.items = s.items[:i]
 	return value, true
 }
 
 func ascending[T cmp.Ordered](values []T) []T {
+	// Sort 会原地修改，因此先复制，保持调用方的数据不变。
 	result := slices.Clone(values)
 	slices.Sort(result)
 	return result
@@ -597,6 +615,7 @@ func ascending[T cmp.Ordered](values []T) []T {
 func countdown(n int) iter.Seq[int] {
 	return func(yield func(int) bool) {
 		for ; n > 0; n-- {
+			// 消费者 break 后 yield 返回 false，生产者必须立即停止。
 			if !yield(n) {
 				return
 			}
@@ -672,6 +691,7 @@ func decodeSettings(r io.Reader) (Settings, error) {
 	}
 
 	var extra any
+	// 第一次 Decode 成功并不意味着输入已结束；拒绝尾部额外值。
 	if err := decoder.Decode(&extra); !errors.Is(err, io.EOF) {
 		if err == nil {
 			return Settings{}, errors.New("settings contain more than one JSON value")
@@ -729,12 +749,14 @@ func fetchText(ctx context.Context, client *http.Client, url string) (string, er
 	if err != nil {
 		return "", fmt.Errorf("fetch text: %w", err)
 	}
+	// 获取成功后立即安排关闭；所有返回路径都释放响应体。
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		return "", fmt.Errorf("unexpected HTTP status: %s", resp.Status)
 	}
 
 	const maxBytes = 4096
+	// 多读一个字节，才能区分“恰好达到上限”和“已超出上限”。
 	data, err := io.ReadAll(io.LimitReader(resp.Body, maxBytes+1))
 	if err != nil {
 		return "", fmt.Errorf("read response: %w", err)
@@ -752,6 +774,7 @@ func main() {
 	defer server.Close()
 
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	// 提前成功也要释放计时器等资源，不必等到 deadline。
 	defer cancel()
 	text, err := fetchText(ctx, server.Client(), server.URL)
 	if err != nil {
@@ -792,6 +815,7 @@ import (
 )
 
 func main() {
+	// 无缓冲 channel 的发送要等待接收方，天然限制在途数据。
 	jobs := make(chan int)
 	results := make(chan int)
 	var workers sync.WaitGroup
@@ -805,6 +829,7 @@ func main() {
 	}
 
 	go func() {
+		// 唯一的 jobs 发送方负责关闭；函数结束后 worker 的 range 才退出。
 		defer close(jobs)
 		for value := 1; value <= 4; value++ {
 			jobs <- value
@@ -812,11 +837,13 @@ func main() {
 	}()
 
 	go func() {
+		// 必须确认所有 worker 都已停止发送，才能关闭 results。
 		workers.Wait()
 		close(results)
 	}()
 
 	total := 0
+	// 接收与 worker 发送并行进行；先阻塞等待 worker 会造成死锁。
 	for result := range results {
 		total += result
 	}
@@ -860,11 +887,13 @@ type Counter struct {
 
 func (c *Counter) Add() {
 	c.mu.Lock()
+	// 锁在本次方法返回时释放；不会一直持有到调用方的循环结束。
 	defer c.mu.Unlock()
 	c.n++
 }
 
 func (c *Counter) Value() int {
+	// 读取也使用同一把锁；指针接收者避免复制已使用的 Mutex。
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	return c.n
@@ -934,11 +963,13 @@ type Result struct {
 func Process(ctx context.Context, values []string, report func(Progress)) (Result, error) {
 	result := Result{Values: make([]string, 0, len(values))}
 	for i, value := range values {
+		// 在处理下一项前协作检查取消，返回已完成部分和取消原因。
 		if err := ctx.Err(); err != nil {
 			return result, err
 		}
 		result.Values = append(result.Values, strings.TrimSpace(value))
 		if report != nil {
+			// 这是同步回调；它的阻塞会传递给当前任务。
 			report(Progress{Done: i + 1, Total: len(values)})
 		}
 	}
@@ -953,17 +984,20 @@ func main() {
 		result Result
 		err    error
 	}
+	// 只有一个最终结果；容量 1 允许后台先完成，不等接收方调度。
 	done := make(chan outcome, 1)
 	go func() {
 		result, err := Process(ctx, []string{" one ", " two ", " three "}, func(p Progress) {
 			fmt.Printf("%d/%d\n", p.Done, p.Total)
 			if p.Done == 2 {
+				// cancel 发出信号，不会在这里强制终止 Process。
 				cancel()
 			}
 		})
 		done <- outcome{result: result, err: err}
 	}()
 
+	// 接收最终结果，既等待任务退出，也取得不可丢失的错误信息。
 	finished := <-done
 	fmt.Println(finished.result.Values)
 	fmt.Println(errors.Is(finished.err, context.Canceled))
@@ -1055,6 +1089,7 @@ func main() {
 	}
 
 	record := Record{Name: "Ada", Age: 36}
+	// 从地址进入再解引用，才能获得可修改原变量的反射值。
 	value := reflect.ValueOf(&record).Elem()
 	age := value.FieldByName("Age")
 	if age.IsValid() && age.CanSet() && age.Kind() == reflect.Int {
@@ -1120,6 +1155,7 @@ func TestCount(t *testing.T) {
 }
 
 func TestCountFile(t *testing.T) {
+	// 每个测试拥有隔离目录，测试结束后由 testing 自动清理。
 	dir := t.TempDir()
 	path := filepath.Join(dir, "note.txt")
 	if err := os.WriteFile(path, []byte("one two"), 0o600); err != nil {
