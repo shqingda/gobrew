@@ -10,12 +10,13 @@ import (
 )
 
 var (
-	ErrUnsupported = errors.New("unsupported")
-	ErrNotFound    = errors.New("not found")
-	ErrConflict    = errors.New("conflict")
-	ErrBusy        = errors.New("another operation is in progress")
-	ErrStalePlan   = errors.New("installation state changed; create a new plan")
-	ErrNeedsRepair = errors.New("installation needs repair")
+	ErrUnsupported      = errors.New("unsupported")
+	ErrNotFound         = errors.New("not found")
+	ErrConflict         = errors.New("conflict")
+	ErrBusy             = errors.New("another operation is in progress")
+	ErrStalePlan        = errors.New("installation state changed; create a new plan")
+	ErrNeedsRepair      = errors.New("installation needs repair")
+	ErrRecoveryRequired = fmt.Errorf("%w: interrupted operation requires recovery", ErrNeedsRepair)
 )
 
 type Platform struct {
@@ -97,6 +98,9 @@ const (
 type Snapshot struct {
 	Generation uint64            `json:"generation"`
 	Records    map[string]Record `json:"records"`
+	// RecoveryRequired is derived from the journal in the same database read.
+	// It is never persisted as part of the installed snapshot.
+	RecoveryRequired bool `json:"-"`
 }
 
 type Request struct {
@@ -119,6 +123,7 @@ type Plan struct {
 	Prefix            string    `json:"prefix"`
 	Packages          []Package `json:"packages"`
 	Unchanged         []string  `json:"unchanged,omitempty"`
+	RuntimeChecks     []string  `json:"runtime_checks,omitempty"`
 	Promote           []string  `json:"promote,omitempty"`
 }
 
@@ -126,6 +131,8 @@ type PreparedPackage struct {
 	Package             Package             `json:"package"`
 	Tree                string              `json:"tree"`
 	RuntimeDependencies []RuntimeDependency `json:"runtime_dependencies,omitempty"`
+	LinkedDependencies  []string            `json:"linked_dependencies,omitempty"`
+	LinkageChecked      bool                `json:"linkage_checked"`
 	CacheHit            bool                `json:"cache_hit"`
 }
 
@@ -139,6 +146,15 @@ type Result struct {
 	Unchanged   []string `json:"unchanged,omitempty"`
 	NeedsRepair []string `json:"needs_repair,omitempty"`
 	NotExecuted []string `json:"not_executed,omitempty"`
+	Timings     *Timings `json:"timings_ms,omitempty"`
+}
+
+// Timings measures the application's three stages, excluding CLI rendering.
+// Wall-clock process timing remains the end-to-end performance measure.
+type Timings struct {
+	Plan    float64 `json:"plan"`
+	Prepare float64 `json:"prepare"`
+	Apply   float64 `json:"apply"`
 }
 
 type Event struct {
