@@ -8,6 +8,6 @@
 - [x] Formal independent Go tutorial and executable example checker.
 - [x] Complete independent boundary review and recovery regression fixes.
 - [x] Real software smoke tests including dynamic dependencies and initialization.
-- [ ] Five-round isolated Homebrew performance comparison and report.
+- [x] Five-round isolated Homebrew performance comparison and report.
 - [x] Final race/vet/vulnerability/build and workflow checks.
-- [ ] Record compatibility evidence, release gates and remaining limitations.
+- [x] Record compatibility evidence, release gates and remaining limitations.

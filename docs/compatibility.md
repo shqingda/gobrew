@@ -25,6 +25,8 @@
 
 Python 实际加载 OpenSSL 4.1.0，默认 TLS 上下文读取到 189 个 CA 证书。Node 可执行文件通过系统 `codesign --verify`。`doctor` 对该安装集合未报告问题；对 `node python homebrew/core/go` 的重复安装返回三个已安装包，没有准备或提交阶段。
 
+验证结束后，已通过正常卸载、`autoremove` 和 `cleanup` 移除全部 38 个包，`list --json` 返回空数组；证书配置文件仍被保留。
+
 ## 3. 已处理的真实 bottle 差异
 
 - 现代 bottle 不一定包含 `INSTALL_RECEIPT.json`。缺失时从官方 OCI manifest 获取 runtime facts，并核对 manifest 摘要及其 layer 与签名目录中的 bottle SHA。
