@@ -149,6 +149,9 @@ are independently checked before accepting their runtime dependency annotations.
 Default budgets: 2 GiB compressed and 8 GiB prepared, measured as logical bytes.
 Eviction protects active operations and happens on cache insertion or cleanup,
 not no-op reads. Cache hits do not require a database write for exact LRU.
+Temporary artifact names contain their cache key. Cleanup may reclaim abandoned
+work only after acquiring its lease nonblockingly; active or unidentifiable
+temporary entries are retained.
 
 ## Trust boundary
 

@@ -110,7 +110,7 @@ scripts/smoke.sh "$PWD/bin/gobrew"
 
 `benchmark` 工作流分别记录冷安装、热重装和已安装 no-op；Homebrew 对照必须使用空的独立安装，禁止传入日常使用的 `/opt/homebrew` 或 `/usr/local`。环境、轮数、版本及逐轮数据随结果保留，不将 no-op 当作重装。
 
-M3 Pro 上的五轮实测中，`hello`、`jq`、证书集合的冷安装中位数为 10.17 秒，热缓存重新安装为 7.22 秒；对照 Homebrew 为 13.20 秒和 11.54 秒。具体方法、限制与原始数据见[性能验证记录](docs/performance.md)。
+M3 Pro 上的五轮实测中，`hello`、`jq`、证书集合的冷安装中位数为 9.58 秒，热缓存重新安装为 6.99 秒；对照 Homebrew 为 12.81 秒和 10.86 秒。具体方法、限制与原始数据见[性能验证记录](docs/performance.md)。
 
 GitHub Actions 在 PR 运行检查。版本 tag 必须通过检查、真实安装及五轮性能门禁，才发布已测量的 ARM64 二进制、校验文件和基准原始数据。不会自动创建版本 tag。
 
