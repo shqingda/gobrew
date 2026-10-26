@@ -128,3 +128,69 @@ func TestNoLinkageDependencyDoesNotForceReverseUpgrade(t *testing.T) {
 		t.Fatalf("unexpected reverse upgrade: %+v", plan)
 	}
 }
+
+func TestCompatibleOlderDependenciesNeedBottleMinimumProof(t *testing.T) {
+	for _, test := range []struct {
+		name    string
+		minimum string
+		want    error
+	}{
+		{"pinned dependency satisfies minimum", "1", nil},
+		{"pinned dependency below minimum", "2", model.ErrConflict},
+		{"missing minimum", "", model.ErrUnsupported},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			compat := 1
+			old, latest, app := formula("lib", "1"), formula("lib", "2"), formula("app", "1", "lib")
+			old.CompatibilityVersion, latest.CompatibilityVersion = &compat, &compat
+			state := model.Snapshot{Records: map[string]model.Record{"lib": {Formula: old, Status: model.Ready, Pinned: true}}}
+			plan, err := Build(model.Request{Action: "install", Names: []string{"app"}}, "snapshot", map[string]model.Formula{"lib": latest, "app": app}, state, host, "/opt/gobrew")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(plan.Packages) != 1 || plan.Packages[0].Formula.Name != "app" || len(plan.RuntimeChecks) != 1 || plan.RuntimeChecks[0] != "lib" {
+				t.Fatalf("wrong conditional reuse plan: %+v", plan)
+			}
+			prepared := []model.PreparedPackage{{Package: plan.Packages[0], LinkageChecked: true}}
+			if test.minimum != "" {
+				prepared[0].RuntimeDependencies = []model.RuntimeDependency{{Name: "lib", Version: test.minimum, DeclaredDirectly: true}}
+			}
+			normalized, err := NormalizeRuntime(plan, prepared, state)
+			if err == nil {
+				err = ValidateRuntime(plan, normalized, state)
+			}
+			if !errors.Is(err, test.want) {
+				t.Fatalf("minimum result = %v, want %v", err, test.want)
+			}
+		})
+	}
+}
+
+func TestCompatibleReuseNeverBypassesExplicitRootsOrVersionEpochs(t *testing.T) {
+	for _, test := range []struct {
+		name   string
+		action string
+		names  []string
+		epoch  int
+	}{
+		{"explicit upgrade", "upgrade", []string{"lib"}, 0},
+		{"upgrade all", "upgrade", nil, 0},
+		{"explicit reinstall", "reinstall", []string{"lib"}, 0},
+		{"different epoch", "install", []string{"app"}, 1},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			compat := 1
+			old, latest, app := formula("lib", "1"), formula("lib", "2"), formula("app", "1", "lib")
+			old.CompatibilityVersion, latest.CompatibilityVersion = &compat, &compat
+			latest.VersionScheme = test.epoch
+			state := model.Snapshot{Records: map[string]model.Record{"lib": {Formula: old, Status: model.Ready}}}
+			plan, err := Build(model.Request{Action: test.action, Names: test.names}, "snapshot", map[string]model.Formula{"lib": latest, "app": app}, state, host, "/opt/gobrew")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(plan.RuntimeChecks) != 0 || len(plan.Packages) == 0 || plan.Packages[0].Formula.Name != "lib" {
+				t.Fatalf("explicit root or epoch change reused the old dependency: %+v", plan)
+			}
+		})
+	}
+}

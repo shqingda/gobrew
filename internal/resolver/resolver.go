@@ -78,6 +78,11 @@ func Build(req model.Request, generation string, formulae map[string]model.Formu
 	}
 	selected := map[string]model.Package{}
 	unchanged := map[string]bool{}
+	runtimeChecks := map[string]bool{}
+	rootNames := make(map[string]bool, len(roots))
+	for _, name := range roots {
+		rootNames[name] = true
+	}
 	visiting := map[string]bool{}
 	var visit func(string, bool) error
 	visit = func(name string, force bool) error {
@@ -98,6 +103,14 @@ func Build(req model.Request, generation string, formulae map[string]model.Formu
 		if installed && !force {
 			if (req.Action == "install" && requested[name]) || Compare(record.Formula, f) >= 0 {
 				unchanged[name] = true
+				return nil
+			}
+			oldABI, newABI := record.Formula.CompatibilityVersion, f.CompatibilityVersion
+			if !rootNames[name] && oldABI != nil && newABI != nil && *oldABI == *newABI && record.Formula.VersionScheme == f.VersionScheme {
+				// An ABI hint permits provisional reuse, including a pinned keg.
+				// The plan explicitly requires a bottle minimum before activation.
+				unchanged[name] = true
+				runtimeChecks[name] = true
 				return nil
 			}
 		}
@@ -123,6 +136,7 @@ func Build(req model.Request, generation string, formulae map[string]model.Formu
 		}
 		delete(visiting, name)
 		delete(unchanged, name)
+		delete(runtimeChecks, name)
 		selected[name] = model.Package{Formula: f, Bottle: bottle, Requested: requested[name] || record.Requested}
 		return nil
 	}
@@ -253,6 +267,11 @@ func Build(req model.Request, generation string, formulae map[string]model.Formu
 			plan.Unchanged = append(plan.Unchanged, name)
 		}
 	}
+	for name := range runtimeChecks {
+		if _, changed := selected[name]; !changed {
+			plan.RuntimeChecks = append(plan.RuntimeChecks, name)
+		}
+	}
 	for name := range requested {
 		if rec, ok := state.Records[name]; ok && !rec.Requested {
 			if _, changed := selected[name]; !changed {
@@ -262,6 +281,7 @@ func Build(req model.Request, generation string, formulae map[string]model.Formu
 	}
 	sort.Strings(plan.Promote)
 	sort.Strings(plan.Unchanged)
+	sort.Strings(plan.RuntimeChecks)
 	encoded, err := json.Marshal(plan)
 	if err != nil {
 		return plan, err
@@ -276,15 +296,10 @@ func Build(req model.Request, generation string, formulae map[string]model.Formu
 // The caller must re-plan, not mutate this plan, if additional upgrades are
 // needed. Linkage inspection is performed by the artifact/activation layer.
 func ValidateRuntime(plan model.Plan, prepared []model.PreparedPackage, state model.Snapshot) error {
-	available := map[string]model.Formula{}
-	for name, record := range state.Records {
-		if record.Status == model.Ready {
-			available[name] = record.Formula
-		}
+	if err := validateRuntimeChecks(plan, prepared); err != nil {
+		return err
 	}
-	for _, pkg := range plan.Packages {
-		available[pkg.Formula.Name] = pkg.Formula
-	}
+	available := runtimeFormulae(plan, state)
 	for _, pkg := range prepared {
 		for _, dep := range pkg.RuntimeDependencies {
 			name := strings.TrimPrefix(dep.Name, "homebrew/core/")
@@ -297,7 +312,11 @@ func ValidateRuntime(plan model.Plan, prepared []model.PreparedPackage, state mo
 			}
 			comparison := CompareVersions(installed.Version, dep.Version)
 			if comparison < 0 || (comparison == 0 && installed.Revision < dep.Revision) {
-				return fmt.Errorf("%w: %s bottle requires %s >= %s_%d; plan provides %s", model.ErrConflict, pkg.Package.Formula.Name, name, dep.Version, dep.Revision, installed.PkgVersion())
+				remedy := "upgrade " + name + " and create a new plan"
+				if record, ok := state.Records[name]; ok && record.Pinned {
+					remedy = "unpin and " + remedy
+				}
+				return fmt.Errorf("%w: %s bottle requires %s >= %s_%d; plan provides %s; %s", model.ErrConflict, pkg.Package.Formula.Name, name, dep.Version, dep.Revision, installed.PkgVersion(), remedy)
 			}
 		}
 	}
