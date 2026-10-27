@@ -317,6 +317,7 @@ func (a *application) root() *cobra.Command {
 	for _, action := range []string{"install", "reinstall", "upgrade"} {
 		root.AddCommand(a.installCommand(action))
 	}
+	root.AddCommand(a.versionInstallCommand())
 	root.AddCommand(a.commandFor("uninstall <formula>...", "Remove packages while retaining configuration and data", cobra.MinimumNArgs(1), a.uninstall))
 	root.AddCommand(a.commandFor("outdated", "List installed formulae with available updates", cobra.NoArgs, a.outdated))
 	for _, pin := range []bool{true, false} {
@@ -689,36 +690,58 @@ func (a *application) installCommand(action string) *cobra.Command {
 		args, use = cobra.ArbitraryArgs, "upgrade [formula...]"
 	}
 	cmd := a.commandFor(use, strings.ToUpper(action[:1])+action[1:]+" official core bottles and their dependencies", args, func(ctx context.Context, names []string) error {
-		e, err := a.getEngine()
-		if err != nil {
-			return err
-		}
-		request := model.Request{Action: action, Names: names}
-		if dryRun {
-			plan, err := e.Plan(ctx, request)
-			if err != nil {
-				return err
-			}
-			a.setResult(plan, func(w io.Writer) error { return renderPlan(w, plan) })
-			return nil
-		}
-		if action == "install" {
-			if err = a.ensureInitialized(ctx, e); err != nil {
-				return err
-			}
-		}
-		var result model.Result
-		err = a.withEvents(func(events chan<- model.Event) error {
-			var err error
-			result, err = e.Execute(ctx, request, events)
-			return err
-		})
-		notes := a.afterInstall(e, result, err)
-		a.setResult(result, func(w io.Writer) error { return a.renderInstall(w, e, result, notes) })
-		return err
+		return a.install(ctx, action, names, dryRun)
 	})
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Resolve and show the exact plan without installing")
 	return cmd
+}
+
+// versionInstallCommand mirrors brew version-install. Homebrew extracts the
+// version into a personal tap; gobrew takes the same route as install
+// formula@version, which verifies the bottle against GHCR and homebrew-core.
+func (a *application) versionInstallCommand() *cobra.Command {
+	var dryRun bool
+	cmd := a.commandFor("version-install <formula[@version]> [version]", "Install a specific version of a formula and pin it", cobra.RangeArgs(1, 2), func(ctx context.Context, args []string) error {
+		name := args[0]
+		if len(args) == 2 {
+			name += "@" + args[1]
+		} else if !strings.Contains(name, "@") {
+			return usageError{errors.New("specify a version: gobrew version-install " + name + " <version>")}
+		}
+		return a.install(ctx, "install", []string{name}, dryRun)
+	})
+	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Resolve and show the exact plan without installing")
+	return cmd
+}
+
+func (a *application) install(ctx context.Context, action string, names []string, dryRun bool) error {
+	e, err := a.getEngine()
+	if err != nil {
+		return err
+	}
+	request := model.Request{Action: action, Names: names}
+	if dryRun {
+		plan, err := e.Plan(ctx, request)
+		if err != nil {
+			return err
+		}
+		a.setResult(plan, func(w io.Writer) error { return renderPlan(w, plan) })
+		return nil
+	}
+	if action == "install" {
+		if err = a.ensureInitialized(ctx, e); err != nil {
+			return err
+		}
+	}
+	var result model.Result
+	err = a.withEvents(func(events chan<- model.Event) error {
+		var err error
+		result, err = e.Execute(ctx, request, events)
+		return err
+	})
+	notes := a.afterInstall(e, result, err)
+	a.setResult(result, func(w io.Writer) error { return a.renderInstall(w, e, result, notes) })
+	return err
 }
 
 func (a *application) uninstall(ctx context.Context, names []string) error {

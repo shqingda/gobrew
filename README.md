@@ -133,10 +133,14 @@ Formula 安装类命令支持 `--dry-run`。配置入口是全局参数；`gobre
 ### 安装指定版本
 
 ```sh
+gob version-install uv 0.13.5
+gob version-install uv@0.13.5
 gob install uv@0.13.5
 ```
 
-`python@3.13` 这类本身就是 Formula 名的写法按原 Formula 处理；其他 `名称@版本` 表示指定版本。当前目录中的版本直接使用签名元数据。较旧的版本不在 Homebrew 签名元数据范围内（Homebrew 自身也不提供任意版本的 bottle），gobrew 从 GHCR 取该版本的 bottle，并要求 homebrew-core 历史中“update bottle”提交记录的校验值与之完全一致；两者不一致、或该版本定义了 Ruby post-install 等未知安装步骤时拒绝安装。依赖使用当前目录版本并照常检查最低版本要求。
+`version-install` 与 Homebrew 的 `brew version-install formula[@version] [version]` 写法一致；`install 名称@版本` 是同一功能的简写，两者走相同的安装路径。Homebrew 会把该版本提取到个人 tap（默认 `user/versions`）再安装，gobrew 不使用 tap 或 Ruby，而是直接安装该版本的官方 bottle。
+
+`python@3.13` 这类本身就是 Formula 名的写法按原 Formula 处理；其他 `名称@版本` 表示指定版本。当前目录中的版本直接使用签名元数据。较旧的版本不在 Homebrew 签名元数据范围内，gobrew 从 GHCR 取该版本的 bottle，并要求 homebrew-core 历史中“update bottle”提交记录的校验值与之完全一致；两者不一致、或该版本定义了 Ruby post-install 等未知安装步骤时拒绝安装。依赖使用当前目录版本并照常检查最低版本要求。
 
 指定的旧版本安装后会被 pin，`upgrade` 保持该版本，输出中也会说明它不在签名元数据范围内；`gob unpin uv` 后即可正常升级。已 pin 在其他版本时需先 unpin。查询提交历史使用 GitHub API，匿名请求每小时有次数限制；可设置 `HOMEBREW_GITHUB_API_TOKEN` 或 `GITHUB_TOKEN`。
 
