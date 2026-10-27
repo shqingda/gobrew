@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -21,6 +22,8 @@ import (
 
 	"github.com/shqingda/gobrew/internal/engine"
 	"github.com/shqingda/gobrew/internal/model"
+	"github.com/shqingda/gobrew/internal/selfupdate"
+	"github.com/shqingda/gobrew/internal/shellconfig"
 	"github.com/spf13/cobra"
 )
 
@@ -165,6 +168,8 @@ func classify(err error) (int, string) {
 	}
 }
 
+var versionPattern = regexp.MustCompile(`^v[0-9]+\.[0-9]+\.[0-9]+$`)
+
 func requestedJSON(args []string) bool {
 	requested := false
 	for _, arg := range args {
@@ -305,7 +310,7 @@ func (a *application) root() *cobra.Command {
 	root.AddCommand(a.commandFor("init", "Initialize an empty, user-owned installation prefix", cobra.NoArgs, a.init))
 	root.AddCommand(a.commandFor("search <query>", "Search the cached official formula catalog", cobra.ExactArgs(1), a.search))
 	root.AddCommand(a.infoCommand(), a.listCommand())
-	root.AddCommand(a.commandFor("update", "Refresh and verify the official formula catalog", cobra.NoArgs, a.update))
+	root.AddCommand(a.commandFor("update", "Update gobrew itself and refresh the verified formula catalog", cobra.NoArgs, a.update))
 	for _, action := range []string{"install", "reinstall", "upgrade"} {
 		root.AddCommand(a.installCommand(action))
 	}
@@ -381,7 +386,11 @@ func (a *application) init(ctx context.Context, _ []string) error {
 	if err := a.initialize(ctx, e); err != nil {
 		return err
 	}
-	a.message(map[string]string{"prefix": e.Prefix()}, "Initialized "+e.Prefix()+". Print PATH setup with: gobrew --prefix "+shellQuote(e.Prefix())+" shellenv")
+	message := "Initialized " + e.Prefix() + "."
+	if e.Prefix() != a.systemPrefix {
+		message += " Custom prefixes are not added to PATH automatically; print the setup with: gobrew --prefix " + shellQuote(e.Prefix()) + " shellenv"
+	}
+	a.message(map[string]string{"prefix": e.Prefix()}, message)
 	return nil
 }
 
@@ -585,20 +594,89 @@ func (a *application) listCommand() *cobra.Command {
 	return cmd
 }
 
+// cliUpdate reports the self-update half of update.
+type cliUpdate struct {
+	selfupdate.Result
+	Skipped string `json:"skipped,omitempty"`
+	Error   string `json:"error,omitempty"`
+}
+
+// update follows brew update: update the CLI itself, then refresh the formula
+// catalog, then list what upgrade would change. A failed self update does not
+// stop the catalog refresh; the command still exits non-zero for it.
 func (a *application) update(ctx context.Context, _ []string) error {
 	e, err := a.getEngine()
 	if err != nil {
 		return err
 	}
+	cli, cliErr := a.updateCLI(ctx)
+	if cliErr != nil {
+		cli.Error = cliErr.Error()
+	}
 	catalog, err := e.Update(ctx)
 	if err != nil {
-		return err
+		return errors.Join(cliErr, err)
 	}
-	a.message(struct {
-		Generation string `json:"generation"`
-		Formulae   int    `json:"formulae"`
-	}{catalog.Generation, len(catalog.Formulae)}, fmt.Sprintf("Updated catalog: %d formulae.", len(catalog.Formulae)))
-	return nil
+	// The catalog is fresh, so this compares local records only.
+	outdated, err := e.Outdated(ctx)
+	if err != nil {
+		return errors.Join(cliErr, err)
+	}
+	a.setResult(struct {
+		Generation string            `json:"generation"`
+		Formulae   int               `json:"formulae"`
+		CLI        cliUpdate         `json:"cli"`
+		Outdated   []engine.Outdated `json:"outdated"`
+	}{catalog.Generation, len(catalog.Formulae), cli, outdated}, func(w io.Writer) error {
+		var lines []string
+		switch {
+		case cli.Skipped != "":
+			lines = append(lines, "Skipped updating gobrew: "+cli.Skipped)
+		case cli.Error != "":
+			lines = append(lines, "Could not update gobrew: "+cli.Error)
+		case cli.Changed:
+			lines = append(lines, "==> Updated gobrew to "+cli.Version+"; the new version runs from the next command.")
+		default:
+			lines = append(lines, "gobrew "+cli.Version+" is already up to date.")
+		}
+		lines = append(lines, fmt.Sprintf("Updated formula catalog: %d formulae.", len(catalog.Formulae)))
+		if len(outdated) > 0 {
+			lines = append(lines, "==> Outdated Formulae")
+			for _, item := range outdated {
+				line := item.Name + " (" + item.Installed + " -> " + item.Available + ")"
+				if item.Pinned {
+					line += " [pinned]"
+				}
+				lines = append(lines, line)
+			}
+			noun := "formulae"
+			if len(outdated) == 1 {
+				noun = "formula"
+			}
+			lines = append(lines, fmt.Sprintf("You have %d outdated %s installed. Upgrade with: gob upgrade", len(outdated), noun))
+		}
+		for _, line := range lines {
+			if _, err := fmt.Fprintln(w, cleanText(line)); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	return cliErr
+}
+
+// updateCLI skips builds that cannot be updated in place instead of failing:
+// source builds have no release version and unmanaged binaries no receipt.
+func (a *application) updateCLI(ctx context.Context) (cliUpdate, error) {
+	if !versionPattern.MatchString(a.build.Version) {
+		return cliUpdate{Skipped: "development build " + a.build.Version + " has no release version"}, nil
+	}
+	manager, err := selfupdate.Running()
+	if err != nil {
+		return cliUpdate{Skipped: "this executable is not a managed installation; run 'gobrew self install' first"}, nil
+	}
+	result, err := manager.Update(ctx)
+	return cliUpdate{Result: result}, err
 }
 
 func (a *application) installCommand(action string) *cobra.Command {
@@ -632,7 +710,8 @@ func (a *application) installCommand(action string) *cobra.Command {
 			result, err = e.Execute(ctx, request, events)
 			return err
 		})
-		a.setResult(result, func(w io.Writer) error { return renderResult(w, result) })
+		notes := a.afterInstall(e, result, err)
+		a.setResult(result, func(w io.Writer) error { return a.renderInstall(w, e, result, notes) })
 		return err
 	})
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Resolve and show the exact plan without installing")
@@ -727,6 +806,10 @@ func (a *application) doctorCommand() *cobra.Command {
 		if err != nil {
 			return err
 		}
+		unhealthy := len(findings) > 0
+		if snapshot, err := e.Installed(); err == nil {
+			findings = append(findings, a.pathFindings(e, snapshot.Records)...)
+		}
 		a.setResult(findings, func(w io.Writer) error {
 			if len(findings) == 0 {
 				_, err := fmt.Fprintln(w, "No installation problems found.")
@@ -734,11 +817,15 @@ func (a *application) doctorCommand() *cobra.Command {
 			}
 			rows := make([][]string, 0, len(findings))
 			for _, f := range findings {
-				rows = append(rows, []string{f.Package, f.Problem})
+				problem := f.Problem
+				if f.Severity != "" {
+					problem = f.Severity + ": " + problem
+				}
+				rows = append(rows, []string{f.Package, problem})
 			}
 			return table(w, []string{"FORMULA", "PROBLEM"}, rows)
 		})
-		if len(findings) > 0 {
+		if unhealthy {
 			return model.ErrNeedsRepair
 		}
 		return nil
@@ -849,11 +936,12 @@ func (a *application) migrateCommand() *cobra.Command {
 			result, err = e.Execute(ctx, request, events)
 			return err
 		})
+		notes := a.afterInstall(e, result, err)
 		a.setResult(struct {
 			Result  model.Result `json:"result"`
 			Skipped []string     `json:"skipped"`
 		}{result, migration.Skipped}, func(w io.Writer) error {
-			if err := renderResult(w, result); err != nil {
+			if err := a.renderInstall(w, e, result, notes); err != nil {
 				return err
 			}
 			return renderSkipped(w, migration.Skipped)
@@ -873,17 +961,10 @@ func (a *application) shellenvCommand() *cobra.Command {
 			return err
 		}
 		prefix := e.Prefix()
-		var script string
-		switch shell {
-		case "bash", "zsh", "sh":
-			script = "export GOBREW_PREFIX=" + shellQuote(prefix) + "\nexport PATH=" + shellQuote(filepath.Join(prefix, "bin")+":"+filepath.Join(prefix, "sbin")) + ":\"$PATH\"\nexport MANPATH=" + shellQuote(filepath.Join(prefix, "share/man")) + ":\"${MANPATH:-}\"\nexport INFOPATH=" + shellQuote(filepath.Join(prefix, "share/info")) + ":\"${INFOPATH:-}\"\n"
-		case "fish":
-			quote := func(s string) string {
-				return "'" + strings.ReplaceAll(strings.ReplaceAll(s, "\\", "\\\\"), "'", "\\'") + "'"
-			}
-			script = "set -gx GOBREW_PREFIX " + quote(prefix) + "\nfish_add_path --prepend --path " + quote(filepath.Join(prefix, "bin")) + " " + quote(filepath.Join(prefix, "sbin")) + "\nset -gx MANPATH " + quote(filepath.Join(prefix, "share/man")) + " $MANPATH\nset -gx INFOPATH " + quote(filepath.Join(prefix, "share/info")) + " $INFOPATH\n"
-		default:
-			return usageError{fmt.Errorf("unsupported shell %q; choose bash, zsh, sh, or fish", shell)}
+		env := shellconfig.Env{Paths: []string{filepath.Join(prefix, "bin"), filepath.Join(prefix, "sbin")}, Prefix: prefix}
+		script, err := env.Script(shell)
+		if err != nil {
+			return usageError{err}
 		}
 		a.setResult(map[string]string{"shell": shell, "script": script}, func(w io.Writer) error { _, err := io.WriteString(w, script); return err })
 		return nil
@@ -938,24 +1019,14 @@ func (a *application) withEvents(run func(chan<- model.Event) error) error {
 	events := make(chan model.Event, 64)
 	done := make(chan error, 1)
 	go func() {
+		p := newProgress(a.stderr)
 		var writeErr error
 		for event := range events {
-			if writeErr != nil {
-				continue
+			if writeErr == nil {
+				writeErr = p.event(event)
 			}
-			line := event.Phase
-			if event.Package != "" {
-				line += " " + event.Package
-			}
-			if event.Message != "" {
-				line += ": " + event.Message
-			}
-			if event.Total > 0 {
-				line += fmt.Sprintf(" (%d/%d bytes)", event.Completed, event.Total)
-			}
-			_, writeErr = fmt.Fprintln(a.stderr, cleanText(line))
 		}
-		done <- writeErr
+		done <- errors.Join(writeErr, p.clear())
 	}()
 	err := run(events)
 	close(events)
@@ -986,15 +1057,68 @@ func renderPlan(w io.Writer, plan model.Plan) error {
 	return nil
 }
 
-func renderResult(w io.Writer, result model.Result) error {
+// afterInstall gathers what to tell the user once packages are in place:
+// Homebrew duplicates and, for the default prefix, PATH setup for new shells.
+// It runs in JSON mode too, so a GUI caller gets the same PATH setup.
+func (a *application) afterInstall(e *engine.Engine, result model.Result, err error) []string {
+	if err != nil && len(result.Succeeded) == 0 {
+		return nil
+	}
+	var notes []string
+	if len(result.Succeeded) > 0 {
+		if snapshot, loadErr := e.Installed(); loadErr == nil {
+			notes = duplicateWarnings(e.Prefix(), homebrewDuplicates(snapshot.Records, result.Succeeded))
+		}
+	}
+	if e.Prefix() == a.systemPrefix {
+		if note := a.setupPath(a.pathEnv(managedBinDir(), e.Prefix())); note != "" {
+			notes = append(notes, note)
+		}
+	}
+	return notes
+}
+
+// renderInstall follows Homebrew: one "<keg>: N files, SIZE" line per poured
+// keg, caveats, and an up-to-date warning for unchanged requests.
+func (a *application) renderInstall(w io.Writer, e *engine.Engine, result model.Result, notes []string) error {
+	var lines []string
+	records := map[string]model.Record{}
+	if len(result.Succeeded)+len(result.Unchanged) > 0 {
+		if snapshot, err := e.Installed(); err == nil {
+			records = snapshot.Records
+		}
+	}
+	for _, name := range result.Succeeded {
+		if r, ok := records[name]; ok && r.Keg != "" {
+			lines = append(lines, kegSummary(r.Keg))
+		} else {
+			lines = append(lines, "Installed "+name)
+		}
+	}
+	for _, name := range result.Succeeded {
+		if r := records[name]; r.Requested && strings.TrimSpace(r.Formula.Caveats) != "" {
+			lines = append(lines, "==> Caveats", strings.TrimSpace(r.Formula.Caveats))
+		}
+	}
+	for _, name := range result.Unchanged {
+		version := ""
+		if r, ok := records[name]; ok {
+			version = " " + r.Formula.PkgVersion()
+		}
+		lines = append(lines, "Warning: "+name+version+" is already installed and up-to-date.")
+	}
 	for _, group := range []struct {
 		label string
 		names []string
-	}{{"Installed", result.Succeeded}, {"Unchanged", result.Unchanged}, {"Needs repair", result.NeedsRepair}, {"Not executed", result.NotExecuted}} {
+	}{{"Needs repair", result.NeedsRepair}, {"Not executed", result.NotExecuted}} {
 		if len(group.names) > 0 {
-			if _, err := fmt.Fprintf(w, "%s: %s\n", group.label, cleanText(strings.Join(group.names, ", "))); err != nil {
-				return err
-			}
+			lines = append(lines, group.label+": "+strings.Join(group.names, ", "))
+		}
+	}
+	lines = append(lines, notes...)
+	for _, line := range lines {
+		if _, err := fmt.Fprintln(w, cleanText(line)); err != nil {
+			return err
 		}
 	}
 	return nil

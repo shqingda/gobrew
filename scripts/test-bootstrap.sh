@@ -29,12 +29,17 @@ case "$url" in
 esac
 CURL
 chmod +x "$work/mock/curl"
+mkdir "$work/home"
+printf '%s\n' '# user settings' > "$work/home/.zshrc"
 export PATH="$work/mock:$PATH" BOOTSTRAP_FIXTURES="$work/assets" GOBREW_BIN_DIR="$work/bin" GOBREW_PREFIX="$work/prefix"
-unset GOBREW_VERSION
+export HOME="$work/home" SHELL=/bin/zsh
+unset GOBREW_VERSION ZDOTDIR GOBREW_NO_MODIFY_PATH
 sh "$repo/install.sh"
 test "$(readlink "$work/bin/gob")" = gobrew
 # The bootstrap also initializes Formula storage, so no separate init is needed.
 test -f "$work/prefix/.gobrew/state.db"
+# New shells find the commands without manual PATH edits.
+test "$(zsh -c 'source "$HOME/.zshrc"; whence -p gob')" = "$work/bin/gob"
 "$work/bin/gob" version
 "$work/bin/gobrew" version
 sh "$repo/install.sh"
@@ -52,7 +57,9 @@ if sh "$repo/install.sh"; then
     exit 1
 fi
 test "$before" = "$(shasum -a 256 "$work/bin/.gobrew/receipt.json")"
+test "$(grep -c '>>> gobrew >>>' "$work/home/.zshrc")" = 1
 "$work/bin/gob" self uninstall
+test "$(cat "$work/home/.zshrc")" = '# user settings'
 test ! -e "$work/bin/gobrew" && test ! -L "$work/bin/gobrew"
 test ! -e "$work/bin/gob" && test ! -L "$work/bin/gob"
 printf '%s\n' 'Bootstrap, storage setup, alias, repeat installation, integrity rejection and self-uninstall passed.'

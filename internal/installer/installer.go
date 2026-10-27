@@ -686,7 +686,9 @@ func (i Installer) finishPackage(ctx context.Context, tx *state.Session, snap *m
 		if err := tx.Save(*snap); err != nil {
 			return err
 		}
-		model.Emit(events, model.Event{Phase: "postinstall", Package: name})
+		if len(rec.Formula.Steps) > 0 {
+			model.Emit(events, model.Event{Phase: "postinstall", Package: name})
+		}
 		if err := ctx.Err(); err != nil {
 			return fail(err)
 		}

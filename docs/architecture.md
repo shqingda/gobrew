@@ -8,7 +8,8 @@ adapter around an in-process engine that can later be called by MyGo.
 `cli → engine → catalog / resolver / artifact / installer / state / platform`
 
 CLI distribution has a separate path: `cli → selfupdate → platform`. It does
-not enter the Formula engine or change its Plan/Prepare/Apply contract.
+not enter the Formula engine or change its Plan/Prepare/Apply contract. Shell
+PATH setup is likewise outside the engine: `cli → shellconfig → platform`.
 
 The `model` package contains shared values, errors and bounded progress events.
 The resolver is pure: no network, database, terminal or macOS calls. Interfaces
@@ -26,6 +27,7 @@ belong at real I/O boundaries, not around every concrete implementation.
 | `platform` | File cloning, process locks, durability primitives | Package policy |
 | `postinstall` | Validated declarative actions and explicit command boundary | Automatic retry of unknown command outcomes |
 | `selfupdate` | CLI release downloads, managed executable ownership and activation | Formula state, package upgrades, shell configuration |
+| `shellconfig` | PATH script rendering and gobrew's marked block in shell startup files | Text outside its markers, Formula state |
 
 `cmd/gobrew` contains only the process entry point. A future MyGo entry point in
 this module can call `internal/engine` directly. The UI owns its event consumer
@@ -191,8 +193,21 @@ independent signature scheme.
 The default command directory is `~/.local/bin`, independent of `/opt/gobrew`.
 Its `gobrew` link targets `.gobrew/current`; `gob` is a relative link to
 `gobrew`. Managed executables are stored under `.gobrew/versions` by digest.
-No shell profile is modified. Existing foreign commands, unsafe directories
-and changed managed files are not silently replaced or removed.
+Existing foreign commands, unsafe directories and changed managed files are not
+silently replaced or removed.
+
+`shellconfig` owns PATH setup for new shells. It writes one marked block
+(`# >>> gobrew >>>` to `# <<< gobrew <<<`) at the end of the login shell's
+startup file, or the whole `conf.d/gobrew.fish` file, and never edits text
+outside it. The block prepends the managed command directory and the default
+prefix's `bin` and `sbin`, so gobrew precedes Homebrew for same-named commands.
+Files are replaced atomically; symlinked dotfiles update their target, while
+damaged markers, foreign owners and hard links are refused with manual
+instructions. `self install` and successful `install`/`migrate` call it, the
+latter only for the default prefix and only when the running shell lacks a
+directory, so configured no-ops do no file access. `self uninstall` removes the
+block. `GOBREW_NO_MODIFY_PATH` disables it. The engine never touches shell
+configuration; Homebrew's files are only read, to report duplicate commands.
 
 CLI operations use their own lock and durable ownership receipt, never the
 Formula database or prefix lock. The receipt doubles as a redo journal: desired

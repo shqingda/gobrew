@@ -41,7 +41,11 @@ func (a *application) selfCommand() *cobra.Command {
 		if err != nil {
 			return err
 		}
-		a.message(result, fmt.Sprintf("Installed gobrew %s and gob → gobrew in %s.\nAdd this directory to PATH if needed.\nThe first gob install sets up Formula storage, asking once for an administrator password if needed.", result.Version, result.BinDir))
+		message := fmt.Sprintf("Installed gobrew %s and gob → gobrew in %s.", result.Version, result.BinDir)
+		if note := a.setupPath(a.pathEnv(result.BinDir, filepath.Clean(a.config.Prefix))); note != "" {
+			message += "\n" + note
+		}
+		a.message(result, message)
 		return nil
 	}}
 	install.Flags().StringVar(&binDir, "bin-dir", "", "Command directory (default: ~/.local/bin)")
@@ -75,6 +79,9 @@ func (a *application) selfCommand() *cobra.Command {
 			}
 			if action == "uninstall" {
 				message = "Removed gobrew and gob. Installed Formulae, configuration and caches are retained. Small ownership and lock records remain for safe retries."
+				if note := a.removePath(); note != "" {
+					message += "\n" + note
+				}
 			}
 			a.message(result, message)
 			return nil

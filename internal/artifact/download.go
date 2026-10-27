@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/shqingda/gobrew/internal/model"
 	"github.com/shqingda/gobrew/internal/platform"
@@ -102,7 +103,8 @@ func (m *Manager) downloadLocked(ctx context.Context, p model.Package, events ch
 	defer os.Remove(tmp.Name())
 	defer tmp.Close()
 	hash := sha256.New()
-	n, err := io.Copy(io.MultiWriter(tmp, hash), response.Body)
+	counter := &progressWriter{events: events, event: model.Event{Phase: "download", Package: p.Formula.Name, Total: max(response.ContentLength, 0)}}
+	n, err := io.Copy(io.MultiWriter(tmp, hash, counter), response.Body)
 	if err != nil {
 		return "", err
 	}
@@ -157,4 +159,21 @@ func (m *Manager) ghcrToken(ctx context.Context, u *url.URL) (string, error) {
 		return "", fmt.Errorf("GHCR returned an empty token")
 	}
 	return token.Token, nil
+}
+
+// progressWriter reports download progress at most every 100ms. Events are
+// best effort, so the final completed event is still sent separately.
+type progressWriter struct {
+	events chan<- model.Event
+	event  model.Event
+	last   time.Time
+}
+
+func (w *progressWriter) Write(b []byte) (int, error) {
+	w.event.Completed += int64(len(b))
+	if w.events != nil && time.Since(w.last) >= 100*time.Millisecond {
+		w.last = time.Now()
+		model.Emit(w.events, w.event)
+	}
+	return len(b), nil
 }

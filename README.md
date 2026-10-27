@@ -10,11 +10,9 @@
 
 ```sh
 curl -fsSL https://github.com/shqingda/gobrew/releases/latest/download/install.sh | sh
-export PATH="$HOME/.local/bin:$PATH"
-gob --help
 ```
 
-安装器以普通用户运行，将命令放在 `~/.local/bin`，创建 `gob → gobrew` 符号链接。`gobrew` 仍是主命令，两者使用相同的参数和数据。安装器不会修改 shell 配置；若希望新终端也能找到命令，可将上面的 `export PATH` 加入 `~/.zshrc` 或对应 shell 配置。也可以先下载并查看 `install.sh`，再执行。
+安装器以普通用户运行，将命令放在 `~/.local/bin`，创建 `gob → gobrew` 符号链接，准备 Formula 目录，并把 gobrew 加入新终端的 `PATH`。`gobrew` 仍是主命令，两者使用相同的参数和数据。装完后新开一个终端（或执行 `exec zsh`）即可直接使用 `gob` 和之后安装的命令。也可以先下载并查看 `install.sh`，再执行。
 
 指定版本或命令目录时，将环境变量传给执行脚本的 shell：
 
@@ -23,7 +21,7 @@ curl -fsSL https://github.com/shqingda/gobrew/releases/latest/download/install.s
   | GOBREW_VERSION=v0.2.0 GOBREW_BIN_DIR="$HOME/bin" sh
 ```
 
-自定义命令目录须为当前用户拥有的绝对路径，并自行加入 `PATH`。安装器遇到已有的外部 `gobrew` 或 `gob` 文件时拒绝覆盖；升级已有托管安装可直接再次运行安装器。
+自定义命令目录须为当前用户拥有的绝对路径，同样会自动加入 `PATH`。安装器遇到已有的外部 `gobrew` 或 `gob` 文件时拒绝覆盖；升级已有托管安装可直接再次运行安装器。
 
 脚本先固定一个发布版本，再下载对应压缩包并核对 SHA-256。压缩包和校验文件来自同一个官方 GitHub Release；校验和用于检测文件损坏，不是独立发布签名。
 
@@ -33,14 +31,42 @@ curl -fsSL https://github.com/shqingda/gobrew/releases/latest/download/install.s
 
 ```sh
 gob install uv
-eval "$(gob shellenv)"
 ```
 
 默认目录 `/opt/gobrew` 位于 root 拥有的 `/opt` 下，首次创建时程序会说明原因，并通过 `sudo` 在终端里请求一次管理员密码。提权进程只创建 `/opt`（若不存在）和这个新目录，并把新目录交给当前用户；它不联网、不运行软件包代码、不修改已有目录的所有权，也不会触碰 `/opt/homebrew`。随后的数据库初始化、下载和安装都以普通用户身份进行，之后的安装、升级、卸载不再需要 `sudo`。
 
 没有可交互终端（CI、`--json`、无控制终端的脚本）时不会请求密码，而是失败并打印一条使用绝对路径的命令，例如 `sudo '/Users/you/.local/bin/gobrew' init`；在终端执行一次后重试原命令即可。拒绝授权或按 Ctrl-C 取消时不会留下半成品目录。`install --dry-run`、`list`、`doctor` 等只读命令不会创建目录或请求权限。
 
-`gobrew init` 仍然保留，用于预先初始化或修复：它是幂等的，可补全中断留下的空目录结构，但拒绝接管含有其他内容或属于其他用户的目录。`shellenv` 只打印命令，不自动改写 shell 配置；确认后可将输出加入自己的 shell 启动文件。shellenv 导出的 `GOBREW_PREFIX` 也会被 gobrew 读取，作为 `--prefix` 的默认值。
+`gobrew init` 仍然保留，用于预先初始化或修复：它是幂等的，可补全中断留下的空目录结构，但拒绝接管含有其他内容或属于其他用户的目录。
+
+## PATH 自动配置
+
+安装器和 `gob install` 会让新终端直接找到 gobrew 的命令，不需要手工编辑配置。它们在 shell 启动文件末尾写入一段带标记的配置，把命令目录（默认 `~/.local/bin`）和 `/opt/gobrew/bin`、`/opt/gobrew/sbin` 放到 `PATH` 最前面：
+
+| shell | 写入位置 |
+| --- | --- |
+| zsh | `${ZDOTDIR:-$HOME}/.zshrc` |
+| bash | 已存在的 `~/.bash_profile`、`~/.bash_login` 或 `~/.profile`，都没有时新建 `~/.bash_profile` |
+| fish | `~/.config/fish/conf.d/gobrew.fish` |
+
+这段配置以 `# >>> gobrew >>>` 开始、`# <<< gobrew <<<` 结束；gobrew 只修改这两行之间的内容，重复执行不会重复添加，`self uninstall` 时移除。写在文件末尾是为了即使前面有 `export PATH=...` 这类重写 PATH 的语句也能生效。软链接的配置文件会更新其指向的真实文件；标记损坏、不归当前用户所有或有多个硬链接的文件不会被改动，而是打印手工配置方法。
+
+已经打开的终端无法被其他程序修改环境变量，因此第一次安装后需要新开终端或执行 `exec zsh`，Homebrew 也是如此。当前终端已包含这些目录时，`install` 不会读写任何配置文件。只有默认目录 `/opt/gobrew` 会写入启动文件；`--prefix` 指定的开发或测试目录不会，可用 `gobrew --prefix DIR shellenv` 打印配置。设置 `GOBREW_NO_MODIFY_PATH=1` 可完全关闭自动配置。shellenv 导出的 `GOBREW_PREFIX` 也会被 gobrew 读取，作为 `--prefix` 的默认值。
+
+## 与 Homebrew 共存
+
+Homebrew 安装在 `/opt/homebrew`，gobrew 安装在 `/opt/gobrew`，各自管理自己的 keg、依赖和链接，互不覆盖。同一个命令两边都安装时，终端运行 `PATH` 中靠前的那个；gobrew 的配置写在启动文件末尾并放在最前，因此新终端默认运行 gobrew 的版本，Homebrew 的版本仍可通过完整路径使用，例如 `/opt/homebrew/bin/uv`。
+
+- `gob install` 发现 Homebrew 也提供同名命令时会提示，并给出 `brew uninstall` 命令供你决定是否只保留一份；gobrew 不会卸载或修改 Homebrew 的任何内容。
+- `gob doctor` 列出与 Homebrew 同名的命令和当前终端实际运行的路径，并在 gobrew 不在 `PATH` 或排在 Homebrew 之后时提醒。这些是警告，不影响 doctor 的退出码。
+- 两个版本可能共用软件自己在用户目录中的配置和缓存（例如 `~/.cache/uv`），这是软件本身的行为；动态库和编译工具的选择还受 pkg-config 等设置影响，不只取决于 `PATH`。
+- 想把 Homebrew 中的软件整体迁移过来，见下文“恢复与迁移”中的 `migrate`。
+
+排查当前终端会运行哪个版本：
+
+```sh
+type -a uv
+```
 
 ## 构建源码
 
@@ -75,7 +101,7 @@ gobrew self update
 gobrew self uninstall
 ```
 
-`self update` 检查最新稳定发布，校验下载内容后原子切换可执行文件，不自动降级。它只更新托管的 CLI，不更新 Formula。`self uninstall` 移除托管的程序及 `gobrew`、`gob` 链接，保留所有已安装软件、配置、数据和缓存；少量归属记录和锁文件保留在命令目录的 `.gobrew` 中，供中断恢复及重新安装使用。用户改动过的文件不会被静默删除。
+`self update` 检查最新稳定发布，校验下载内容后原子切换可执行文件，不自动降级。它只更新托管的 CLI，不更新 Formula；日常使用 `gob update` 即可，它包含这一步。`self uninstall` 移除托管的程序、`gobrew`、`gob` 链接以及 shell 启动文件中的 gobrew 配置段，保留所有已安装软件、配置、数据和缓存；少量归属记录和锁文件保留在命令目录的 `.gobrew` 中，供中断恢复及重新安装使用。用户改动过的文件不会被静默删除。
 
 这些命令也可以写为 `gob self update` 和 `gob self uninstall`。手工放置且未执行 `self install` 的程序会被明确拒绝管理。操作中断后，可重试原命令；如果入口已不存在，重新运行 curl 安装器。
 
@@ -98,7 +124,7 @@ gobrew cleanup
 gobrew doctor
 ```
 
-`update` 刷新 Formula 目录，`upgrade` 更新已安装软件及必要依赖，`self update` 更新 gobrew 自身。`uninstall NAME` 卸载指定 Formula，`self uninstall` 卸载命令行。首次需要目录时会下载官方签名快照；后续操作使用本地快照。`install` 保留已安装版本，显式请求原先作为依赖安装的软件时会将它保留为用户请求。所有根包均已安装时不访问网络。
+命令语义与 Homebrew 一致：`update` 先更新 gobrew 自身，再刷新并校验 Formula 目录，最后列出可升级的软件；`upgrade` 升级已安装软件及必要依赖，不带名称时升级全部未 pin 的软件。源码构建或未托管的程序会跳过自身更新并说明原因，目录仍会刷新；自身更新失败时目录照常刷新，命令以非零状态退出。`uninstall NAME` 卸载指定 Formula，`self uninstall` 卸载命令行。首次需要目录时会下载官方签名快照；后续操作使用本地快照。`install` 保留已安装版本，显式请求原先作为依赖安装的软件时会将它保留为用户请求。所有根包均已安装时不访问网络。
 
 `deps` 查询传递依赖，`uses` 查询直接反向依赖；`uses --installed` 使用本机安装记录。keg-only 默认只提供 `opt` 路径；`link --force` 可显式公开其命令，但不会覆盖别人的文件。`pin` 约束升级，不是绕过依赖检查。
 

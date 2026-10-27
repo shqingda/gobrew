@@ -530,6 +530,9 @@ func orphaned(s model.Snapshot) []string {
 type Finding struct {
 	Package string `json:"package,omitempty"`
 	Problem string `json:"problem"`
+	// Severity is "warning" for environment advice that does not make the
+	// installation unhealthy; empty means a problem that needs repair.
+	Severity string `json:"severity,omitempty"`
 }
 
 func (e *Engine) Doctor(ctx context.Context, repair bool) ([]Finding, error) {
@@ -558,12 +561,12 @@ func (e *Engine) Doctor(ctx context.Context, repair bool) ([]Finding, error) {
 			if r.PostInstallError != "" {
 				problem += ": " + r.PostInstallError
 			}
-			findings = append(findings, Finding{name, problem})
+			findings = append(findings, Finding{Package: name, Problem: problem})
 		}
 		for rel, want := range r.Links {
 			got, err := os.Readlink(filepath.Join(e.config.Prefix, rel))
 			if err != nil || got != want {
-				findings = append(findings, Finding{name, "missing or changed link " + rel})
+				findings = append(findings, Finding{Package: name, Problem: "missing or changed link " + rel})
 			}
 		}
 	}

@@ -3,6 +3,14 @@
 # Keep execution inside main so a truncated download cannot run a partial script.
 set -eu
 
+title() {
+    if [ -t 1 ]; then
+        printf '\033[34;1m==>\033[0m \033[1m%s\033[0m\n' "$1"
+    else
+        printf '==> %s\n' "$1"
+    fi
+}
+
 main() {
     if [ "$(id -u)" -eq 0 ]; then
         printf '%s\n' 'Run this installer as your normal user, without sudo.' >&2
@@ -37,8 +45,12 @@ main() {
     fi
     archive="gobrew_${version#v}_darwin_arm64.tar.gz"
     base="$repository/releases/download/$version"
+    title "Downloading gobrew $version"
     for name in checksums.txt "$archive"; do
-        curl --proto '=https' --proto-redir '=https' --tlsv1.2 -fsSL \
+        # Show curl's progress bar for the archive when someone is watching.
+        quiet=-s
+        if [ "$name" = "$archive" ] && [ -t 2 ]; then quiet=--progress-bar; fi
+        curl --proto '=https' --proto-redir '=https' --tlsv1.2 -fSL "$quiet" \
             --retry 2 --connect-timeout 15 --max-time 180 --max-filesize 33554432 \
             "$base/$name" -o "$work/$name"
     done
@@ -57,14 +69,16 @@ main() {
     test -s "$work/gobrew"
     chmod 0755 "$work/gobrew"
     bin=${GOBREW_BIN_DIR:-$HOME/.local/bin}
+    title "Installing gobrew $version"
     "$work/gobrew" self install --bin-dir "$bin"
+    title "Setting up Formula storage"
     # Set up Formula storage now. For /opt/gobrew this may ask once for an
     # administrator password on the terminal; sudo never reads this pipe.
     if ! "$bin/gobrew" init; then
         printf '%s\n' 'Formula storage is not set up yet; the first gob install will retry.' >&2
     fi
-    printf '\n%s\n' 'Next: ensure the command directory is in PATH, then run gob install <formula>.'
-    printf '%s\n' 'For the default directory: export PATH="$HOME/.local/bin:$PATH"'
+    title "Next steps"
+    printf '%s\n' '  gob install <formula>'
 }
 
 main "$@"
