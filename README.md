@@ -2,24 +2,58 @@
 
 使用 Go 实现的 macOS 包管理器，读取 Homebrew 官方 core 元数据与预编译 bottles。CLI 和未来 macOS 客户端共享同一安装核心。
 
-当前支持 Apple Silicon、macOS 15+，构建使用 Go 1.27.3。安装在独立 prefix，默认 `/opt/gobrew`。不调用 Homebrew 或 Ruby 作为安装兜底。
+当前支持 Apple Silicon、macOS 15+，构建使用 Go 1.27.3。Formula 安装在独立 prefix，默认 `/opt/gobrew`。不调用 Homebrew 或 Ruby 作为安装兜底。
 
-## 构建与初始化
+## 安装命令行
+
+从 v0.2.0 起，可以通过 curl 安装最新稳定版，无需预先安装 Go：
+
+```sh
+curl -fsSL https://github.com/shqingda/gobrew/releases/latest/download/install.sh | sh
+export PATH="$HOME/.local/bin:$PATH"
+gob --help
+```
+
+安装器以普通用户运行，将命令放在 `~/.local/bin`，创建 `gob → gobrew` 符号链接。`gobrew` 仍是主命令，两者使用相同的参数和数据。安装器不会修改 shell 配置；若希望新终端也能找到命令，可将上面的 `export PATH` 加入 `~/.zshrc` 或对应 shell 配置。也可以先下载并查看 `install.sh`，再执行。
+
+指定版本或命令目录时，将环境变量传给执行脚本的 shell：
+
+```sh
+curl -fsSL https://github.com/shqingda/gobrew/releases/latest/download/install.sh \
+  | GOBREW_VERSION=v0.2.0 GOBREW_BIN_DIR="$HOME/bin" sh
+```
+
+自定义命令目录须为当前用户拥有的绝对路径，并自行加入 `PATH`。安装器遇到已有的外部 `gobrew` 或 `gob` 文件时拒绝覆盖；升级已有托管安装可直接再次运行安装器。
+
+脚本先固定一个发布版本，再下载对应压缩包并核对 SHA-256。压缩包和校验文件来自同一个官方 GitHub Release；校验和用于检测文件损坏，不是独立发布签名。
+
+## 初始化软件目录
+
+命令行安装与 Formula 目录初始化相互独立。默认目录的首次创建需要管理员权限，提权过程只创建一个新目录并移交给当前用户，不下载软件或修改已有目录的所有权：
+
+```sh
+sudo "$HOME/.local/bin/gobrew" init
+gobrew init
+eval "$(gobrew shellenv)"
+gob install hello jq
+```
+
+使用自定义命令目录时，将第一条命令中的路径替换为实际 `gobrew` 路径。若 `/opt/gobrew` 已经由当前用户拥有，省略 `sudo` 步骤。其他软件操作必须以普通用户运行。`shellenv` 只打印命令，不自动改写 shell 配置；确认后可将输出加入自己的 shell 启动文件。
+
+## 构建源码
 
 ```sh
 go build -trimpath -o bin/gobrew ./cmd/gobrew
 ./bin/gobrew version
 ```
 
-默认目录的首次创建需要管理员权限。提权过程只创建一个新目录并移交给当前用户；不会下载或执行软件，也不会修改已有目录的所有权。
+手工下载的 v0.2.0 及之后的发布程序可通过下面的命令加入托管安装，获得 `gob` 链接及自身更新、卸载能力：
 
 ```sh
-sudo ./bin/gobrew init
-./bin/gobrew init
-eval "$(./bin/gobrew shellenv)"
+./gobrew self install
 ```
 
-若 `/opt/gobrew` 已经由当前用户拥有，直接执行非 root 的 `init`。其他软件操作必须以普通用户运行。`shellenv` 只打印命令，不自动改写 shell 配置；确认后可将输出加入自己的 shell 启动文件。
+源码构建也可执行 `./bin/gobrew self install`；没有稳定版本号的开发构建不支持 `self update`，可重新构建后再次安装。
 
 开发或隔离验证可使用短的独立目录：
 
@@ -29,6 +63,17 @@ prefix=$(mktemp -d /tmp/gb.XXXX)
 ```
 
 自定义 prefix 会影响 bottle 可重定位性；不能任意使用很长的路径。
+
+## 更新与卸载命令行
+
+```sh
+gobrew self update
+gobrew self uninstall
+```
+
+`self update` 检查最新稳定发布，校验下载内容后原子切换可执行文件，不自动降级。它只更新托管的 CLI，不更新 Formula。`self uninstall` 移除托管的程序及 `gobrew`、`gob` 链接，保留所有已安装软件、配置、数据和缓存；少量归属记录和锁文件保留在命令目录的 `.gobrew` 中，供中断恢复及重新安装使用。用户改动过的文件不会被静默删除。
+
+这些命令也可以写为 `gob self update` 和 `gob self uninstall`。手工放置且未执行 `self install` 的程序会被明确拒绝管理。操作中断后，可重试原命令；如果入口已不存在，重新运行 curl 安装器。
 
 ## 日常操作
 
@@ -49,11 +94,11 @@ gobrew cleanup
 gobrew doctor
 ```
 
-`update` 刷新目录，`upgrade` 更新软件。首次需要目录时会下载官方签名快照；后续操作使用本地快照。`install` 保留已安装版本，显式请求原先作为依赖安装的软件时会将它保留为用户请求。所有根包均已安装时不访问网络。
+`update` 刷新 Formula 目录，`upgrade` 更新已安装软件及必要依赖，`self update` 更新 gobrew 自身。`uninstall NAME` 卸载指定 Formula，`self uninstall` 卸载命令行。首次需要目录时会下载官方签名快照；后续操作使用本地快照。`install` 保留已安装版本，显式请求原先作为依赖安装的软件时会将它保留为用户请求。所有根包均已安装时不访问网络。
 
 `deps` 查询传递依赖，`uses` 查询直接反向依赖；`uses --installed` 使用本机安装记录。keg-only 默认只提供 `opt` 路径；`link --force` 可显式公开其命令，但不会覆盖别人的文件。`pin` 约束升级，不是绕过依赖检查。
 
-安装类命令支持 `--dry-run`。配置入口是全局参数；`gobrew --help` 列出 prefix、cache、并发与缓存容量选项。
+Formula 安装类命令支持 `--dry-run`。配置入口是全局参数；`gobrew --help` 列出 prefix、cache、并发与缓存容量选项。
 
 可证明 ABI 兼容的旧依赖可以复用，准备阶段仍须验证实际 bottle 的最低版本。缺少证据或 pin 导致版本不足时，操作会在切换前拒绝并要求重新规划。
 
@@ -103,6 +148,7 @@ go vet ./...
 go run ./scripts/check-tutorial.go
 go run golang.org/x/vuln/cmd/govulncheck@v1.9.0 ./...
 CGO_ENABLED=0 go build -trimpath -o bin/gobrew ./cmd/gobrew
+scripts/test-bootstrap.sh "$PWD/bin/gobrew"
 scripts/smoke.sh "$PWD/bin/gobrew"
 ```
 
@@ -112,7 +158,7 @@ scripts/smoke.sh "$PWD/bin/gobrew"
 
 M3 Pro 上的五轮实测中，`hello`、`jq`、证书集合的冷安装中位数为 9.58 秒，热缓存重新安装为 6.99 秒；对照 Homebrew 为 12.81 秒和 10.86 秒。具体方法、限制与原始数据见[性能验证记录](docs/performance.md)。
 
-GitHub Actions 在 PR 运行检查。版本 tag 必须通过检查、真实安装及五轮性能门禁，才发布已测量的 ARM64 二进制、校验文件和基准原始数据。不会自动创建版本 tag。
+GitHub Actions 在 PR 运行检查，包括临时目录内的 curl 引导安装、别名和自身卸载验证。版本 tag 必须通过检查、真实安装及五轮性能门禁，才发布已测量的 ARM64 二进制、`gob` 链接、安装脚本、校验文件和基准原始数据。不会自动创建版本 tag。
 
 ## 文档
 

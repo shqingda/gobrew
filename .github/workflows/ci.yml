@@ -37,5 +37,7 @@ jobs:
         run: go build -trimpath -o bin/gobrew ./cmd/gobrew
         env:
           CGO_ENABLED: '0'
+      - name: Verify curl bootstrap and CLI lifecycle
+        run: scripts/test-bootstrap.sh "$PWD/bin/gobrew"
       - name: Vulnerability analysis
         run: go run golang.org/x/vuln/cmd/govulncheck@v1.9.0 ./...

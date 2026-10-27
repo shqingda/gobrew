@@ -7,6 +7,9 @@ adapter around an in-process engine that can later be called by MyGo.
 
 `cli → engine → catalog / resolver / artifact / installer / state / platform`
 
+CLI distribution has a separate path: `cli → selfupdate → platform`. It does
+not enter the Formula engine or change its Plan/Prepare/Apply contract.
+
 The `model` package contains shared values, errors and bounded progress events.
 The resolver is pure: no network, database, terminal or macOS calls. Interfaces
 belong at real I/O boundaries, not around every concrete implementation.
@@ -22,6 +25,7 @@ belong at real I/O boundaries, not around every concrete implementation.
 | `state` | State schema, generations, journal, writer serialization | Formula semantics |
 | `platform` | File cloning, process locks, durability primitives | Package policy |
 | `postinstall` | Validated declarative actions and explicit command boundary | Automatic retry of unknown command outcomes |
+| `selfupdate` | CLI release downloads, managed executable ownership and activation | Formula state, package upgrades, shell configuration |
 
 `cmd/gobrew` contains only the process entry point. A future MyGo entry point in
 this module can call `internal/engine` directly. The UI owns its event consumer
@@ -48,9 +52,11 @@ case recovers once and makes a fresh plan; a GUI can expose recovery explicitly.
 
 ## Ownership and state
 
-The default prefix is `/opt/gobrew`, owned by one non-root user. Bootstrap may
-create only this fixed missing directory; it must never recursively chown an
-existing installation. Normal formula execution never runs as root.
+The default Formula prefix is `/opt/gobrew`, owned by one non-root user. The
+privileged `init` operation may create only this fixed missing directory; it
+must never recursively chown an existing installation. Normal formula execution
+never runs as root. The curl bootstrap described below runs without privilege
+and does not initialize the Formula prefix.
 
 Catalog snapshots are separate from mutable installed state. bbolt handles are
 short lived because even a read-only handle holds a process-level file lock.
@@ -161,6 +167,34 @@ and post-install have explicit supported operations. Unknown operations fail
 closed. System commands use argument arrays and controlled environments.
 
 ## Validation and distribution
+
+The curl installer resolves one stable GitHub Release, verifies its archive
+against that release's SHA-256 manifest, and passes the executable to
+`self install`. Only the shell bootstrap is responsible for initial download;
+the Go `selfupdate` package owns CLI installation, updates and removal. The
+archive and checksum manifest share the GitHub trust boundary: they are not an
+independent signature scheme.
+
+The default command directory is `~/.local/bin`, independent of `/opt/gobrew`.
+Its `gobrew` link targets `.gobrew/current`; `gob` is a relative link to
+`gobrew`. Managed executables are stored under `.gobrew/versions` by digest.
+No shell profile is modified. Existing foreign commands, unsafe directories
+and changed managed files are not silently replaced or removed.
+
+CLI operations use their own lock and durable ownership receipt, never the
+Formula database or prefix lock. The receipt doubles as a redo journal: desired
+activation or removal is persisted before changing links, and `current` is
+switched atomically. Recovery replays only owned filesystem operations. Update
+downloads happen outside the lock; apply rejects a changed active executable.
+Only newer stable releases are selected automatically, with no automatic
+downgrade. Unmanaged executables must first use `self install`.
+
+Self-uninstall removes the owned CLI executables and command links while
+retaining Formulae, configuration, data and caches. Small receipt and lock files
+remain so retries and later installations use the same ownership and locking
+boundary. If interruption leaves no usable command entry point, the curl
+installer can be run again. CLI lifecycle tests use isolated temporary command
+directories, including checksum rejection, link conflicts and recovery.
 
 Unit and filesystem tests cover dependency planning, malicious archives,
 cache isolation, journal recovery, ownership and post-install interruption.

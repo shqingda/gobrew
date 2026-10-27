@@ -40,12 +40,14 @@ jobs:
           mkdir -p "dist/$release_dir"
           cp performance/bin/gobrew "dist/$release_dir/gobrew"
           chmod 0755 "dist/$release_dir/gobrew"
+          ln -s gobrew "dist/$release_dir/gob"
           cp README.md LICENSE THIRD_PARTY_NOTICES.md "dist/$release_dir/"
           cp internal/catalog/HOMEBREW-LICENSE.txt "dist/$release_dir/"
           cp performance/benchmark.json dist/benchmark.json
+          cp install.sh dist/install.sh
           tar -czf "dist/$release_dir.tar.gz" -C dist "$release_dir"
           cd dist
-          shasum -a 256 "$release_dir.tar.gz" benchmark.json > checksums.txt
+          shasum -a 256 "$release_dir.tar.gz" benchmark.json install.sh > checksums.txt
           shasum -a 256 -c checksums.txt
       - name: Publish tagged release
         env:
@@ -61,5 +63,5 @@ jobs:
           else
             flags+=(--generate-notes)
           fi
-          gh release create "$GITHUB_REF_NAME" dist/*.tar.gz dist/checksums.txt dist/benchmark.json \
+          gh release create "$GITHUB_REF_NAME" dist/*.tar.gz dist/checksums.txt dist/benchmark.json dist/install.sh \
             --repo "$GITHUB_REPOSITORY" --verify-tag "${flags[@]}"
