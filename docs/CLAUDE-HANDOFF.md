@@ -4,11 +4,22 @@
 接手工具：Claude Code  
 工作目录：`/Users/shqingda/Projects/gobrew`
 
-## 1. 先看这里
+## 0. 2026-10-27 进展更新（Claude Code）
+
+本节记录交接后的进展，优先于下文中标为“尚未实现”的旧描述：
+
+- **第 3 节首次使用必须手动 init：已解决。** curl 安装器和第一次 `install`/`migrate` 自动初始化；默认 `/opt/gobrew` 需要权限时，CLI 通过 `/usr/bin/sudo` 运行自身 `init` 一次，其余步骤以普通用户运行。用户已在本机实测 `install uv`（创建 `/opt/gobrew`、安装 uv、PATH 生效）。
+- **第 4 节 Homebrew 共存：已实现。** 新增 `internal/shellconfig`：在 shell 启动文件末尾写入带标记的 PATH 配置段，gobrew 优先（用户选择）；`install` 提示与 Homebrew 同名的命令，`doctor` 以 warning 报告同名命令与 PATH 顺序。
+- **新增：** Homebrew 风格安装输出与下载进度条；`update` 与 `brew update` 对齐（自身更新 + 目录刷新 + 过期列表）。
+- 相关提交：`2ff1761`、`60f5ffd`，发布说明 `docs/releases/v0.3.0.md`，目标版本 v0.3.0。
+- **仍未开始：第 5 节 nanobrew 同机对照与基于测量的性能优化。** 下一位接手者从这里继续。
+- 已知后续项：`install`/`upgrade` 不会像 Homebrew 那样在目录过旧时自动刷新；Cask 仍未支持。
+
+## 1. 先看这里（交接时的原始状态）
 
 项目已经实现并发布到 **v0.2.0**，不是空项目。当前用户要求暂停开发、交接，原因是额度不足。
 
-**接下来最优先修复首次使用必须手动 init 的问题，然后进行与 nanobrew 的公平实测和性能优化，并完善 Homebrew 共存体验。上述三项尚未实现。** 不要把先前讨论的方案误认为已经落地。
+**接下来最优先修复首次使用必须手动 init 的问题，然后进行与 nanobrew 的公平实测和性能优化，并完善 Homebrew 共存体验。上述三项尚未实现。** 不要把先前讨论的方案误认为已经落地。（init 与共存已在第 0 节所述提交中完成。）
 
 交接前已核对：
 

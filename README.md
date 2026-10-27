@@ -18,7 +18,7 @@ curl -fsSL https://github.com/shqingda/gobrew/releases/latest/download/install.s
 
 ```sh
 curl -fsSL https://github.com/shqingda/gobrew/releases/latest/download/install.sh \
-  | GOBREW_VERSION=v0.2.0 GOBREW_BIN_DIR="$HOME/bin" sh
+  | GOBREW_VERSION=v0.3.0 GOBREW_BIN_DIR="$HOME/bin" sh
 ```
 
 自定义命令目录须为当前用户拥有的绝对路径，同样会自动加入 `PATH`。安装器遇到已有的外部 `gobrew` 或 `gob` 文件时拒绝覆盖；升级已有托管安装可直接再次运行安装器。
