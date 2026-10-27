@@ -40,8 +40,8 @@ test "$(readlink "$work/bin/gob")" = gobrew
 test -f "$work/prefix/.gobrew/state.db"
 # New shells find the commands without manual PATH edits.
 test "$(zsh -c 'source "$HOME/.zshrc"; whence -p gob')" = "$work/bin/gob"
-"$work/bin/gob" version
-"$work/bin/gobrew" version
+"$work/bin/gob" --version
+"$work/bin/gobrew" --version
 sh "$repo/install.sh"
 # Storage that cannot be created must not fail the CLI installation; the
 # temporary prefix is never the system prefix, so no sudo is attempted.

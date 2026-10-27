@@ -183,7 +183,7 @@ func run() (runErr error) {
 	}
 	digest := sha256.Sum256(binaryBytes)
 	result.GobrewSHA256 = hex.EncodeToString(digest[:])
-	_, version, err := (runner{context: ctx, binary: binary, env: os.Environ()}).run("version")
+	_, version, err := (runner{context: ctx, binary: binary, env: os.Environ()}).run("--version")
 	if err != nil {
 		return err
 	}
@@ -225,7 +225,9 @@ func run() (runErr error) {
 	for round := range *rounds {
 		fmt.Fprintf(os.Stderr, "Benchmark round %d/%d\n", round+1, *rounds)
 		cache := filepath.Join(work, fmt.Sprintf("gobrew-%d", round))
-		gb := runner{context: ctx, binary: binary, prefix: []string{"--prefix", prefix, "--cache-dir", cache, "--json"}, env: os.Environ()}
+		// Mirror the Homebrew side's HOMEBREW_NO_AUTO_UPDATE and NO_INSTALL_CLEANUP.
+		gbEnv := append(os.Environ(), "GOBREW_NO_AUTO_UPDATE=1", "GOBREW_NO_INSTALL_CLEANUP=1")
+		gb := runner{context: ctx, binary: binary, prefix: []string{"--prefix", prefix, "--cache-dir", cache, "--json"}, env: gbEnv}
 		if err = measureGobrew(gb, prefix, cache, round+1, names, &result); err != nil {
 			return err
 		}

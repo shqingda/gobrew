@@ -81,15 +81,31 @@ func TestRuntimeMinimumIsNotBypassedByCompatibilityVersion(t *testing.T) {
 	}
 }
 
-func TestInstallExistingPackageIsNoOp(t *testing.T) {
+func TestInstallUpgradesOutdatedUnlessHeldLikeHomebrew(t *testing.T) {
 	old, current := formula("demo", "1"), formula("demo", "2")
-	state := model.Snapshot{Records: map[string]model.Record{"demo": {Formula: old, Status: model.Ready}}}
-	plan, err := Build(model.Request{Action: "install", Names: []string{"demo"}}, "snapshot", map[string]model.Formula{"demo": current}, state, host, "/opt/gobrew")
-	if err != nil {
-		t.Fatal(err)
+	catalog := map[string]model.Formula{"demo": current}
+	build := func(record model.Record, noUpgrade bool) model.Plan {
+		t.Helper()
+		state := model.Snapshot{Records: map[string]model.Record{"demo": record}}
+		plan, err := Build(model.Request{Action: "install", Names: []string{"demo"}, NoInstallUpgrade: noUpgrade}, "snapshot", catalog, state, host, "/opt/gobrew")
+		if err != nil {
+			t.Fatal(err)
+		}
+		return plan
 	}
-	if len(plan.Packages) != 0 || len(plan.Unchanged) != 1 {
-		t.Fatalf("existing install changed: %+v", plan)
+	plan := build(model.Record{Formula: old, Status: model.Ready}, false)
+	if len(plan.Packages) != 1 || plan.Upgrading["demo"] != "1" || len(plan.Held) != 0 {
+		t.Fatalf("outdated install was not upgraded: %+v", plan)
+	}
+	for name, record := range map[string]model.Record{"pinned": {Formula: old, Status: model.Ready, Pinned: true}, "no-upgrade": {Formula: old, Status: model.Ready}} {
+		plan = build(record, name == "no-upgrade")
+		if len(plan.Packages) != 0 || len(plan.Held) != 1 || len(plan.Upgrading) != 0 {
+			t.Fatalf("%s: outdated install was not held: %+v", name, plan)
+		}
+	}
+	plan = build(model.Record{Formula: current, Status: model.Ready}, false)
+	if len(plan.Packages) != 0 || len(plan.Unchanged) != 1 || len(plan.Held) != 0 {
+		t.Fatalf("up-to-date install changed: %+v", plan)
 	}
 }
 

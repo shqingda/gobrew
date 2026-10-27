@@ -83,6 +83,8 @@ func Build(req model.Request, generation string, formulae map[string]model.Formu
 	selected := map[string]model.Package{}
 	unchanged := map[string]bool{}
 	runtimeChecks := map[string]bool{}
+	held := map[string]bool{}
+	upgrading := map[string]string{}
 	rootNames := make(map[string]bool, len(roots))
 	for _, name := range roots {
 		rootNames[name] = true
@@ -111,9 +113,19 @@ func Build(req model.Request, generation string, formulae map[string]model.Formu
 				return nil
 			}
 		} else if installed && !force {
-			if (req.Action == "install" && requested[name]) || Compare(record.Formula, f) >= 0 {
+			if Compare(record.Formula, f) >= 0 {
 				unchanged[name] = true
 				return nil
+			}
+			// Like brew install, an outdated requested formula is upgraded unless
+			// it is pinned or HOMEBREW_NO_INSTALL_UPGRADE's equivalent is set.
+			if req.Action == "install" && requested[name] {
+				if record.Pinned || req.NoInstallUpgrade {
+					unchanged[name] = true
+					held[name] = true
+					return nil
+				}
+				upgrading[name] = record.Formula.PkgVersion()
 			}
 			oldABI, newABI := record.Formula.CompatibilityVersion, f.CompatibilityVersion
 			if !rootNames[name] && oldABI != nil && newABI != nil && *oldABI == *newABI && record.Formula.VersionScheme == f.VersionScheme {
@@ -285,6 +297,19 @@ func Build(req model.Request, generation string, formulae map[string]model.Formu
 			plan.RuntimeChecks = append(plan.RuntimeChecks, name)
 		}
 	}
+	for name := range held {
+		if _, changed := selected[name]; !changed {
+			plan.Held = append(plan.Held, name)
+		}
+	}
+	for name, version := range upgrading {
+		if _, changed := selected[name]; changed {
+			if plan.Upgrading == nil {
+				plan.Upgrading = map[string]string{}
+			}
+			plan.Upgrading[name] = version
+		}
+	}
 	for name := range requested {
 		if rec, ok := state.Records[name]; ok && !rec.Requested {
 			if _, changed := selected[name]; !changed {
@@ -295,6 +320,7 @@ func Build(req model.Request, generation string, formulae map[string]model.Formu
 	sort.Strings(plan.Promote)
 	sort.Strings(plan.Unchanged)
 	sort.Strings(plan.RuntimeChecks)
+	sort.Strings(plan.Held)
 	encoded, err := json.Marshal(plan)
 	if err != nil {
 		return plan, err

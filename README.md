@@ -60,7 +60,7 @@ Homebrew 安装在 `/opt/homebrew`，gobrew 安装在 `/opt/gobrew`，各自管�
 - `gob install` 发现 Homebrew 也提供同名命令时会提示，并给出 `brew uninstall` 命令供你决定是否只保留一份；gobrew 不会卸载或修改 Homebrew 的任何内容。
 - `gob doctor` 列出与 Homebrew 同名的命令和当前终端实际运行的路径，并在 gobrew 不在 `PATH` 或排在 Homebrew 之后时提醒。这些是警告，不影响 doctor 的退出码。
 - 两个版本可能共用软件自己在用户目录中的配置和缓存（例如 `~/.cache/uv`），这是软件本身的行为；动态库和编译工具的选择还受 pkg-config 等设置影响，不只取决于 `PATH`。
-- 想把 Homebrew 中的软件整体迁移过来，见下文“恢复与迁移”中的 `migrate`。
+- 想把 Homebrew 中的软件整体迁移过来，见下文“恢复与迁移”中的 `import-homebrew`。
 
 排查当前终端会运行哪个版本：
 
@@ -72,7 +72,7 @@ type -a uv
 
 ```sh
 go build -trimpath -o bin/gobrew ./cmd/gobrew
-./bin/gobrew version
+./bin/gobrew --version
 ```
 
 手工下载的 v0.2.0 及之后的发布程序可通过下面的命令加入托管安装，获得 `gob` 链接及自身更新、卸载能力：
@@ -135,12 +135,12 @@ Formula 安装类命令支持 `--dry-run`。配置入口是全局参数；`gobre
 ```sh
 gob version-install uv 0.13.5
 gob version-install uv@0.13.5
-gob install uv@0.13.5
+gob version-install uv 0.13.5
 ```
 
-`version-install` 与 Homebrew 的 `brew version-install formula[@version] [version]` 写法一致；`install 名称@版本` 是同一功能的简写，两者走相同的安装路径。Homebrew 会把该版本提取到个人 tap（默认 `user/versions`）再安装，gobrew 不使用 tap 或 Ruby，而是直接安装该版本的官方 bottle。
+`version-install` 与 Homebrew 的 `brew version-install formula[@version] [version]` 写法一致。与 Homebrew 一样，`install uv@0.13.5` 不会被当作指定版本，会报找不到该 Formula。Homebrew 会把该版本提取到个人 tap（默认 `user/versions`）再安装，gobrew 不使用 tap 或 Ruby，而是直接安装该版本的官方 bottle。
 
-`python@3.13` 这类本身就是 Formula 名的写法按原 Formula 处理；其他 `名称@版本` 表示指定版本。当前目录中的版本直接使用签名元数据。较旧的版本不在 Homebrew 签名元数据范围内，gobrew 从 GHCR 取该版本的 bottle，并要求 homebrew-core 历史中“update bottle”提交记录的校验值与之完全一致；两者不一致、或该版本定义了 Ruby post-install 等未知安装步骤时拒绝安装。依赖使用当前目录版本并照常检查最低版本要求。
+`install` 中的 `python@3.13` 始终是 Formula 名。当前目录中的版本直接使用签名元数据。较旧的版本不在 Homebrew 签名元数据范围内，gobrew 从 GHCR 取该版本的 bottle，并要求 homebrew-core 历史中“update bottle”提交记录的校验值与之完全一致；两者不一致、或该版本定义了 Ruby post-install 等未知安装步骤时拒绝安装。依赖使用当前目录版本并照常检查最低版本要求。
 
 指定的旧版本安装后会被 pin，`upgrade` 保持该版本，输出中也会说明它不在签名元数据范围内；`gob unpin uv` 后即可正常升级。已 pin 在其他版本时需先 unpin。查询提交历史使用 GitHub API，匿名请求每小时有次数限制；可设置 `HOMEBREW_GITHUB_API_TOKEN` 或 `GITHUB_TOKEN`。
 
@@ -160,8 +160,8 @@ gobrew postinstall NAME
 迁移只读取现有 Homebrew receipt，重新下载并安装所选根包，不接管原 Cellar：
 
 ```sh
-gobrew migrate --from-homebrew /opt/homebrew --dry-run
-gobrew migrate --from-homebrew /opt/homebrew
+gobrew import-homebrew --from-homebrew /opt/homebrew --dry-run
+gobrew import-homebrew --from-homebrew /opt/homebrew
 ```
 
 ## 脚本与客户端接口

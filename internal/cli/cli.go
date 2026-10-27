@@ -48,6 +48,26 @@ type envelope struct {
 
 type usageError struct{ error }
 
+// notFound carries Homebrew's exact message while keeping the not_found code.
+type notFound string
+
+func (e notFound) Error() string { return string(e) }
+func (notFound) Unwrap() error   { return model.ErrNotFound }
+
+// brewAliases is Homebrew's HOMEBREW_INTERNAL_COMMAND_ALIASES for the commands
+// gobrew provides. "-S" for search is rewritten in run because cobra command
+// names cannot start with a dash.
+var brewAliases = map[string][]string{
+	"list":        {"ls"},
+	"update":      {"up"},
+	"link":        {"ln"},
+	"install":     {"instal"},
+	"uninstall":   {"uninstal", "rm", "remove"},
+	"postinstall": {"post_install"},
+	"info":        {"abv"},
+	"doctor":      {"dr"},
+}
+
 type application struct {
 	config    engine.Config
 	configErr error
@@ -99,6 +119,9 @@ func (a *application) run(ctx context.Context, args []string, stdout io.Writer, 
 		build.Date = "unknown"
 	}
 	a.build = build
+	if len(args) > 0 && args[0] == "-S" {
+		args = append([]string{"search"}, args[1:]...)
+	}
 	root := a.root()
 	root.SetArgs(args)
 	root.SetOut(stdout)
@@ -136,7 +159,8 @@ func (a *application) run(ctx context.Context, args []string, stdout io.Writer, 
 		}
 	}
 	if err != nil {
-		fmt.Fprintf(stderr, "gobrew: %s\n", cleanText(err.Error()))
+		// Homebrew's error prefix; usage errors keep the --help pointer below.
+		fmt.Fprintf(stderr, "Error: %s\n", cleanText(err.Error()))
 		if code == 2 {
 			fmt.Fprintln(stderr, "Run 'gobrew --help' for usage.")
 		}
@@ -306,12 +330,8 @@ func (a *application) root() *cobra.Command {
 		},
 	})
 	root.CompletionOptions.DisableDefaultCmd = true
-	root.AddCommand(a.commandFor("version", "Print build information", cobra.NoArgs, func(_ context.Context, _ []string) error {
-		a.version()
-		return nil
-	}))
 	root.AddCommand(a.commandFor("init", "Initialize an empty, user-owned installation prefix", cobra.NoArgs, a.init))
-	root.AddCommand(a.commandFor("search <query>", "Search the cached official formula catalog", cobra.ExactArgs(1), a.search))
+	root.AddCommand(a.searchCommand())
 	root.AddCommand(a.infoCommand(), a.listCommand())
 	root.AddCommand(a.commandFor("update", "Update gobrew itself and refresh the verified formula catalog", cobra.NoArgs, a.update))
 	for _, action := range []string{"install", "reinstall", "upgrade"} {
@@ -338,10 +358,13 @@ func (a *application) root() *cobra.Command {
 		}))
 	}
 	root.AddCommand(a.linkCommand(true), a.linkCommand(false), a.autoremoveCommand(), a.doctorCommand())
-	root.AddCommand(a.commandFor("cleanup", "Remove unreferenced kegs and enforce cache budgets", cobra.NoArgs, a.cleanup))
+	root.AddCommand(a.cleanupCommand())
 	root.AddCommand(a.commandFor("postinstall <formula>...", "Explicitly retry supported post-install initialization", cobra.MinimumNArgs(1), a.postinstall))
 	root.AddCommand(a.commandFor("deps <formula>", "List transitive dependencies", cobra.ExactArgs(1), a.deps), a.usesCommand())
-	root.AddCommand(a.migrateCommand(), a.shellenvCommand(), a.completionCommand(), a.selfCommand())
+	root.AddCommand(a.importHomebrewCommand(), a.shellenvCommand(), a.completionCommand(), a.selfCommand())
+	for _, command := range root.Commands() {
+		command.Aliases = brewAliases[command.Name()]
+	}
 	return root
 }
 
@@ -460,24 +483,104 @@ func sudo(ctx context.Context, executable string, args []string) error {
 	return cmd.Run()
 }
 
-func (a *application) search(ctx context.Context, args []string) error {
-	e, err := a.getEngine()
-	if err != nil {
-		return err
-	}
-	catalog, err := e.Catalog(ctx)
-	if err != nil {
-		return err
-	}
-	formulae := catalog.Search(args[0])
-	a.setResult(formulae, func(w io.Writer) error {
-		rows := make([][]string, 0, len(formulae))
-		for _, f := range formulae {
-			rows = append(rows, []string{f.Name, f.PkgVersion(), strings.Join(strings.Fields(f.Description), " ")})
+// searchCommand mirrors brew search [--formula] [--desc] text|/regex/.
+func (a *application) searchCommand() *cobra.Command {
+	var descriptions, formulaOnly bool
+	cmd := a.commandFor("search <text|/regex/>...", "Search formula names, or descriptions with --desc", cobra.MinimumNArgs(1), func(ctx context.Context, args []string) error {
+		e, err := a.getEngine()
+		if err != nil {
+			return err
 		}
-		return table(w, []string{"FORMULA", "VERSION", "DESCRIPTION"}, rows)
+		query := strings.Join(args, " ")
+		formulae, err := e.Search(ctx, query, descriptions)
+		if err != nil {
+			return err
+		}
+		installed := map[string]bool{}
+		if snapshot, err := e.Installed(); err == nil {
+			for name := range snapshot.Records {
+				installed[name] = true
+			}
+		}
+		a.setResult(formulae, func(w io.Writer) error {
+			p := newProgress(w)
+			if descriptions {
+				if err := p.title("Formulae"); err != nil {
+					return err
+				}
+				for _, f := range formulae {
+					if _, err := fmt.Fprintln(w, cleanText(f.Name+": "+strings.Join(strings.Fields(f.Description), " "))); err != nil {
+						return err
+					}
+				}
+				return nil
+			}
+			names := make([]string, len(formulae))
+			widths := make([]int, len(formulae))
+			for i, f := range formulae {
+				names[i], widths[i] = cleanText(f.Name), len(f.Name)
+				if p.tty && installed[f.Name] {
+					mark := " \u2714"
+					if os.Getenv("GOBREW_NO_EMOJI") != "" {
+						mark = " (installed)"
+					}
+					names[i] = "\033[1m" + names[i] + "\033[32m" + mark + "\033[0m"
+					widths[i] += len([]rune(mark))
+				}
+			}
+			if !p.tty {
+				for _, name := range names {
+					if _, err := fmt.Fprintln(w, name); err != nil {
+						return err
+					}
+				}
+				return nil
+			}
+			if err := p.title("Formulae"); err != nil {
+				return err
+			}
+			_, err := io.WriteString(w, columns(names, widths, p.width))
+			return err
+		})
+		if len(formulae) == 0 {
+			return notFound(fmt.Sprintf("No formulae found for %q.", query))
+		}
+		if newProgress(a.stderr).tty && !strings.HasPrefix(query, "/") && strings.ContainsAny(query, `\|()[]{}^$*+?`) {
+			fmt.Fprintln(a.stderr, "Warning: Did you mean to perform a regular expression search?\nSurround your query with /slashes/ to search locally by regex.")
+		}
+		return nil
 	})
-	return nil
+	cmd.Flags().BoolVar(&descriptions, "desc", false, "Search descriptions instead of names")
+	cmd.Flags().BoolVar(&formulaOnly, "formula", false, "Search only formulae (gobrew has no casks)")
+	return cmd
+}
+
+// columns ports Homebrew's Formatter.columns: fill columns top to bottom,
+// two spaces apart, without trailing whitespace; one per line if too narrow.
+func columns(items []string, widths []int, width int) string {
+	if len(items) == 0 {
+		return ""
+	}
+	const gap = 2
+	longest := slices.Max(widths)
+	cols := (width + gap) / (longest + gap)
+	if cols < 2 {
+		return strings.Join(items, "\n") + "\n"
+	}
+	rows := (len(items) + cols - 1) / cols
+	cols = (len(items) + rows - 1) / rows
+	colWidth := (width+gap)/cols - gap
+	var b strings.Builder
+	for row := 0; row < rows; row++ {
+		for i := row; i < len(items); i += rows {
+			b.WriteString(items[i])
+			if i+rows < len(items) {
+				b.WriteString(strings.Repeat(" ", colWidth-widths[i]+gap))
+			}
+		}
+		b.WriteString("\n")
+	}
+	return b.String()
 }
 
 func (a *application) infoCommand() *cobra.Command {
@@ -513,6 +616,10 @@ func (a *application) infoCommand() *cobra.Command {
 				formulae = append(formulae, formula)
 			}
 		}
+		records := map[string]model.Record{}
+		if snapshot, err := e.Installed(); err == nil {
+			records = snapshot.Records
+		}
 		a.setResult(formulae, func(w io.Writer) error {
 			for i, f := range formulae {
 				if i > 0 {
@@ -539,6 +646,9 @@ func (a *application) infoCommand() *cobra.Command {
 				if f.Caveats != "" {
 					lines = append(lines, f.Caveats)
 				}
+				if r, ok := records[f.Name]; ok {
+					lines = append(lines, shadowText(e.Prefix(), r))
+				}
 				for _, line := range lines {
 					if line != "" {
 						if _, err := fmt.Fprintln(w, cleanText(line)); err != nil {
@@ -556,7 +666,7 @@ func (a *application) infoCommand() *cobra.Command {
 }
 
 func (a *application) listCommand() *cobra.Command {
-	var pinned, requested bool
+	var pinned, onRequest, notOnRequest bool
 	cmd := a.commandFor("list", "List installed formulae without network access", cobra.NoArgs, func(_ context.Context, _ []string) error {
 		e, err := a.getEngine()
 		if err != nil {
@@ -568,7 +678,7 @@ func (a *application) listCommand() *cobra.Command {
 		}
 		records := make([]model.Record, 0, len(snapshot.Records))
 		for _, record := range snapshot.Records {
-			if pinned && !record.Pinned || requested && !record.Requested {
+			if pinned && !record.Pinned || onRequest && !record.Requested || notOnRequest && record.Requested {
 				continue
 			}
 			records = append(records, record)
@@ -594,7 +704,9 @@ func (a *application) listCommand() *cobra.Command {
 		return nil
 	})
 	cmd.Flags().BoolVar(&pinned, "pinned", false, "Only show pinned formulae")
-	cmd.Flags().BoolVar(&requested, "requested", false, "Only show explicitly requested formulae")
+	cmd.Flags().BoolVar(&onRequest, "installed-on-request", false, "Only show formulae installed on request")
+	cmd.Flags().BoolVar(&notOnRequest, "no-installed-on-request", false, "Only show formulae installed as dependencies")
+	cmd.MarkFlagsMutuallyExclusive("installed-on-request", "no-installed-on-request")
 	return cmd
 }
 
@@ -605,35 +717,61 @@ type cliUpdate struct {
 	Error   string `json:"error,omitempty"`
 }
 
-// update follows brew update: update the CLI itself, then refresh the formula
-// catalog, then list what upgrade would change. A failed self update does not
-// stop the catalog refresh; the command still exits non-zero for it.
-func (a *application) update(ctx context.Context, _ []string) error {
-	e, err := a.getEngine()
-	if err != nil {
-		return err
-	}
+type updateReport struct {
+	Generation string            `json:"generation"`
+	Formulae   int               `json:"formulae"`
+	CLI        cliUpdate         `json:"cli"`
+	Outdated   []engine.Outdated `json:"outdated"`
+}
+
+// runUpdate follows brew update: update the CLI itself, then refresh the
+// formula catalog, then compute what upgrade would change. A failed self
+// update does not stop the catalog refresh; it is returned separately.
+func (a *application) runUpdate(ctx context.Context, e *engine.Engine) (updateReport, error, error) {
 	cli, cliErr := a.updateCLI(ctx)
 	if cliErr != nil {
 		cli.Error = cliErr.Error()
 	}
 	catalog, err := e.Update(ctx)
 	if err != nil {
-		return errors.Join(cliErr, err)
+		return updateReport{CLI: cli}, cliErr, err
 	}
 	// The catalog is fresh, so this compares local records only.
 	outdated, err := e.Outdated(ctx)
+	return updateReport{catalog.Generation, len(catalog.Formulae), cli, outdated}, cliErr, err
+}
+
+func outdatedLines(outdated []engine.Outdated) []string {
+	if len(outdated) == 0 {
+		return nil
+	}
+	lines := []string{"==> Outdated Formulae"}
+	for _, item := range outdated {
+		line := item.Name + " (" + item.Installed + " -> " + item.Available + ")"
+		if item.Pinned {
+			line += " [pinned]"
+		}
+		lines = append(lines, line)
+	}
+	noun := "formulae"
+	if len(outdated) == 1 {
+		noun = "formula"
+	}
+	return append(lines, fmt.Sprintf("You have %d outdated %s installed. Upgrade with: gob upgrade", len(outdated), noun))
+}
+
+func (a *application) update(ctx context.Context, _ []string) error {
+	e, err := a.getEngine()
+	if err != nil {
+		return err
+	}
+	report, cliErr, err := a.runUpdate(ctx, e)
 	if err != nil {
 		return errors.Join(cliErr, err)
 	}
-	a.setResult(struct {
-		Generation string            `json:"generation"`
-		Formulae   int               `json:"formulae"`
-		CLI        cliUpdate         `json:"cli"`
-		Outdated   []engine.Outdated `json:"outdated"`
-	}{catalog.Generation, len(catalog.Formulae), cli, outdated}, func(w io.Writer) error {
+	a.setResult(report, func(w io.Writer) error {
 		var lines []string
-		switch {
+		switch cli := report.CLI; {
 		case cli.Skipped != "":
 			lines = append(lines, "Skipped updating gobrew: "+cli.Skipped)
 		case cli.Error != "":
@@ -643,22 +781,8 @@ func (a *application) update(ctx context.Context, _ []string) error {
 		default:
 			lines = append(lines, "gobrew "+cli.Version+" is already up to date.")
 		}
-		lines = append(lines, fmt.Sprintf("Updated formula catalog: %d formulae.", len(catalog.Formulae)))
-		if len(outdated) > 0 {
-			lines = append(lines, "==> Outdated Formulae")
-			for _, item := range outdated {
-				line := item.Name + " (" + item.Installed + " -> " + item.Available + ")"
-				if item.Pinned {
-					line += " [pinned]"
-				}
-				lines = append(lines, line)
-			}
-			noun := "formulae"
-			if len(outdated) == 1 {
-				noun = "formula"
-			}
-			lines = append(lines, fmt.Sprintf("You have %d outdated %s installed. Upgrade with: gob upgrade", len(outdated), noun))
-		}
+		lines = append(lines, fmt.Sprintf("Updated formula catalog: %d formulae.", report.Formulae))
+		lines = append(lines, outdatedLines(report.Outdated)...)
 		for _, line := range lines {
 			if _, err := fmt.Fprintln(w, cleanText(line)); err != nil {
 				return err
@@ -667,6 +791,54 @@ func (a *application) update(ctx context.Context, _ []string) error {
 		return nil
 	})
 	return cliErr
+}
+
+// autoUpdate mirrors Homebrew's auto-update before install, outdated and
+// upgrade: when the catalog is older than GOBREW_AUTO_UPDATE_SECS (default 24
+// hours) it runs update first. Failures only warn; the command continues.
+// listOutdated is false for zero-argument upgrade and outdated, which list
+// outdated formulae themselves.
+func (a *application) autoUpdate(ctx context.Context, e *engine.Engine, listOutdated bool) error {
+	if os.Getenv("GOBREW_NO_AUTO_UPDATE") != "" {
+		return nil
+	}
+	interval := 24 * time.Hour
+	if value := os.Getenv("GOBREW_AUTO_UPDATE_SECS"); value != "" {
+		if seconds, err := strconv.ParseInt(value, 10, 64); err == nil && seconds >= 0 {
+			interval = time.Duration(seconds) * time.Second
+		}
+	}
+	if fetched, err := e.CatalogFetched(); err == nil && time.Since(fetched) < interval {
+		return nil
+	}
+	text := !a.json && !a.quiet
+	if text {
+		_ = newProgress(a.stderr).title("Auto-updating gobrew...")
+		if os.Getenv("GOBREW_NO_ENV_HINTS") == "" && os.Getenv("GOBREW_AUTO_UPDATE_SECS") == "" {
+			fmt.Fprintln(a.stderr, "Adjust how often this is run with `$GOBREW_AUTO_UPDATE_SECS` or disable with")
+			fmt.Fprintln(a.stderr, "`$GOBREW_NO_AUTO_UPDATE=1`. Hide these hints with `$GOBREW_NO_ENV_HINTS=1` (see `gob help`).")
+		}
+	}
+	report, cliErr, err := a.runUpdate(ctx, e)
+	if cause := ctx.Err(); cause != nil {
+		return cause
+	}
+	if !text {
+		return nil
+	}
+	if err = errors.Join(cliErr, err); err != nil {
+		fmt.Fprintln(a.stderr, "Warning: auto-update failed: "+cleanText(err.Error()))
+		return nil
+	}
+	if report.CLI.Changed {
+		_ = newProgress(a.stderr).title("Updated gobrew to " + report.CLI.Version + "; the new version runs from the next command.")
+	}
+	if listOutdated {
+		for _, line := range outdatedLines(report.Outdated) {
+			fmt.Fprintln(a.stderr, cleanText(line))
+		}
+	}
+	return nil
 }
 
 // updateCLI skips builds that cannot be updated in place instead of failing:
@@ -690,36 +862,51 @@ func (a *application) installCommand(action string) *cobra.Command {
 		args, use = cobra.ArbitraryArgs, "upgrade [formula...]"
 	}
 	cmd := a.commandFor(use, strings.ToUpper(action[:1])+action[1:]+" official core bottles and their dependencies", args, func(ctx context.Context, names []string) error {
-		return a.install(ctx, action, names, dryRun)
+		return a.install(ctx, model.Request{Action: action, Names: names}, dryRun)
 	})
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Resolve and show the exact plan without installing")
 	return cmd
 }
 
-// versionInstallCommand mirrors brew version-install. Homebrew extracts the
-// version into a personal tap; gobrew takes the same route as install
-// formula@version, which verifies the bottle against GHCR and homebrew-core.
+// versionInstallCommand mirrors brew version-install formula[@version] [version].
+// Homebrew extracts the version into a personal tap; gobrew verifies the bottle
+// against GHCR and homebrew-core instead. Only this command takes versions:
+// like brew install, plain install never splits names at "@".
 func (a *application) versionInstallCommand() *cobra.Command {
 	var dryRun bool
 	cmd := a.commandFor("version-install <formula[@version]> [version]", "Install a specific version of a formula and pin it", cobra.RangeArgs(1, 2), func(ctx context.Context, args []string) error {
-		name := args[0]
+		name, version := args[0], ""
 		if len(args) == 2 {
-			name += "@" + args[1]
-		} else if !strings.Contains(name, "@") {
+			version = args[1]
+		} else if i := strings.LastIndex(name, "@"); i > 0 {
+			name, version = name[:i], name[i+1:]
+		}
+		name = strings.TrimPrefix(name, "homebrew/core/")
+		if version == "" {
 			return usageError{errors.New("specify a version: gobrew version-install " + name + " <version>")}
 		}
-		return a.install(ctx, "install", []string{name}, dryRun)
+		return a.install(ctx, model.Request{Action: "install", Names: []string{name}, Versions: map[string]string{name: version}}, dryRun)
 	})
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Resolve and show the exact plan without installing")
 	return cmd
 }
 
-func (a *application) install(ctx context.Context, action string, names []string, dryRun bool) error {
+func (a *application) install(ctx context.Context, request model.Request, dryRun bool) error {
+	action := request.Action
 	e, err := a.getEngine()
 	if err != nil {
 		return err
 	}
-	request := model.Request{Action: action, Names: names}
+	// Homebrew auto-updates before install and upgrade, but not reinstall or
+	// version-install.
+	if len(request.Versions) == 0 && (action == "install" || action == "upgrade") {
+		if err = a.autoUpdate(ctx, e, action == "install" || len(request.Names) > 0); err != nil {
+			return err
+		}
+	}
+	if action == "install" {
+		request.NoInstallUpgrade = os.Getenv("GOBREW_NO_INSTALL_UPGRADE") != ""
+	}
 	if dryRun {
 		plan, err := e.Plan(ctx, request)
 		if err != nil {
@@ -739,9 +926,9 @@ func (a *application) install(ctx context.Context, action string, names []string
 		result, err = e.Execute(ctx, request, events)
 		return err
 	})
-	notes := a.afterInstall(e, result, err)
-	a.setResult(result, func(w io.Writer) error { return a.renderInstall(w, e, result, notes) })
-	return err
+	notes := a.afterInstall(ctx, e, result, err)
+	a.setResult(result, func(w io.Writer) error { return a.renderInstall(w, e, request, result, notes) })
+	return errors.Join(err, heldError(e, result.Held))
 }
 
 func (a *application) uninstall(ctx context.Context, names []string) error {
@@ -760,6 +947,9 @@ func (a *application) uninstall(ctx context.Context, names []string) error {
 func (a *application) outdated(ctx context.Context, _ []string) error {
 	e, err := a.getEngine()
 	if err != nil {
+		return err
+	}
+	if err = a.autoUpdate(ctx, e, false); err != nil {
 		return err
 	}
 	items, err := e.Outdated(ctx)
@@ -860,17 +1050,131 @@ func (a *application) doctorCommand() *cobra.Command {
 	return cmd
 }
 
-func (a *application) cleanup(ctx context.Context, _ []string) error {
-	e, err := a.getEngine()
-	if err != nil {
+// cleanupCommand mirrors brew cleanup [--prune=days|all] [-n] [-s] [formula...].
+func (a *application) cleanupCommand() *cobra.Command {
+	var prune string
+	var dryRun, scrub bool
+	cmd := a.commandFor("cleanup [formula...]", "Remove old versions of installed formulae and stale cache entries", cobra.ArbitraryArgs, func(ctx context.Context, names []string) error {
+		e, err := a.getEngine()
+		if err != nil {
+			return err
+		}
+		opts := engine.CleanupOptions{Formulae: names, DryRun: dryRun, All: scrub, MaxAge: cleanupMaxAge()}
+		switch prune {
+		case "":
+		case "all":
+			opts.All = true
+		default:
+			days, err := strconv.Atoi(prune)
+			if err != nil || days < 0 {
+				return usageError{fmt.Errorf("--prune must be a number of days or all")}
+			}
+			opts.MaxAge = time.Duration(days) * 24 * time.Hour
+		}
+		removed, err := e.Cleanup(ctx, opts)
+		if err == nil && !dryRun && len(names) == 0 {
+			err = e.MarkCleaned()
+		}
+		if removed == nil {
+			removed = []model.Removed{}
+		}
+		a.setResult(removed, func(w io.Writer) error {
+			lines := removedLines(removed, dryRun)
+			if total := freed(removed); total > 0 {
+				verb := "has freed"
+				if dryRun {
+					verb = "would free"
+				}
+				lines = append(lines, "==> This operation "+verb+" approximately "+humanBytes(total)+" of disk space.")
+			}
+			for _, line := range lines {
+				if _, err := fmt.Fprintln(w, cleanText(line)); err != nil {
+					return err
+				}
+			}
+			return nil
+		})
 		return err
+	})
+	cmd.Flags().StringVar(&prune, "prune", "", "Remove cache files older than this many days, or all")
+	cmd.Flags().BoolVarP(&dryRun, "dry-run", "n", false, "Show what would be removed without removing anything")
+	cmd.Flags().BoolVarP(&scrub, "scrub", "s", false, "Scrub the cache, including downloads for the latest versions")
+	return cmd
+}
+
+// cleanupMaxAge is Homebrew's HOMEBREW_CLEANUP_MAX_AGE_DAYS, default 120.
+func cleanupMaxAge() time.Duration {
+	days := 120
+	if value, err := strconv.Atoi(os.Getenv("GOBREW_CLEANUP_MAX_AGE_DAYS")); err == nil && value >= 0 {
+		days = value
 	}
-	names, err := e.Cleanup(ctx)
-	if err != nil {
-		return err
+	return time.Duration(days) * 24 * time.Hour
+}
+
+func removedLines(removed []model.Removed, dryRun bool) []string {
+	lines := make([]string, 0, len(removed))
+	for _, r := range removed {
+		if dryRun {
+			lines = append(lines, "Would remove: "+r.Path+" ("+abv(r.Files, r.Bytes)+")")
+		} else {
+			lines = append(lines, "Removing: "+r.Path+"... ("+abv(r.Files, r.Bytes)+")")
+		}
 	}
-	a.names(names, "Cache is within its budgets; no unleased entries removed.")
-	return nil
+	return lines
+}
+
+func freed(removed []model.Removed) int64 {
+	var total int64
+	for _, r := range removed {
+		total += r.Bytes
+	}
+	return total
+}
+
+// installCleanup is brew's install-time cleanup: old versions of the formulae
+// just installed, and every GOBREW_CLEANUP_PERIODIC_FULL_DAYS (default 30) a
+// full cleanup. Like Homebrew, a missing marker starts the period instead.
+func (a *application) installCleanup(ctx context.Context, e *engine.Engine, result model.Result) []string {
+	if os.Getenv("GOBREW_NO_INSTALL_CLEANUP") != "" || len(result.Succeeded) == 0 {
+		return nil
+	}
+	var skip []string
+	for _, name := range strings.Split(os.Getenv("GOBREW_NO_CLEANUP_FORMULAE"), ",") {
+		if name = strings.TrimSpace(name); name != "" {
+			skip = append(skip, name)
+		}
+	}
+	// An explicit older version is not the latest, so brew leaves it alone.
+	formulae := slices.DeleteFunc(slices.Clone(result.Succeeded), func(name string) bool { return slices.Contains(result.Pinned, name) })
+	var lines []string
+	if len(formulae) > 0 {
+		removed, err := e.Cleanup(ctx, engine.CleanupOptions{Formulae: formulae, Skip: skip})
+		if err != nil {
+			return []string{"Warning: cleanup failed: " + err.Error()}
+		}
+		if len(removed) > 0 {
+			lines = append(append(lines, "==> Cleanup"), removedLines(removed, false)...)
+		}
+	}
+	days := 30
+	if value, err := strconv.Atoi(os.Getenv("GOBREW_CLEANUP_PERIODIC_FULL_DAYS")); err == nil && value >= 0 {
+		days = value
+	}
+	if due, err := e.PeriodicCleanupDue(time.Duration(days) * 24 * time.Hour); err == nil && due {
+		lines = append(lines, fmt.Sprintf("==> `gob cleanup` has not been run in the last %d days, running now...", days))
+		removed, err := e.Cleanup(ctx, engine.CleanupOptions{Skip: skip, MaxAge: cleanupMaxAge()})
+		if err == nil {
+			err = e.MarkCleaned()
+		}
+		if err != nil {
+			return append(lines, "Warning: cleanup failed: "+err.Error())
+		}
+		lines = append(lines, removedLines(removed, false)...)
+	}
+	if len(lines) > 0 && os.Getenv("GOBREW_NO_ENV_HINTS") == "" {
+		lines = append(lines, "Disable this behaviour by setting `GOBREW_NO_INSTALL_CLEANUP=1`.", "Hide these hints with `GOBREW_NO_ENV_HINTS=1` (see `gob help`).")
+	}
+	return lines
 }
 
 func (a *application) postinstall(ctx context.Context, names []string) error {
@@ -917,10 +1221,11 @@ func (a *application) usesCommand() *cobra.Command {
 	return cmd
 }
 
-func (a *application) migrateCommand() *cobra.Command {
+func (a *application) importHomebrewCommand() *cobra.Command {
 	var from string
 	var dryRun bool
-	cmd := a.commandFor("migrate", "Read requested Homebrew formulae and reinstall them in gobrew", cobra.NoArgs, func(ctx context.Context, _ []string) error {
+	// brew migrate moves renamed formulae; this gobrew-only import has its own name.
+	cmd := a.commandFor("import-homebrew", "Read requested Homebrew formulae and reinstall them in gobrew", cobra.NoArgs, func(ctx context.Context, _ []string) error {
 		e, err := a.getEngine()
 		if err != nil {
 			return err
@@ -962,12 +1267,12 @@ func (a *application) migrateCommand() *cobra.Command {
 			result, err = e.Execute(ctx, request, events)
 			return err
 		})
-		notes := a.afterInstall(e, result, err)
+		notes := a.afterInstall(ctx, e, result, err)
 		a.setResult(struct {
 			Result  model.Result `json:"result"`
 			Skipped []string     `json:"skipped"`
 		}{result, migration.Skipped}, func(w io.Writer) error {
-			if err := a.renderInstall(w, e, result, notes); err != nil {
+			if err := a.renderInstall(w, e, request, result, notes); err != nil {
 				return err
 			}
 			return renderSkipped(w, migration.Skipped)
@@ -1086,16 +1391,11 @@ func renderPlan(w io.Writer, plan model.Plan) error {
 // afterInstall gathers what to tell the user once packages are in place:
 // Homebrew duplicates and, for the default prefix, PATH setup for new shells.
 // It runs in JSON mode too, so a GUI caller gets the same PATH setup.
-func (a *application) afterInstall(e *engine.Engine, result model.Result, err error) []string {
+func (a *application) afterInstall(ctx context.Context, e *engine.Engine, result model.Result, err error) []string {
 	if err != nil && len(result.Succeeded) == 0 {
 		return nil
 	}
-	var notes []string
-	if len(result.Succeeded) > 0 {
-		if snapshot, loadErr := e.Installed(); loadErr == nil {
-			notes = duplicateWarnings(e.Prefix(), homebrewDuplicates(snapshot.Records, result.Succeeded))
-		}
-	}
+	notes := a.installCleanup(ctx, e, result)
 	if e.Prefix() == a.systemPrefix {
 		if note := a.setupPath(a.pathEnv(managedBinDir(), e.Prefix())); note != "" {
 			notes = append(notes, note)
@@ -1106,7 +1406,33 @@ func (a *application) afterInstall(e *engine.Engine, result model.Result, err er
 
 // renderInstall follows Homebrew: one "<keg>: N files, SIZE" line per poured
 // keg, caveats, and an up-to-date warning for unchanged requests.
-func (a *application) renderInstall(w io.Writer, e *engine.Engine, result model.Result, notes []string) error {
+// heldError reports, like brew install, requested formulae that are installed
+// and outdated but were not upgraded. The command then exits non-zero.
+func heldError(e *engine.Engine, held []string) error {
+	if len(held) == 0 {
+		return nil
+	}
+	snapshot, err := e.Installed()
+	if err != nil {
+		return err
+	}
+	available, err := e.Available(held)
+	if err != nil {
+		return err
+	}
+	var messages []string
+	for _, name := range held {
+		r := snapshot.Records[name]
+		unpin := ""
+		if r.Pinned {
+			unpin = "gob unpin " + name + " && "
+		}
+		messages = append(messages, fmt.Sprintf("%s %s is already installed.\nTo upgrade to %s, run:\n  %sgob upgrade %s", name, r.Formula.PkgVersion(), available[name].PkgVersion(), unpin, name))
+	}
+	return errors.New(strings.Join(messages, "\n"))
+}
+
+func (a *application) renderInstall(w io.Writer, e *engine.Engine, request model.Request, result model.Result, notes []string) error {
 	var lines []string
 	records := map[string]model.Record{}
 	if len(result.Succeeded)+len(result.Unchanged) > 0 {
@@ -1122,8 +1448,19 @@ func (a *application) renderInstall(w io.Writer, e *engine.Engine, result model.
 		}
 	}
 	for _, name := range result.Succeeded {
-		if r := records[name]; r.Requested && strings.TrimSpace(r.Formula.Caveats) != "" {
-			lines = append(lines, "==> Caveats", strings.TrimSpace(r.Formula.Caveats))
+		r := records[name]
+		if !r.Requested {
+			continue
+		}
+		var caveats []string
+		if text := strings.TrimSpace(r.Formula.Caveats); text != "" {
+			caveats = append(caveats, text)
+		}
+		if text := shadowText(e.Prefix(), r); text != "" {
+			caveats = append(caveats, text)
+		}
+		if len(caveats) > 0 {
+			lines = append(append(lines, "==> Caveats"), caveats...)
 		}
 	}
 	for _, name := range result.Pinned {
@@ -1134,12 +1471,14 @@ func (a *application) renderInstall(w io.Writer, e *engine.Engine, result model.
 		lines = append(lines, "Warning: "+name+version+" is not covered by Homebrew's signed metadata; its bottle was verified against GHCR and homebrew-core history.",
 			"It is pinned so upgrades keep this version. To allow upgrades: gob unpin "+name)
 	}
+	// Homebrew warns only about the formulae the user named.
 	for _, name := range result.Unchanged {
-		version := ""
-		if r, ok := records[name]; ok {
-			version = " " + r.Formula.PkgVersion()
+		r, ok := records[name]
+		if !ok || !slices.Contains(request.Names, name) {
+			continue
 		}
-		lines = append(lines, "Warning: "+name+version+" is already installed and up-to-date.")
+		version := r.Formula.PkgVersion()
+		fmt.Fprintf(a.stderr, "Warning: %s %s is already installed and up-to-date.\nTo reinstall %s, run:\n  gob reinstall %s\n", name, version, version, name)
 	}
 	for _, group := range []struct {
 		label string

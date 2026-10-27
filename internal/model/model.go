@@ -110,9 +110,16 @@ type Snapshot struct {
 type Request struct {
 	Action string   `json:"action"`
 	Names  []string `json:"names"`
-	// Exact names a version the user asked for explicitly ("uv@0.13.5"). The
-	// resolver may then replace or downgrade that formula's installed version.
+	// Versions holds versions requested through version-install, keyed by
+	// formula name. Plain install names are never split at "@", so python@3.13
+	// always means that formula, as in Homebrew.
+	Versions map[string]string `json:"versions,omitempty"`
+	// Exact lists formulae whose requested version the resolver may install in
+	// place of, or below, the installed version. Plan derives it from Versions.
 	Exact []string `json:"exact,omitempty"`
+	// NoInstallUpgrade keeps install from upgrading an installed but outdated
+	// requested formula (Homebrew's HOMEBREW_NO_INSTALL_UPGRADE).
+	NoInstallUpgrade bool `json:"no_install_upgrade,omitempty"`
 }
 
 type Package struct {
@@ -134,6 +141,12 @@ type Plan struct {
 	Unchanged         []string  `json:"unchanged,omitempty"`
 	RuntimeChecks     []string  `json:"runtime_checks,omitempty"`
 	Promote           []string  `json:"promote,omitempty"`
+	// Upgrading maps requested, installed but outdated formulae that install
+	// will upgrade to their installed version, for Homebrew's notice.
+	Upgrading map[string]string `json:"upgrading,omitempty"`
+	// Held lists requested, outdated formulae that install left alone because
+	// they are pinned or NoInstallUpgrade is set. Homebrew reports these as errors.
+	Held []string `json:"held,omitempty"`
 }
 
 type PreparedPackage struct {
@@ -160,6 +173,16 @@ type Result struct {
 	// Pinned lists explicit older versions installed outside the signed
 	// catalog and pinned by this operation.
 	Pinned []string `json:"pinned,omitempty"`
+	// Held copies Plan.Held so clients can report them after the operation.
+	Held []string `json:"held,omitempty"`
+}
+
+// Removed describes one path cleanup removed, or would remove in a dry run.
+// Files is zero when only the logical size is known.
+type Removed struct {
+	Path  string `json:"path"`
+	Files int    `json:"files,omitempty"`
+	Bytes int64  `json:"bytes"`
 }
 
 // Timings measures the application's three stages, excluding CLI rendering.

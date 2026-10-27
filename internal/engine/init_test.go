@@ -13,6 +13,7 @@ import (
 	"testing"
 
 	"github.com/shqingda/gobrew/internal/model"
+	"github.com/shqingda/gobrew/internal/resolver"
 )
 
 func TestInitReportsMissingPrivilegeWithoutSideEffects(t *testing.T) {
@@ -134,23 +135,26 @@ func TestPrivilegedHalfCreatesOnlyAMissingOwnedPrefix(t *testing.T) {
 	}
 }
 
-func TestExplicitVersionNamesResolveWithoutGuessing(t *testing.T) {
+func TestOnlyVersionInstallRequestsChooseVersions(t *testing.T) {
 	formulae := map[string]model.Formula{"python@3.13": {Name: "python@3.13", Version: "3.13.9"}, "uv": {Name: "uv", Version: "0.13.6", Revision: 1}}
 	e := New(Config{HTTP: &http.Client{Transport: noNetwork{t}}})
 	host := model.Platform{OS: "darwin", Arch: "arm64", Major: 26}
-	req := model.Request{Action: "install", Names: []string{"python@3.13", "uv@0.13.6_1", "nonexistent@1.0"}}
+	// Like brew install, a plain name is never split at "@".
+	req := model.Request{Action: "install", Names: []string{"python@3.13", "uv@0.13.6_1"}}
 	out, historic, err := e.explicitVersions(context.Background(), req, formulae, host)
-	if err != nil {
-		t.Fatal(err)
+	if err != nil || len(out.Exact) != 0 || len(historic) != 0 {
+		t.Fatalf("plain names chose versions: %+v, %v, %v", out, historic, err)
 	}
-	// The current version keeps signed metadata: exact, but not historic or pinned.
-	if strings.Join(out.Names, ",") != "python@3.13,uv,nonexistent@1.0" || strings.Join(out.Exact, ",") != "uv" || len(historic) != 0 {
-		t.Fatalf("resolved = %+v, %v", out, historic)
+	if _, err := resolver.Build(out, "g", formulae, model.Snapshot{Records: map[string]model.Record{}}, host, "/opt/gobrew"); !errors.Is(err, model.ErrNotFound) {
+		t.Fatalf("install uv@0.13.6_1 = %v, want not found as in Homebrew", err)
 	}
-	if _, _, err := e.explicitVersions(context.Background(), model.Request{Action: "upgrade", Names: []string{"uv@0.13.5"}}, formulae, host); !errors.Is(err, model.ErrUnsupported) {
+	// version-install of the current version keeps signed metadata: exact, not historic.
+	req = model.Request{Action: "install", Names: []string{"uv"}, Versions: map[string]string{"uv": "0.13.6_1"}}
+	out, historic, err = e.explicitVersions(context.Background(), req, formulae, host)
+	if err != nil || strings.Join(out.Exact, ",") != "uv" || len(historic) != 0 {
+		t.Fatalf("resolved = %+v, %v, %v", out, historic, err)
+	}
+	if _, _, err := e.explicitVersions(context.Background(), model.Request{Action: "upgrade", Names: []string{"uv"}, Versions: map[string]string{"uv": "0.13.5"}}, formulae, host); !errors.Is(err, model.ErrUnsupported) {
 		t.Fatalf("upgrade accepted a version: %v", err)
-	}
-	if _, _, err := e.explicitVersions(context.Background(), model.Request{Action: "install", Names: []string{"uv@0.13.6", "uv@0.13.6_1"}}, formulae, host); !errors.Is(err, model.ErrConflict) {
-		t.Fatalf("two versions accepted: %v", err)
 	}
 }

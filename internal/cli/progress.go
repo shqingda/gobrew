@@ -53,6 +53,13 @@ func (p *progress) event(event model.Event) error {
 			p.finished[name] = event.Completed >= event.Total
 		}
 		return p.draw(false)
+	case "outdated":
+		// Homebrew prints this plain line before upgrading on install.
+		if err := p.clear(); err != nil {
+			return err
+		}
+		_, err := fmt.Fprintf(p.w, "%s %s is already installed but outdated (so it will be upgraded).\n", name, cleanText(event.Message))
+		return err
 	case "cache":
 		return p.title("Using prepared " + name)
 	case "extract":

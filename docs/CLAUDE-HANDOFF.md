@@ -15,6 +15,14 @@
 - **仍未开始：第 5 节 nanobrew 同机对照与基于测量的性能优化。** 下一位接手者从这里继续。
 - 已知后续项：`install`/`upgrade` 不会像 Homebrew 那样在目录过旧时自动刷新；Cask 仍未支持。
 
+## 0.1 Homebrew 对齐进度（P0，未发版）
+
+计划全文：`~/.claude/plans/p0-homebrew-glimmering-hartmanis.md`。环境变量统一用 `GOBREW_` 加 Homebrew 同名后缀。
+
+已完成：删除 `install x@ver` 简写（只留 `version-install`）；install 升级过时包、pin 时报错（照 Homebrew install/check.rb）；自动更新（install/upgrade/outdated，24h，用 catalog `CURRENT` mtime）；安装后清理与 30 天全量清理、`cleanup [formula] --prune -n -s`；命令别名（ls/rm/remove/ln/dr/abv/up/instal/uninstal/post_install、`-S`）；search 名字/`--desc`/正则与分列输出；`list --installed-on-request`；删除 `version` 子命令（用 `--version`）；`migrate` 改名 `import-homebrew`；PATH 遮蔽检查进 Caveats；错误前缀改为 `Error:`。
+
+未完成：P0 第 8 项“安装后升级过时依赖方”（`GOBREW_NO_INSTALLED_DEPENDENTS_CHECK`）；no-op 基准重测（快路径现会读本地目录索引）；README 未全面补写新环境变量；未做真实端到端验证（version-install 旧版 → install 升级 → 自动清理）。P1/P2 见计划文件。
+
 ## 1. 先看这里（交接时的原始状态）
 
 项目已经实现并发布到 **v0.2.0**，不是空项目。当前用户要求暂停开发、交接，原因是额度不足。

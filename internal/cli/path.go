@@ -3,6 +3,7 @@ package cli
 import (
 	"cmp"
 	"fmt"
+	"maps"
 	"io/fs"
 	"os"
 	"os/exec"
@@ -145,28 +146,6 @@ func homebrewDuplicates(records map[string]model.Record, names []string) []dupli
 	return found
 }
 
-func duplicateWarnings(prefix string, dups []duplicate) []string {
-	var lines []string
-	formulae := map[string]bool{}
-	for _, d := range dups {
-		lines = append(lines, fmt.Sprintf("Warning: Homebrew also provides %s (%s). New shells run %s first.", d.Command, filepath.Join(homebrewPrefix(), "bin", d.Command), filepath.Join(prefix, "bin", d.Command)))
-		if d.Homebrew != "" {
-			formulae[d.Homebrew] = true
-		}
-	}
-	if len(formulae) > 0 {
-		names := slices.Sorted(func(yield func(string) bool) {
-			for name := range formulae {
-				if !yield(name) {
-					return
-				}
-			}
-		})
-		lines = append(lines, "To keep only gobrew's copy: brew uninstall "+strings.Join(names, " "))
-	}
-	return lines
-}
-
 // pathFindings are environment warnings for doctor. They do not make the
 // installation unhealthy, so they never change doctor's exit status.
 func (a *application) pathFindings(e *engine.Engine, records map[string]model.Record) []engine.Finding {
@@ -212,5 +191,65 @@ func kegSummary(keg string) string {
 		}
 		return nil
 	})
-	return fmt.Sprintf("%s: %d files, %s", keg, files, humanBytes(size))
+	return keg + ": " + abv(files, size)
+}
+
+// abv matches Homebrew's disk-usage text: "14 files, 40.6MB", "1 file, 2KB",
+// or just the size when the file count is unknown.
+func abv(files int, bytes int64) string {
+	switch files {
+	case 0:
+		return humanBytes(bytes)
+	case 1:
+		return "1 file, " + humanBytes(bytes)
+	}
+	return fmt.Sprintf("%d files, %s", files, humanBytes(bytes))
+}
+
+// shadowText ports Homebrew's shadowed_path_text caveat: executables in the
+// keg's bin and sbin that the current PATH resolves to another file. It stays
+// silent while the prefix itself is not on PATH yet; the PATH setup note
+// already covers that shell.
+func shadowText(prefix string, r model.Record) string {
+	if os.Getenv("GOBREW_NO_PATH_SHADOW_CHECK") != "" || r.Keg == "" || !onPath(filepath.Join(prefix, "bin")) {
+		return ""
+	}
+	byDir := map[string][]string{}
+	for _, dir := range []string{"bin", "sbin"} {
+		entries, err := os.ReadDir(filepath.Join(r.Keg, dir))
+		if err != nil {
+			continue
+		}
+		for _, entry := range entries {
+			path := filepath.Join(r.Keg, dir, entry.Name())
+			info, err := os.Stat(path)
+			if err != nil || !info.Mode().IsRegular() || info.Mode().Perm()&0111 == 0 {
+				continue
+			}
+			found, err := exec.LookPath(entry.Name())
+			if err != nil {
+				continue
+			}
+			mine, errMine := filepath.EvalSymlinks(path)
+			theirs, errTheirs := filepath.EvalSymlinks(found)
+			if errMine == nil && errTheirs == nil && mine == theirs {
+				continue
+			}
+			byDir[filepath.Dir(found)] = append(byDir[filepath.Dir(found)], entry.Name())
+		}
+	}
+	if len(byDir) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	for _, dir := range slices.Sorted(maps.Keys(byDir)) {
+		names := byDir[dir]
+		slices.Sort(names)
+		fmt.Fprintf(&b, "The following %s executables are shadowed by commands in %s:\n%s\n", r.Formula.Name, dir, strings.Join(names, "\n"))
+	}
+	b.WriteString("Running these by name will not invoke the version provided by gobrew\nbecause the shadowing commands come earlier in your PATH.\n")
+	if os.Getenv("GOBREW_NO_ENV_HINTS") == "" {
+		b.WriteString("Disable this behaviour by setting `GOBREW_NO_PATH_SHADOW_CHECK=1`.\nHide these hints with `GOBREW_NO_ENV_HINTS=1` (see `gob help`).\n")
+	}
+	return strings.TrimSuffix(b.String(), "\n")
 }

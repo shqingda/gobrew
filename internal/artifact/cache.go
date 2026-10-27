@@ -11,14 +11,37 @@ import (
 	"strings"
 	"time"
 
+	"github.com/shqingda/gobrew/internal/model"
 	"github.com/shqingda/gobrew/internal/platform"
 )
+
+// CleanupOptions adds brew cleanup's pruning to the budget eviction.
+type CleanupOptions struct {
+	DryRun bool
+	// MaxAge also removes completed entries unused for longer; zero disables it.
+	MaxAge time.Duration
+	// All removes every completed, unleased entry (brew cleanup --prune=all).
+	All bool
+}
 
 // Cleanup reclaims identifiable abandoned staging entries, then evicts the
 // oldest completed, unleased entries until both logical-byte budgets are met.
 // Installed kegs are independent of these disposable caches.
 func (m *Manager) Cleanup(ctx context.Context) ([]string, error) {
-	var removed []string
+	removed, err := m.CleanupWith(ctx, CleanupOptions{})
+	paths := make([]string, len(removed))
+	for i, r := range removed {
+		paths[i] = r.Path
+	}
+	return paths, err
+}
+
+func (m *Manager) CleanupWith(ctx context.Context, opts CleanupOptions) ([]model.Removed, error) {
+	var removed []model.Removed
+	cutoff := time.Time{}
+	if opts.MaxAge > 0 {
+		cutoff = time.Now().Add(-opts.MaxAge)
+	}
 	for _, tier := range []struct {
 		name, lock, temporary string
 		budget                int64
@@ -55,15 +78,21 @@ func (m *Manager) Cleanup(ctx context.Context) ([]string, error) {
 				}
 				if acquired {
 					path := filepath.Join(dir, e.Name())
-					err = errors.Join(os.RemoveAll(path), release())
-					if err != nil {
+					size := int64(0)
+					if info, err := e.Info(); err == nil && info.Mode().IsRegular() {
+						size = info.Size()
+					}
+					if !opts.DryRun {
+						err = os.RemoveAll(path)
+					}
+					if err = errors.Join(err, release()); err != nil {
 						return removed, err
 					}
-					removed = append(removed, path)
+					removed = append(removed, model.Removed{Path: path, Bytes: size})
 				}
 				continue
 			}
-			if tier.budget < 0 {
+			if tier.budget < 0 && !opts.All && opts.MaxAge == 0 {
 				continue // Unlimited completed cache still reclaims abandoned work.
 			}
 			if len(e.Name()) != 64 || strings.Trim(e.Name(), "0123456789abcdef") != "" {
@@ -95,7 +124,9 @@ func (m *Manager) Cleanup(ctx context.Context) ([]string, error) {
 		}
 		sort.Slice(candidates, func(i, j int) bool { return candidates[i].used.Before(candidates[j].used) })
 		for _, entry := range candidates {
-			if total <= tier.budget {
+			expired := opts.All || !cutoff.IsZero() && entry.used.Before(cutoff)
+			// Candidates are oldest first, so no later entry is expired either.
+			if !expired && (tier.budget < 0 || total <= tier.budget) {
 				break
 			}
 			if err := ctx.Err(); err != nil {
@@ -108,12 +139,14 @@ func (m *Manager) Cleanup(ctx context.Context) ([]string, error) {
 			if !acquired {
 				continue
 			}
-			err = os.RemoveAll(filepath.Join(dir, entry.key))
+			if !opts.DryRun {
+				err = os.RemoveAll(filepath.Join(dir, entry.key))
+			}
 			closeErr := release()
 			if err != nil || closeErr != nil {
 				return removed, errors.Join(err, closeErr)
 			}
-			removed = append(removed, filepath.Join(dir, entry.key))
+			removed = append(removed, model.Removed{Path: filepath.Join(dir, entry.key), Bytes: entry.size})
 			total -= entry.size
 		}
 	}

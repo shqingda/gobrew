@@ -190,9 +190,8 @@ and post-install have explicit supported operations. Unknown operations fail
 closed. System commands use argument arrays and controlled environments.
 
 Explicit older versions (`version-install formula[@version] [version]`, as in
-Homebrew, or the `install formula@version` shorthand, when that string is not
-itself a formula such as `python@3.13`) are the one source outside the signed
-snapshot. Both commands build the same install request.
+Homebrew) are the one source outside the signed snapshot. As in Homebrew,
+plain `install` never splits names at "@".
 `catalog.History` lists GHCR tags, reads the version's OCI index, and takes
 its creation time and homebrew-core source path. The index names the
 version-bump commit, whose bottle block is still stale, so History queries that

@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -233,54 +234,11 @@ func (e *Engine) Plan(ctx context.Context, req model.Request) (model.Plan, error
 	if snap.RecoveryRequired {
 		return model.Plan{}, model.ErrRecoveryRequired
 	}
-	// The common no-op path never opens the catalog or starts networking.
+	// The common no-op path never starts networking: it reads only the
+	// requested formulae from the local catalog to tell up-to-date from outdated.
 	if req.Action == "install" && len(req.Names) > 0 {
-		all := true
-		var promote, unchanged []string
-		for _, requested := range req.Names {
-			name := strings.TrimPrefix(requested, "homebrew/core/")
-			r, ok := snap.Records[name]
-			if !ok {
-				alias := name
-				for canonical, installed := range snap.Records {
-					if slices.Contains(installed.Formula.Aliases, alias) {
-						if ok {
-							return model.Plan{}, fmt.Errorf("%w: ambiguous installed alias %s", model.ErrConflict, requested)
-						}
-						r, ok = installed, true
-						name = canonical
-					}
-				}
-			}
-			if !ok {
-				// "uv@0.13.5" is a no-op when exactly that version is installed.
-				if base, version, found := splitVersion(name); found {
-					if installed, exists := snap.Records[base]; exists && (installed.Formula.Version == version || installed.Formula.PkgVersion() == version) {
-						r, ok, name = installed, true, base
-					}
-				}
-			}
-			if !ok {
-				all = false
-				break
-			}
-			if slices.Contains(unchanged, name) {
-				continue
-			}
-			unchanged = append(unchanged, name)
-			if !r.Requested {
-				promote = append(promote, name)
-			}
-			if r.Status != model.Ready {
-				return model.Plan{}, fmt.Errorf("%w: %s", model.ErrNeedsRepair, name)
-			}
-		}
-		if all {
-			plan := model.Plan{Request: req, Prefix: e.config.Prefix, StateGeneration: snap.Generation, Unchanged: unchanged, Promote: promote}
-			if err := e.installer().ValidateState(model.Prepared{Plan: plan}, snap); err != nil {
-				return model.Plan{}, err
-			}
-			return plan, nil
+		if plan, ok, err := e.installedNoop(req, snap); err != nil || ok {
+			return plan, err
 		}
 	}
 	host, err := e.Host()
@@ -328,42 +286,101 @@ func (e *Engine) Plan(ctx context.Context, req model.Request) (model.Plan, error
 	return plan, nil
 }
 
-// splitVersion splits "name@version" at its last "@". Callers first check
-// whether the whole string is itself a formula, such as python@3.13.
-func splitVersion(name string) (string, string, bool) {
-	i := strings.LastIndex(name, "@")
-	if i <= 0 || !catalog.ValidVersion(name[i+1:]) {
-		return "", "", false
+// installedNoop returns a plan without packages when every requested formula
+// is installed and either up to date or held back (pinned, or upgrades on
+// install disabled). It reports ok=false to fall back to full planning.
+func (e *Engine) installedNoop(req model.Request, snap model.Snapshot) (model.Plan, bool, error) {
+	var promote, unchanged, held []string
+	records := map[string]model.Record{}
+	for _, requested := range req.Names {
+		name := strings.TrimPrefix(requested, "homebrew/core/")
+		r, ok := snap.Records[name]
+		if !ok {
+			for canonical, installed := range snap.Records {
+				if slices.Contains(installed.Formula.Aliases, name) {
+					if ok {
+						return model.Plan{}, false, fmt.Errorf("%w: ambiguous installed alias %s", model.ErrConflict, requested)
+					}
+					r, ok = installed, true
+					name = canonical
+				}
+			}
+		}
+		// version-install is a no-op only when exactly that version is installed.
+		if version, exact := req.Versions[name]; ok && exact && r.Formula.Version != version && r.Formula.PkgVersion() != version {
+			ok = false
+		}
+		if !ok {
+			return model.Plan{}, false, nil
+		}
+		if r.Status != model.Ready {
+			return model.Plan{}, false, fmt.Errorf("%w: %s", model.ErrNeedsRepair, name)
+		}
+		records[name] = r
 	}
-	return name[:i], name[i+1:], true
+	names := slices.Sorted(maps.Keys(records))
+	client, err := e.client()
+	if err != nil {
+		return model.Plan{}, false, err
+	}
+	// Without a local catalog (or with a formula it no longer lists) nothing is
+	// known to be newer, so the no-op stays offline; auto-update keeps it fresh.
+	cat, err := client.LoadForPlan(names)
+	if err != nil && !errors.Is(err, os.ErrNotExist) && !errors.Is(err, model.ErrNotFound) {
+		return model.Plan{}, false, err
+	}
+	for _, name := range names {
+		r := records[name]
+		if _, exact := req.Versions[name]; !exact {
+			if f, known := cat.Formulae[name]; known && resolver.Compare(r.Formula, f) < 0 {
+				if !r.Pinned && !req.NoInstallUpgrade {
+					return model.Plan{}, false, nil
+				}
+				held = append(held, name)
+				continue
+			}
+		}
+		unchanged = append(unchanged, name)
+		if !r.Requested {
+			promote = append(promote, name)
+		}
+	}
+	plan := model.Plan{Request: req, Prefix: e.config.Prefix, StateGeneration: snap.Generation, Unchanged: unchanged, Promote: promote, Held: held}
+	if err := e.installer().ValidateState(model.Prepared{Plan: plan}, snap); err != nil {
+		return model.Plan{}, false, err
+	}
+	return plan, true, nil
 }
 
-// explicitVersions rewrites "formula@version" requests that are not formula
-// names themselves. The current catalog version keeps its signed metadata; an
-// older version replaces the formula in this plan's private catalog copy after
-// History verifies it against GHCR and homebrew-core.
+// explicitVersions applies version-install requests. The current catalog
+// version keeps its signed metadata; an older version replaces the formula in
+// this plan's private catalog copy after History verifies it against GHCR and
+// homebrew-core.
 func (e *Engine) explicitVersions(ctx context.Context, req model.Request, formulae map[string]model.Formula, host model.Platform) (model.Request, map[string]bool, error) {
 	out := req
-	out.Names = slices.Clone(req.Names)
+	out.Exact = nil
 	historic := map[string]bool{}
-	for i, requested := range req.Names {
-		name := strings.TrimPrefix(requested, "homebrew/core/")
-		if _, ok := formulae[name]; ok {
-			continue
-		}
-		base, version, ok := splitVersion(name)
-		current, known := formulae[base]
-		if !ok || !known {
-			continue
-		}
+	names := make([]string, 0, len(req.Versions))
+	for name := range req.Versions {
+		names = append(names, name)
+	}
+	slices.Sort(names)
+	for _, name := range names {
+		version := req.Versions[name]
 		if req.Action != "install" {
-			return req, nil, fmt.Errorf("%w: %s accepts formula names; install a specific version with gobrew install %s", model.ErrUnsupported, req.Action, name)
+			return req, nil, fmt.Errorf("%w: %s does not take versions; use gobrew version-install %s %s", model.ErrUnsupported, req.Action, name, version)
 		}
-		if slices.Contains(out.Exact, base) {
-			return req, nil, fmt.Errorf("%w: more than one version of %s requested", model.ErrConflict, base)
+		if !slices.Contains(req.Names, name) {
+			return req, nil, fmt.Errorf("%w: version given for unrequested formula %s", model.ErrConflict, name)
 		}
-		out.Names[i] = base
-		out.Exact = append(out.Exact, base)
+		if !catalog.ValidVersion(version) {
+			return req, nil, fmt.Errorf("%w: invalid version %q", model.ErrUnsupported, version)
+		}
+		current, known := formulae[name]
+		if !known {
+			return req, nil, fmt.Errorf("%w: formula %s", model.ErrNotFound, name)
+		}
+		out.Exact = append(out.Exact, name)
 		if version == current.Version || version == current.PkgVersion() {
 			continue
 		}
@@ -372,8 +389,8 @@ func (e *Engine) explicitVersions(ctx context.Context, req model.Request, formul
 		if err != nil {
 			return req, nil, err
 		}
-		formulae[base] = older
-		historic[base] = true
+		formulae[name] = older
+		historic[name] = true
 	}
 	return out, historic, nil
 }
@@ -462,7 +479,10 @@ func (e *Engine) Execute(ctx context.Context, req model.Request, events chan<- m
 		return model.Result{}, err
 	}
 	if len(plan.Packages) == 0 && len(plan.Promote) == 0 {
-		return model.Result{Unchanged: plan.Unchanged}, nil
+		return model.Result{Unchanged: plan.Unchanged, Held: plan.Held}, nil
+	}
+	for _, name := range slices.Sorted(maps.Keys(plan.Upgrading)) {
+		model.Emit(events, model.Event{Phase: "outdated", Package: name, Message: plan.Upgrading[name]})
 	}
 	start = time.Now()
 	p, err := e.Prepare(ctx, plan, events)
@@ -472,12 +492,13 @@ func (e *Engine) Execute(ctx context.Context, req model.Request, events chan<- m
 		for _, pkg := range plan.Packages {
 			notExecuted = append(notExecuted, pkg.Formula.Name)
 		}
-		return model.Result{Unchanged: plan.Unchanged, NotExecuted: notExecuted}, err
+		return model.Result{Unchanged: plan.Unchanged, NotExecuted: notExecuted, Held: plan.Held}, err
 	}
 	defer func() { err = errors.Join(err, p.Close()) }()
 	start = time.Now()
 	result, err = e.Apply(ctx, p, events)
 	timings.Apply = float64(time.Since(start)) / float64(time.Millisecond)
+	result.Held = plan.Held
 	for _, pkg := range plan.Packages {
 		if pkg.Pin && slices.Contains(result.Succeeded, pkg.Formula.Name) {
 			result.Pinned = append(result.Pinned, pkg.Formula.Name)
@@ -653,18 +674,60 @@ func (e *Engine) Doctor(ctx context.Context, repair bool) ([]Finding, error) {
 	return findings, nil
 }
 
-func (e *Engine) Cleanup(ctx context.Context) ([]string, error) {
+// CleanupOptions mirrors brew cleanup's arguments and install-time cleanup.
+type CleanupOptions struct {
+	// Formulae limits cleanup to these formulae's old kegs. gobrew's caches
+	// are keyed by digest, not formula, so they are left to full cleanups.
+	Formulae []string
+	// Skip lists formulae never cleaned; pinned formulae are always skipped.
+	Skip   []string
+	DryRun bool
+	// MaxAge prunes cache entries unused for longer; zero disables it.
+	MaxAge time.Duration
+	// All prunes every unleased cache entry (--prune=all, --scrub).
+	All bool
+}
+
+func (e *Engine) Cleanup(ctx context.Context, opts CleanupOptions) ([]model.Removed, error) {
 	if err := e.checkMutation(); err != nil {
 		return nil, err
 	}
+	removed, err := e.installer().CleanupWith(ctx, installer.CleanupOptions{Formulae: opts.Formulae, Skip: opts.Skip, DryRun: opts.DryRun})
+	if err != nil || len(opts.Formulae) > 0 {
+		return removed, err
+	}
 	m, err := e.manager()
 	if err != nil {
-		return nil, err
+		return removed, err
 	}
-	kegs, err := e.installer().Cleanup(ctx)
+	caches, err := m.CleanupWith(ctx, artifact.CleanupOptions{DryRun: opts.DryRun, MaxAge: opts.MaxAge, All: opts.All})
+	return append(removed, caches...), err
+}
+
+// PeriodicCleanupDue follows brew: a missing marker is created and not due;
+// otherwise cleanup is due once the marker is older than period.
+func (e *Engine) PeriodicCleanupDue(period time.Duration) (bool, error) {
+	marker := filepath.Join(e.config.CacheDir, ".cleaned")
+	info, err := os.Stat(marker)
+	if errors.Is(err, os.ErrNotExist) {
+		return false, e.MarkCleaned()
+	}
 	if err != nil {
-		return kegs, err
+		return false, err
 	}
-	caches, err := m.Cleanup(ctx)
-	return append(kegs, caches...), err
+	return time.Since(info.ModTime()) > period, nil
+}
+
+// MarkCleaned records a completed full cleanup.
+func (e *Engine) MarkCleaned() error {
+	if err := os.MkdirAll(e.config.CacheDir, 0700); err != nil {
+		return err
+	}
+	marker := filepath.Join(e.config.CacheDir, ".cleaned")
+	f, err := os.OpenFile(marker, os.O_CREATE|os.O_WRONLY, 0600)
+	if err != nil {
+		return err
+	}
+	now := time.Now()
+	return errors.Join(f.Close(), os.Chtimes(marker, now, now))
 }
