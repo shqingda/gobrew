@@ -55,5 +55,11 @@ jobs:
           if [[ "$GITHUB_REF_NAME" == *-* ]]; then
             flags+=(--prerelease)
           fi
+          notes_file="docs/releases/$GITHUB_REF_NAME.md"
+          if [[ -f "$notes_file" ]]; then
+            flags+=(--notes-file "$notes_file")
+          else
+            flags+=(--generate-notes)
+          fi
           gh release create "$GITHUB_REF_NAME" dist/*.tar.gz dist/checksums.txt dist/benchmark.json \
-            --repo "$GITHUB_REPOSITORY" --verify-tag --generate-notes "${flags[@]}"
+            --repo "$GITHUB_REPOSITORY" --verify-tag "${flags[@]}"
