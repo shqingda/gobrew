@@ -110,3 +110,58 @@ func TestShellenvQuotesPrefix(t *testing.T) {
 		t.Fatalf("shell expanded the prefix: got %q, want %q", got, want)
 	}
 }
+
+func TestCompletionRegistersBothExecutableNames(t *testing.T) {
+	for _, shell := range []string{"bash", "zsh", "fish", "powershell"} {
+		t.Run(shell, func(t *testing.T) {
+			var stdout, stderr bytes.Buffer
+			if code := Run(context.Background(), []string{"completion", shell}, &stdout, &stderr, BuildInfo{}); code != 0 {
+				t.Fatalf("exit = %d: %s", code, &stderr)
+			}
+			script := stdout.String()
+			if shell == "fish" {
+				if !strings.Contains(script, "complete -c gob -w gobrew\n") {
+					t.Fatal("gob does not inherit gobrew completions")
+				}
+				return
+			}
+			if shell == "powershell" {
+				for _, name := range []string{"gobrew", "gob"} {
+					if !strings.Contains(script, "Register-ArgumentCompleter -CommandName '"+name+"' -ScriptBlock ${__gobrewCompleterBlock}") {
+						t.Fatalf("%s does not use the shared completer", name)
+					}
+				}
+				return
+			}
+			path, err := exec.LookPath(shell)
+			if err != nil {
+				t.Skipf("%s is unavailable: %v", shell, err)
+			}
+			file := filepath.Join(t.TempDir(), "completion")
+			if err := os.WriteFile(file, []byte(script), 0600); err != nil {
+				t.Fatal(err)
+			}
+			var command *exec.Cmd
+			if shell == "bash" {
+				command = exec.Command(path, "--noprofile", "--norc", "-c", `source "$1"; complete -p gobrew; complete -p gob`, "test", file)
+			} else {
+				if !strings.HasPrefix(script, "#compdef gobrew gob\n") {
+					t.Fatal("compinit cannot discover both executable names")
+				}
+				command = exec.Command(path, "-f", "-c", `autoload -Uz compinit; compinit -D; source "$1"; print -r -- "${_comps[gobrew]} ${_comps[gob]}"`, "test", file)
+			}
+			output, err := command.CombinedOutput()
+			if err != nil {
+				t.Fatalf("load completion: %v: %s", err, output)
+			}
+			if shell == "bash" {
+				lines := strings.Split(strings.TrimSpace(string(output)), "\n")
+				if len(lines) != 2 || strings.TrimSuffix(lines[0], " gobrew") != strings.TrimSuffix(lines[1], " gob") || !strings.Contains(lines[0], "-F __start_gobrew") {
+					t.Fatalf("different completion handlers: %s", output)
+				}
+			} else if string(output) != "_gobrew _gobrew\n" {
+				t.Fatalf("different completion handlers: %s", output)
+			}
+		})
+	}
+}

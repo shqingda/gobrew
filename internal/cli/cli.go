@@ -310,7 +310,7 @@ func (a *application) root() *cobra.Command {
 	root.AddCommand(a.commandFor("cleanup", "Remove unreferenced kegs and enforce cache budgets", cobra.NoArgs, a.cleanup))
 	root.AddCommand(a.commandFor("postinstall <formula>...", "Explicitly retry supported post-install initialization", cobra.MinimumNArgs(1), a.postinstall))
 	root.AddCommand(a.commandFor("deps <formula>", "List transitive dependencies", cobra.ExactArgs(1), a.deps), a.usesCommand())
-	root.AddCommand(a.migrateCommand(), a.shellenvCommand(), a.completionCommand())
+	root.AddCommand(a.migrateCommand(), a.shellenvCommand(), a.completionCommand(), a.selfCommand())
 	return root
 }
 
@@ -818,6 +818,18 @@ func (a *application) completionCommand() *cobra.Command {
 			return err
 		}
 		text := script.String()
+		// Both executable names share Cobra's generated completion functions.
+		switch args[0] {
+		case "bash":
+			text += "\nif [[ $(type -t compopt) = builtin ]]; then\n    complete -o default -F __start_gobrew gob\nelse\n    complete -o default -o nospace -F __start_gobrew gob\nfi\n"
+		case "zsh":
+			// compinit reads the first line before the script is sourced.
+			text = strings.Replace(text, "#compdef gobrew\ncompdef _gobrew gobrew\n", "#compdef gobrew gob\ncompdef _gobrew gobrew gob\n", 1)
+		case "fish":
+			text += "\ncomplete -c gob -e\ncomplete -c gob -w gobrew\n"
+		case "powershell":
+			text += "\nRegister-ArgumentCompleter -CommandName 'gob' -ScriptBlock ${__gobrewCompleterBlock}\n"
+		}
 		a.setResult(map[string]string{"shell": args[0], "script": text}, func(w io.Writer) error { _, err := io.WriteString(w, text); return err })
 		return nil
 	}
