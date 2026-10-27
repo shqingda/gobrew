@@ -35,6 +35,9 @@ type Config struct {
 	Jobs       int
 	BlobBudget int64
 	TreeBudget int64
+
+	// GitHubToken optionally raises GitHub API limits for explicit versions.
+	GitHubToken string
 }
 
 func Defaults() (Config, error) {
@@ -250,6 +253,14 @@ func (e *Engine) Plan(ctx context.Context, req model.Request) (model.Plan, error
 				}
 			}
 			if !ok {
+				// "uv@0.13.5" is a no-op when exactly that version is installed.
+				if base, version, found := splitVersion(name); found {
+					if installed, exists := snap.Records[base]; exists && (installed.Formula.Version == version || installed.Formula.PkgVersion() == version) {
+						r, ok, name = installed, true, base
+					}
+				}
+			}
+			if !ok {
 				all = false
 				break
 			}
@@ -294,9 +305,17 @@ func (e *Engine) Plan(ctx context.Context, req model.Request) (model.Plan, error
 	if err != nil {
 		return model.Plan{}, err
 	}
-	plan, err := resolver.Build(req, cat.Generation, cat.Formulae, snap, host, e.config.Prefix)
+	resolved, historic, err := e.explicitVersions(ctx, req, cat.Formulae, host)
+	if err != nil {
+		return model.Plan{}, err
+	}
+	plan, err := resolver.Build(resolved, cat.Generation, cat.Formulae, snap, host, e.config.Prefix)
+	plan.Request = req
 	if err != nil {
 		return plan, err
+	}
+	for i := range plan.Packages {
+		plan.Packages[i].Pin = historic[plan.Packages[i].Formula.Name]
 	}
 	for _, pkg := range plan.Packages {
 		if err = postinstall.Validate(pkg.Formula.Steps); err != nil {
@@ -307,6 +326,56 @@ func (e *Engine) Plan(ctx context.Context, req model.Request) (model.Plan, error
 		return model.Plan{}, err
 	}
 	return plan, nil
+}
+
+// splitVersion splits "name@version" at its last "@". Callers first check
+// whether the whole string is itself a formula, such as python@3.13.
+func splitVersion(name string) (string, string, bool) {
+	i := strings.LastIndex(name, "@")
+	if i <= 0 || !catalog.ValidVersion(name[i+1:]) {
+		return "", "", false
+	}
+	return name[:i], name[i+1:], true
+}
+
+// explicitVersions rewrites "formula@version" requests that are not formula
+// names themselves. The current catalog version keeps its signed metadata; an
+// older version replaces the formula in this plan's private catalog copy after
+// History verifies it against GHCR and homebrew-core.
+func (e *Engine) explicitVersions(ctx context.Context, req model.Request, formulae map[string]model.Formula, host model.Platform) (model.Request, map[string]bool, error) {
+	out := req
+	out.Names = slices.Clone(req.Names)
+	historic := map[string]bool{}
+	for i, requested := range req.Names {
+		name := strings.TrimPrefix(requested, "homebrew/core/")
+		if _, ok := formulae[name]; ok {
+			continue
+		}
+		base, version, ok := splitVersion(name)
+		current, known := formulae[base]
+		if !ok || !known {
+			continue
+		}
+		if req.Action != "install" {
+			return req, nil, fmt.Errorf("%w: %s accepts formula names; install a specific version with gobrew install %s", model.ErrUnsupported, req.Action, name)
+		}
+		if slices.Contains(out.Exact, base) {
+			return req, nil, fmt.Errorf("%w: more than one version of %s requested", model.ErrConflict, base)
+		}
+		out.Names[i] = base
+		out.Exact = append(out.Exact, base)
+		if version == current.Version || version == current.PkgVersion() {
+			continue
+		}
+		history := catalog.History{HTTP: e.config.HTTP, Platform: host, Token: e.config.GitHubToken}
+		older, err := history.Formula(ctx, current, version)
+		if err != nil {
+			return req, nil, err
+		}
+		formulae[base] = older
+		historic[base] = true
+	}
+	return out, historic, nil
 }
 
 func (e *Engine) manager() (*artifact.Manager, error) {
@@ -409,6 +478,11 @@ func (e *Engine) Execute(ctx context.Context, req model.Request, events chan<- m
 	start = time.Now()
 	result, err = e.Apply(ctx, p, events)
 	timings.Apply = float64(time.Since(start)) / float64(time.Millisecond)
+	for _, pkg := range plan.Packages {
+		if pkg.Pin && slices.Contains(result.Succeeded, pkg.Formula.Name) {
+			result.Pinned = append(result.Pinned, pkg.Formula.Name)
+		}
+	}
 	return result, err
 }
 

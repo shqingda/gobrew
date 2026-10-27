@@ -110,12 +110,17 @@ type Snapshot struct {
 type Request struct {
 	Action string   `json:"action"`
 	Names  []string `json:"names"`
+	// Exact names a version the user asked for explicitly ("uv@0.13.5"). The
+	// resolver may then replace or downgrade that formula's installed version.
+	Exact []string `json:"exact,omitempty"`
 }
 
 type Package struct {
 	Formula   Formula `json:"formula"`
 	Bottle    Bottle  `json:"bottle"`
 	Requested bool    `json:"requested"`
+	// Pin keeps an explicitly requested older version out of upgrades.
+	Pin bool `json:"pin,omitempty"`
 }
 
 type Plan struct {
@@ -151,6 +156,10 @@ type Result struct {
 	NeedsRepair []string `json:"needs_repair,omitempty"`
 	NotExecuted []string `json:"not_executed,omitempty"`
 	Timings     *Timings `json:"timings_ms,omitempty"`
+
+	// Pinned lists explicit older versions installed outside the signed
+	// catalog and pinned by this operation.
+	Pinned []string `json:"pinned,omitempty"`
 }
 
 // Timings measures the application's three stages, excluding CLI rendering.

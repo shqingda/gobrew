@@ -3,6 +3,7 @@ package cli
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -80,6 +81,8 @@ func Run(ctx context.Context, args []string, stdout, stderr io.Writer, build Bui
 	if prefix := os.Getenv("GOBREW_PREFIX"); prefix != "" {
 		config.Prefix = prefix
 	}
+	// Homebrew's variable first, so one token serves both tools.
+	config.GitHubToken = cmp.Or(os.Getenv("HOMEBREW_GITHUB_API_TOKEN"), os.Getenv("GITHUB_TOKEN"))
 	a := &application{config: config, configErr: configErr, stderr: stderr, systemPrefix: engine.SystemPrefix, terminal: hasTerminal, elevate: sudo}
 	return a.run(ctx, args, stdout, build)
 }
@@ -1099,6 +1102,14 @@ func (a *application) renderInstall(w io.Writer, e *engine.Engine, result model.
 		if r := records[name]; r.Requested && strings.TrimSpace(r.Formula.Caveats) != "" {
 			lines = append(lines, "==> Caveats", strings.TrimSpace(r.Formula.Caveats))
 		}
+	}
+	for _, name := range result.Pinned {
+		version := ""
+		if r, ok := records[name]; ok {
+			version = " " + r.Formula.PkgVersion()
+		}
+		lines = append(lines, "Warning: "+name+version+" is not covered by Homebrew's signed metadata; its bottle was verified against GHCR and homebrew-core history.",
+			"It is pinned so upgrades keep this version. To allow upgrades: gob unpin "+name)
 	}
 	for _, name := range result.Unchanged {
 		version := ""

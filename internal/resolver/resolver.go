@@ -48,6 +48,10 @@ func Build(req model.Request, generation string, formulae map[string]model.Formu
 		return "", fmt.Errorf("%w: formula %s", model.ErrNotFound, name)
 	}
 	requested := map[string]bool{}
+	exact := map[string]bool{}
+	for _, name := range req.Exact {
+		exact[name] = true
+	}
 	roots := []string{}
 	if len(req.Names) == 0 {
 		if req.Action != "upgrade" {
@@ -100,7 +104,13 @@ func Build(req model.Request, generation string, formulae map[string]model.Formu
 		if installed && record.Status != model.Ready {
 			return fmt.Errorf("%w: %s has status %s", model.ErrNeedsRepair, name, record.Status)
 		}
-		if installed && !force {
+		if installed && !force && exact[name] {
+			// An explicit version replaces any other installed version.
+			if Compare(record.Formula, f) == 0 {
+				unchanged[name] = true
+				return nil
+			}
+		} else if installed && !force {
 			if (req.Action == "install" && requested[name]) || Compare(record.Formula, f) >= 0 {
 				unchanged[name] = true
 				return nil
@@ -114,10 +124,13 @@ func Build(req model.Request, generation string, formulae map[string]model.Formu
 				return nil
 			}
 		}
+		if installed && record.Pinned && exact[name] && Compare(record.Formula, f) != 0 {
+			return fmt.Errorf("%w: %s is pinned at %s; run gobrew unpin %s first", model.ErrConflict, name, record.Formula.PkgVersion(), name)
+		}
 		if installed && record.Pinned && (Compare(record.Formula, f) != 0 || req.Action == "upgrade") {
 			return fmt.Errorf("%w: %s is pinned; unpin it before changing this dependency closure", model.ErrConflict, name)
 		}
-		if installed && Compare(record.Formula, f) > 0 {
+		if installed && Compare(record.Formula, f) > 0 && !exact[name] {
 			return fmt.Errorf("%w: refusing to downgrade %s", model.ErrConflict, name)
 		}
 		bottle, err := SelectBottle(f, host, prefix)

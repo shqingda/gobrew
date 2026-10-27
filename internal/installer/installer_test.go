@@ -707,3 +707,46 @@ func TestPostInstallCancellationPreservesCauseAndRepairState(t *testing.T) {
 		})
 	}
 }
+
+// An explicit downgrade leaves the newer keg behind. Installing that version
+// again may reuse the path only when gobrew's marker proves ownership.
+func TestLeftoverOwnedKegIsReplacedButForeignKegIsNot(t *testing.T) {
+	for _, foreign := range []bool{false, true} {
+		prefix := t.TempDir()
+		if err := (state.Store{Prefix: prefix}).Initialize(); err != nil {
+			t.Fatal(err)
+		}
+		keg := filepath.Join(prefix, "Cellar", "demo", "2")
+		if err := os.MkdirAll(keg, 0755); err != nil {
+			t.Fatal(err)
+		}
+		marker := strings.Repeat("b", 32) + ":demo"
+		if foreign {
+			marker = "someone else"
+		}
+		if err := os.WriteFile(filepath.Join(keg, ownerFile), []byte(marker), 0600); err != nil {
+			t.Fatal(err)
+		}
+		tree := t.TempDir()
+		if err := os.WriteFile(filepath.Join(tree, "new"), []byte("x"), 0644); err != nil {
+			t.Fatal(err)
+		}
+		p := model.Prepared{Plan: model.Plan{Prefix: prefix}, Packages: []model.PreparedPackage{{Package: model.Package{Formula: model.Formula{Name: "demo", Version: "2"}}, Tree: tree}}}
+		_, err := (Installer{Prefix: prefix}).Apply(context.Background(), p, nil)
+		if foreign {
+			if !errors.Is(err, model.ErrConflict) {
+				t.Fatalf("foreign keg replaced: %v", err)
+			}
+			if data, _ := os.ReadFile(filepath.Join(keg, ownerFile)); string(data) != "someone else" {
+				t.Fatal("foreign keg modified")
+			}
+			continue
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := os.Stat(filepath.Join(keg, "new")); err != nil {
+			t.Fatalf("leftover keg not replaced: %v", err)
+		}
+	}
+}

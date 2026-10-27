@@ -163,10 +163,10 @@ func (i Installer) stage(ctx context.Context, p model.Prepared, before model.Sna
 		if err != nil {
 			return nil, err
 		}
-		rec := model.Record{Formula: f, Bottle: pkg.Bottle, Keg: keg, Owner: owner, Dependencies: slices.Clone(prepared.RuntimeDependencies), Requested: pkg.Requested, Status: model.NeedsPostInstall, Linked: !f.KegOnly, InstalledAt: time.Now().UTC()}
+		rec := model.Record{Formula: f, Bottle: pkg.Bottle, Keg: keg, Owner: owner, Dependencies: slices.Clone(prepared.RuntimeDependencies), Requested: pkg.Requested, Pinned: pkg.Pin, Status: model.NeedsPostInstall, Linked: !f.KegOnly, InstalledAt: time.Now().UTC()}
 		if old, ok := before.Records[f.Name]; ok {
 			rec.Requested = rec.Requested || old.Requested
-			rec.Pinned = old.Pinned
+			rec.Pinned = old.Pinned || pkg.Pin
 			rec.Linked = old.Linked
 		}
 		for n := range rec.Dependencies {
@@ -182,15 +182,23 @@ func (i Installer) stage(ctx context.Context, p model.Prepared, before model.Sna
 			return nil, err
 		}
 		if _, err = os.Lstat(keg); err == nil {
-			old, ok := before.Records[f.Name]
-			if !ok || old.Keg != keg || !owns(keg, old.Owner) {
+			existing := ""
+			if old, ok := before.Records[f.Name]; ok && old.Keg == keg && owns(keg, old.Owner) {
+				existing = old.Owner
+			} else if leftover, err := readOwner(keg); err == nil && validOwner(leftover, f.Name) && owns(keg, leftover) && !kegInUse(before, keg) {
+				// An earlier version switch, such as an explicit downgrade, left
+				// this keg behind. Its marker proves gobrew created it, exactly
+				// as cleanup requires before reclaiming it.
+				existing = leftover
+			}
+			if existing == "" {
 				return nil, fmt.Errorf("%w: existing unowned keg %s", model.ErrConflict, keg)
 			}
 			backup := filepath.Join(i.Prefix, ".gobrew", "backups", id, f.Name)
 			if _, err := i.kegPath(backup); err != nil {
 				return nil, err
 			}
-			j.Moves = append(j.Moves, state.Move{From: keg, To: backup, Owner: old.Owner})
+			j.Moves = append(j.Moves, state.Move{From: keg, To: backup, Owner: existing})
 		} else if !errors.Is(err, os.ErrNotExist) {
 			return nil, err
 		}
@@ -209,6 +217,15 @@ func (i Installer) stage(ctx context.Context, p model.Prepared, before model.Sna
 	}
 	success = true
 	return j, nil
+}
+
+func kegInUse(s model.Snapshot, keg string) bool {
+	for _, r := range s.Records {
+		if r.Keg == keg {
+			return true
+		}
+	}
+	return false
 }
 
 func validPart(s string) bool {

@@ -194,3 +194,27 @@ func TestCompatibleReuseNeverBypassesExplicitRootsOrVersionEpochs(t *testing.T) 
 		})
 	}
 }
+
+func TestExactVersionMayReplaceButNotOverrideAPin(t *testing.T) {
+	older, current := formula("demo", "1"), formula("demo", "2")
+	state := model.Snapshot{Records: map[string]model.Record{"demo": {Formula: current, Status: model.Ready}}}
+	catalog := map[string]model.Formula{"demo": older}
+	if _, err := Build(model.Request{Action: "install", Names: []string{"demo"}}, "s", catalog, state, host, "/opt/gobrew"); err != nil {
+		t.Fatal(err) // an implicit request keeps the newer installed version
+	}
+	exact := model.Request{Action: "install", Names: []string{"demo"}, Exact: []string{"demo"}}
+	plan, err := Build(exact, "s", catalog, state, host, "/opt/gobrew")
+	if err != nil || len(plan.Packages) != 1 || plan.Packages[0].Formula.Version != "1" {
+		t.Fatalf("explicit downgrade = %+v, %v", plan.Packages, err)
+	}
+	record := state.Records["demo"]
+	record.Pinned = true
+	state.Records["demo"] = record
+	if _, err := Build(exact, "s", catalog, state, host, "/opt/gobrew"); !errors.Is(err, model.ErrConflict) || !strings.Contains(err.Error(), "unpin") {
+		t.Fatalf("pinned version replaced: %v", err)
+	}
+	state.Records["demo"] = model.Record{Formula: older, Status: model.Ready, Pinned: true}
+	if plan, err := Build(exact, "s", catalog, state, host, "/opt/gobrew"); err != nil || len(plan.Unchanged) != 1 {
+		t.Fatalf("same pinned version = %+v, %v", plan, err)
+	}
+}

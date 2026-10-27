@@ -127,6 +127,14 @@ arbitrary external effects performed by third-party initialization commands.
 
 ## Dependency compatibility
 
+An explicit version is an exact request: it may replace or downgrade that
+formula, but never one that is pinned at another version. Its dependencies are
+the build-time tab's direct runtime dependencies, resolved to current catalog
+versions under the usual minimum-version checks. Reverse dependents follow the
+normal compatibility rules. A downgrade leaves the newer keg behind; installing
+that version again may replace it only when its ownership marker is gobrew's and
+no record references it, the same proof cleanup requires.
+
 Keep installed runtime dependency facts. Version ordering includes version_scheme
 and revision; compatibility_version is an ABI hint, not a replacement for runtime
 minimum versions. Dependency changes consider installed reverse dependents.
@@ -180,6 +188,21 @@ Verify official metadata signatures and bottle digests. Confine extraction;
 reject traversal, symlink escapes, special files and unsafe metadata. Relocation
 and post-install have explicit supported operations. Unknown operations fail
 closed. System commands use argument arrays and controlled environments.
+
+Explicit older versions (`formula@version`, when that string is not itself a
+formula such as `python@3.13`) are the one source outside the signed snapshot.
+`catalog.History` lists GHCR tags, reads the version's OCI index, and takes
+its creation time and homebrew-core source path. The index names the
+version-bump commit, whose bottle block is still stale, so History queries that
+file's commits in the following seven days and accepts the first one whose
+bottle block records the same digest for the chosen host tag. Disagreement, a
+Ruby `post_install` or `pour_bottle?`, or a revision, rebuild or version that
+does not match rejects the request before planning. Only the dual-verified host
+bottle enters the plan's private catalog copy; Prepare re-verifies its manifest
+and tab as for any modern bottle. Installed results are pinned and reported as
+outside the signed metadata. A request for the catalog's current version keeps
+the signed metadata and is not pinned. `HOMEBREW_GITHUB_API_TOKEN` or
+`GITHUB_TOKEN` raises GitHub's anonymous API limit for the commit query.
 
 ## Validation and distribution
 

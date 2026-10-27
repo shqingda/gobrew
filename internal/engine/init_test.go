@@ -1,10 +1,13 @@
 package engine
 
 import (
+	"context"
 	"errors"
+	"net/http"
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"sync"
 	"syscall"
 	"testing"
@@ -128,5 +131,26 @@ func TestPrivilegedHalfCreatesOnlyAMissingOwnedPrefix(t *testing.T) {
 	}
 	if _, err := os.Lstat(failed); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("failed handover left %s: %v", failed, err)
+	}
+}
+
+func TestExplicitVersionNamesResolveWithoutGuessing(t *testing.T) {
+	formulae := map[string]model.Formula{"python@3.13": {Name: "python@3.13", Version: "3.13.9"}, "uv": {Name: "uv", Version: "0.13.6", Revision: 1}}
+	e := New(Config{HTTP: &http.Client{Transport: noNetwork{t}}})
+	host := model.Platform{OS: "darwin", Arch: "arm64", Major: 26}
+	req := model.Request{Action: "install", Names: []string{"python@3.13", "uv@0.13.6_1", "nonexistent@1.0"}}
+	out, historic, err := e.explicitVersions(context.Background(), req, formulae, host)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The current version keeps signed metadata: exact, but not historic or pinned.
+	if strings.Join(out.Names, ",") != "python@3.13,uv,nonexistent@1.0" || strings.Join(out.Exact, ",") != "uv" || len(historic) != 0 {
+		t.Fatalf("resolved = %+v, %v", out, historic)
+	}
+	if _, _, err := e.explicitVersions(context.Background(), model.Request{Action: "upgrade", Names: []string{"uv@0.13.5"}}, formulae, host); !errors.Is(err, model.ErrUnsupported) {
+		t.Fatalf("upgrade accepted a version: %v", err)
+	}
+	if _, _, err := e.explicitVersions(context.Background(), model.Request{Action: "install", Names: []string{"uv@0.13.6", "uv@0.13.6_1"}}, formulae, host); !errors.Is(err, model.ErrConflict) {
+		t.Fatalf("two versions accepted: %v", err)
 	}
 }
