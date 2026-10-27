@@ -17,6 +17,10 @@ var (
 	ErrStalePlan        = errors.New("installation state changed; create a new plan")
 	ErrNeedsRepair      = errors.New("installation needs repair")
 	ErrRecoveryRequired = fmt.Errorf("%w: interrupted operation requires recovery", ErrNeedsRepair)
+
+	// ErrPrivilegeRequired means the prefix parent needs administrator access.
+	// Callers decide whether and how to obtain it; the engine never prompts.
+	ErrPrivilegeRequired = errors.New("administrator access required")
 )
 
 type Platform struct {

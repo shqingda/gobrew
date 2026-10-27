@@ -41,7 +41,7 @@ func (a *application) selfCommand() *cobra.Command {
 		if err != nil {
 			return err
 		}
-		a.message(result, fmt.Sprintf("Installed gobrew %s and gob → gobrew in %s.\nAdd this directory to PATH if needed.\nInitialize Formula storage separately; see the README for the one-time sudo command.", result.Version, result.BinDir))
+		a.message(result, fmt.Sprintf("Installed gobrew %s and gob → gobrew in %s.\nAdd this directory to PATH if needed.\nThe first gob install sets up Formula storage, asking once for an administrator password if needed.", result.Version, result.BinDir))
 		return nil
 	}}
 	install.Flags().StringVar(&binDir, "bin-dir", "", "Command directory (default: ~/.local/bin)")

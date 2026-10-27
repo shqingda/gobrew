@@ -29,16 +29,18 @@ curl -fsSL https://github.com/shqingda/gobrew/releases/latest/download/install.s
 
 ## 初始化软件目录
 
-命令行安装与 Formula 目录初始化相互独立。默认目录的首次创建需要管理员权限，提权过程只创建一个新目录并移交给当前用户，不下载软件或修改已有目录的所有权：
+不需要单独执行 `init`。curl 安装器在安装命令后会立即准备 Formula 目录；如果当时没有完成，第一次 `gob install` 会自动补齐：
 
 ```sh
-sudo "$HOME/.local/bin/gobrew" init
-gobrew init
-eval "$(gobrew shellenv)"
-gob install hello jq
+gob install uv
+eval "$(gob shellenv)"
 ```
 
-使用自定义命令目录时，将第一条命令中的路径替换为实际 `gobrew` 路径。若 `/opt/gobrew` 已经由当前用户拥有，省略 `sudo` 步骤。其他软件操作必须以普通用户运行。`shellenv` 只打印命令，不自动改写 shell 配置；确认后可将输出加入自己的 shell 启动文件。
+默认目录 `/opt/gobrew` 位于 root 拥有的 `/opt` 下，首次创建时程序会说明原因，并通过 `sudo` 在终端里请求一次管理员密码。提权进程只创建 `/opt`（若不存在）和这个新目录，并把新目录交给当前用户；它不联网、不运行软件包代码、不修改已有目录的所有权，也不会触碰 `/opt/homebrew`。随后的数据库初始化、下载和安装都以普通用户身份进行，之后的安装、升级、卸载不再需要 `sudo`。
+
+没有可交互终端（CI、`--json`、无控制终端的脚本）时不会请求密码，而是失败并打印一条使用绝对路径的命令，例如 `sudo '/Users/you/.local/bin/gobrew' init`；在终端执行一次后重试原命令即可。拒绝授权或按 Ctrl-C 取消时不会留下半成品目录。`install --dry-run`、`list`、`doctor` 等只读命令不会创建目录或请求权限。
+
+`gobrew init` 仍然保留，用于预先初始化或修复：它是幂等的，可补全中断留下的空目录结构，但拒绝接管含有其他内容或属于其他用户的目录。`shellenv` 只打印命令，不自动改写 shell 配置；确认后可将输出加入自己的 shell 启动文件。shellenv 导出的 `GOBREW_PREFIX` 也会被 gobrew 读取，作为 `--prefix` 的默认值。
 
 ## 构建源码
 
@@ -59,8 +61,10 @@ go build -trimpath -o bin/gobrew ./cmd/gobrew
 
 ```sh
 prefix=$(mktemp -d /tmp/gb.XXXX)
-./bin/gobrew --prefix "$prefix" init
+./bin/gobrew --prefix "$prefix" install hello
 ```
+
+自定义 prefix 必须是当前用户可写的位置，不会触发 `sudo`。
 
 自定义 prefix 会影响 bottle 可重定位性；不能任意使用很长的路径。
 

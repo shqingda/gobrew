@@ -56,8 +56,14 @@ main() {
     tar -xOzf "$work/$archive" "${archive%.tar.gz}/gobrew" > "$work/gobrew"
     test -s "$work/gobrew"
     chmod 0755 "$work/gobrew"
-    "$work/gobrew" self install --bin-dir "${GOBREW_BIN_DIR:-$HOME/.local/bin}"
-    printf '\n%s\n' 'Next: ensure the command directory is in PATH, then run gob --help.'
+    bin=${GOBREW_BIN_DIR:-$HOME/.local/bin}
+    "$work/gobrew" self install --bin-dir "$bin"
+    # Set up Formula storage now. For /opt/gobrew this may ask once for an
+    # administrator password on the terminal; sudo never reads this pipe.
+    if ! "$bin/gobrew" init; then
+        printf '%s\n' 'Formula storage is not set up yet; the first gob install will retry.' >&2
+    fi
+    printf '\n%s\n' 'Next: ensure the command directory is in PATH, then run gob install <formula>.'
     printf '%s\n' 'For the default directory: export PATH="$HOME/.local/bin:$PATH"'
 }
 

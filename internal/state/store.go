@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"time"
 
 	"github.com/shqingda/gobrew/internal/model"
@@ -47,6 +48,9 @@ type Journal struct {
 	LinkPackage  string         `json:"link_package,omitempty"`
 }
 
+// layout lists every directory Initialize creates, parents first.
+var layout = []string{".gobrew", ".gobrew/staging", ".gobrew/backups", ".gobrew/trash", "Cellar", "opt", "bin", "sbin", "lib", "include", "share", "etc", "var"}
+
 func (s Store) Dir() string  { return filepath.Join(s.Prefix, ".gobrew") }
 func (s Store) path() string { return filepath.Join(s.Dir(), "state.db") }
 
@@ -72,7 +76,7 @@ func (s Store) Initialize() error {
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return err
 	}
-	for _, rel := range []string{".gobrew", ".gobrew/staging", ".gobrew/backups", ".gobrew/trash", "Cellar", "opt", "bin", "sbin", "lib", "include", "share", "etc", "var"} {
+	for _, rel := range layout {
 		if _, err := EnsureDir(s.Prefix, rel, 0755); err != nil {
 			return err
 		}
@@ -90,6 +94,39 @@ func (s Store) Initialize() error {
 	}
 	// bbolt syncs database contents; persist the initial filename as well.
 	return SyncDir(s.Dir())
+}
+
+// Pristine reports whether the prefix holds nothing but an interrupted or
+// concurrent Initialize could have left: empty layout directories, the writer
+// lock and the state database (which Initialize validates before reuse). Any
+// other entry means the directory belongs to something else.
+func (s Store) Pristine() error {
+	allowed := map[string]bool{".gobrew/writer.lock": true, ".gobrew/state.db": true}
+	for _, rel := range layout {
+		allowed[rel] = true
+	}
+	var walk func(rel string) error
+	walk = func(rel string) error {
+		entries, err := os.ReadDir(filepath.Join(s.Prefix, rel))
+		if err != nil {
+			return err
+		}
+		for _, entry := range entries {
+			child := filepath.ToSlash(filepath.Join(rel, entry.Name()))
+			if !allowed[child] {
+				return fmt.Errorf("refusing to adopt %s: unexpected %s; choose an empty prefix", s.Prefix, child)
+			}
+			if entry.Type().IsDir() {
+				if err := walk(child); err != nil {
+					return err
+				}
+			} else if !entry.Type().IsRegular() || slices.Contains(layout, child) {
+				return fmt.Errorf("refusing to adopt %s: %s is not the expected file type", s.Prefix, child)
+			}
+		}
+		return nil
+	}
+	return walk(".")
 }
 
 func (s Store) Load() (model.Snapshot, error) {
@@ -117,7 +154,7 @@ func (s Store) WithLock(ctx context.Context, fn func(*Session) error) error {
 		return err
 	}
 	if _, err := os.Lstat(s.path()); errors.Is(err, os.ErrNotExist) {
-		return fmt.Errorf("%w: run gobrew init", model.ErrNotFound)
+		return fmt.Errorf("%w: nothing is installed in %s", model.ErrNotFound, s.Prefix)
 	} else if err != nil {
 		return err
 	}

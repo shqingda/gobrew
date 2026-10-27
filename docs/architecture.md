@@ -53,10 +53,23 @@ case recovers once and makes a fresh plan; a GUI can expose recovery explicitly.
 ## Ownership and state
 
 The default Formula prefix is `/opt/gobrew`, owned by one non-root user. The
-privileged `init` operation may create only this fixed missing directory; it
-must never recursively chown an existing installation. Normal formula execution
-never runs as root. The curl bootstrap described below runs without privilege
-and does not initialize the Formula prefix.
+privileged `init` operation may create only this fixed missing directory (and a
+missing `/opt`, left owned by root) and hand the new prefix to the `SUDO_UID`
+user; it never adopts or chowns an existing directory, and removes the prefix
+again if the handover fails. Normal formula execution never runs as root.
+
+Initialization is not a separate user step. The curl bootstrap runs `init`
+after installing the CLI, and the first `install` or `migrate` initializes a
+missing prefix before planning. The engine reports a non-writable parent as
+`ErrPrivilegeRequired` and never prompts. The CLI alone decides to elevate: only
+for the fixed default prefix, only with a controlling terminal and without
+`--json`, by running its own absolute executable as `sudo -- <exe> init` once.
+sudo reads the password from the terminal, never from stdin. The unprivileged
+`init` then creates the database. Without a terminal the command fails with an
+absolute manual command. Read-only commands and dry runs never initialize.
+`init` is idempotent and concurrent-safe; it completes a prefix that contains
+only empty layout directories left by an interrupted run, and refuses any other
+existing content.
 
 Catalog snapshots are separate from mutable installed state. bbolt handles are
 short lived because even a read-only handle holds a process-level file lock.

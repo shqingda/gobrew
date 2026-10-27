@@ -9,11 +9,14 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
+	"syscall"
 	"text/tabwriter"
+	"time"
 	"unicode"
 
 	"github.com/shqingda/gobrew/internal/engine"
@@ -54,6 +57,12 @@ type application struct {
 	hasResult bool
 	result    any
 	render    func(io.Writer) error
+	// systemPrefix is the only prefix the privileged helper may create.
+	// Tests point it, terminal and elevate at temporary fakes so that no test
+	// runs sudo or touches /opt.
+	systemPrefix string
+	terminal     func() bool
+	elevate      func(ctx context.Context, executable string, args []string) error
 }
 
 // Run executes one invocation. It never exits the process or installs signal
@@ -61,8 +70,19 @@ type application struct {
 func Run(ctx context.Context, args []string, stdout, stderr io.Writer, build BuildInfo) int {
 	config, configErr := engine.Defaults()
 	if config.Prefix == "" {
-		config.Prefix = "/opt/gobrew"
+		config.Prefix = engine.SystemPrefix
 	}
+	// shellenv exports GOBREW_PREFIX; honoring it keeps later commands on the
+	// same prefix. --prefix still takes precedence.
+	if prefix := os.Getenv("GOBREW_PREFIX"); prefix != "" {
+		config.Prefix = prefix
+	}
+	a := &application{config: config, configErr: configErr, stderr: stderr, systemPrefix: engine.SystemPrefix, terminal: hasTerminal, elevate: sudo}
+	return a.run(ctx, args, stdout, build)
+}
+
+func (a *application) run(ctx context.Context, args []string, stdout io.Writer, build BuildInfo) int {
+	stderr := a.stderr
 	if build.Version == "" {
 		build.Version = "dev"
 	}
@@ -72,7 +92,7 @@ func Run(ctx context.Context, args []string, stdout, stderr io.Writer, build Bui
 	if build.Date == "" {
 		build.Date = "unknown"
 	}
-	a := &application{config: config, configErr: configErr, build: build, stderr: stderr}
+	a.build = build
 	root := a.root()
 	root.SetArgs(args)
 	root.SetOut(stdout)
@@ -134,6 +154,8 @@ func classify(err error) (int, string) {
 		return 4, "conflict"
 	case errors.Is(err, model.ErrNeedsRepair):
 		return 5, "needs_repair"
+	case errors.Is(err, model.ErrPrivilegeRequired):
+		return 1, "privilege_required"
 	case errors.Is(err, model.ErrNotFound), errors.Is(err, os.ErrNotExist):
 		return 1, "not_found"
 	case errors.Is(err, context.DeadlineExceeded):
@@ -344,20 +366,85 @@ func (a *application) version() {
 	a.message(a.build, fmt.Sprintf("gobrew %s (commit %s, built %s)", a.build.Version, a.build.Commit, a.build.Date))
 }
 
-func (a *application) init(_ context.Context, _ []string) error {
+func (a *application) init(ctx context.Context, _ []string) error {
 	e, err := a.getEngine()
 	if err != nil {
 		return err
 	}
-	if err := e.Init(); err != nil {
+	if os.Geteuid() == 0 {
+		if err := e.Init(); err != nil {
+			return err
+		}
+		a.message(map[string]string{"prefix": e.Prefix()}, "Created "+e.Prefix()+" for your user. Your next gobrew command finishes setup without sudo.")
+		return nil
+	}
+	if err := a.initialize(ctx, e); err != nil {
 		return err
 	}
-	message := "Initialized " + e.Prefix() + ". Print PATH setup with: gobrew --prefix " + shellQuote(e.Prefix()) + " shellenv"
-	if os.Geteuid() == 0 {
-		message = "Created " + e.Prefix() + ". Run 'gobrew init' as your normal user to finish initialization."
-	}
-	a.message(map[string]string{"prefix": e.Prefix()}, message)
+	a.message(map[string]string{"prefix": e.Prefix()}, "Initialized "+e.Prefix()+". Print PATH setup with: gobrew --prefix "+shellQuote(e.Prefix())+" shellenv")
 	return nil
+}
+
+// ensureInitialized makes the first install work without a separate init step.
+// Already initialized prefixes cost one stat.
+func (a *application) ensureInitialized(ctx context.Context, e *engine.Engine) error {
+	ok, err := e.Initialized()
+	if err != nil || ok {
+		return err
+	}
+	return a.initialize(ctx, e)
+}
+
+// initialize runs Init and, when only administrator access is missing for the
+// default prefix, runs this executable's root init once through sudo. sudo
+// reads the password from the controlling terminal, never from our stdin, so
+// this also works under curl | sh. Everything else stays unprivileged.
+func (a *application) initialize(ctx context.Context, e *engine.Engine) error {
+	err := e.Init()
+	if !errors.Is(err, model.ErrPrivilegeRequired) || e.Prefix() != a.systemPrefix {
+		return err
+	}
+	executable, exeErr := os.Executable()
+	if exeErr != nil {
+		return errors.Join(err, exeErr)
+	}
+	manual := "sudo " + shellQuote(executable) + " init"
+	if a.json || !a.terminal() {
+		return fmt.Errorf("%w; run once in a terminal: %s", err, manual)
+	}
+	fmt.Fprintf(a.stderr, "gobrew needs administrator access once to create %s and hand it to you.\nNo downloads or package code run as root.\n", e.Prefix())
+	elevateErr := a.elevate(ctx, executable, []string{"--prefix", e.Prefix(), "--quiet", "init"})
+	if cause := ctx.Err(); cause != nil {
+		return cause
+	}
+	// Retry even after a failed helper: a concurrent installer may have
+	// created the prefix for this user in the meantime.
+	if err = e.Init(); err != nil && elevateErr != nil {
+		return fmt.Errorf("%w: administrator authorization did not complete (%v); to retry manually run: %s", model.ErrPrivilegeRequired, elevateErr, manual)
+	}
+	return err
+}
+
+func hasTerminal() bool {
+	tty, err := os.OpenFile("/dev/tty", os.O_RDWR, 0)
+	if err != nil {
+		return false
+	}
+	_ = tty.Close()
+	return true
+}
+
+func sudo(ctx context.Context, executable string, args []string) error {
+	// An absolute sudo avoids PATH lookups; stdin stays closed so a piped
+	// installer script is never consumed as a password.
+	cmd := exec.CommandContext(ctx, "/usr/bin/sudo", append([]string{"-p", "Password for %u: ", "--", executable}, args...)...)
+	cmd.Stdout = io.Discard
+	cmd.Stderr = os.Stderr
+	// SIGTERM lets sudo forward cancellation to the root helper; SIGKILL would
+	// orphan it. The helper only performs two short directory operations.
+	cmd.Cancel = func() error { return cmd.Process.Signal(syscall.SIGTERM) }
+	cmd.WaitDelay = 5 * time.Second
+	return cmd.Run()
 }
 
 func (a *application) search(ctx context.Context, args []string) error {
@@ -533,6 +620,11 @@ func (a *application) installCommand(action string) *cobra.Command {
 			}
 			a.setResult(plan, func(w io.Writer) error { return renderPlan(w, plan) })
 			return nil
+		}
+		if action == "install" {
+			if err = a.ensureInitialized(ctx, e); err != nil {
+				return err
+			}
 		}
 		var result model.Result
 		err = a.withEvents(func(events chan<- model.Event) error {
@@ -747,6 +839,9 @@ func (a *application) migrateCommand() *cobra.Command {
 				return renderSkipped(w, migration.Skipped)
 			})
 			return nil
+		}
+		if err = a.ensureInitialized(ctx, e); err != nil {
+			return err
 		}
 		var result model.Result
 		err = a.withEvents(func(events chan<- model.Event) error {
