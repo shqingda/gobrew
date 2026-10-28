@@ -1405,8 +1405,6 @@ func (a *application) afterInstall(ctx context.Context, e *engine.Engine, result
 	return notes
 }
 
-// renderInstall follows Homebrew: one "<keg>: N files, SIZE" line per poured
-// keg, caveats, and an up-to-date warning for unchanged requests.
 // heldError reports, like brew install, requested formulae that are installed
 // and outdated but were not upgraded. The command then exits non-zero.
 func heldError(e *engine.Engine, held []string) error {
@@ -1433,6 +1431,8 @@ func heldError(e *engine.Engine, held []string) error {
 	return errors.New(strings.Join(messages, "\n"))
 }
 
+// renderInstall follows Homebrew: one "<keg>: N files, SIZE" line per poured
+// keg, caveats, and an already-installed warning for unchanged requests.
 func (a *application) renderInstall(w io.Writer, e *engine.Engine, request model.Request, result model.Result, notes []string) error {
 	var lines []string
 	records := map[string]model.Record{}
@@ -1479,7 +1479,7 @@ func (a *application) renderInstall(w io.Writer, e *engine.Engine, request model
 			continue
 		}
 		version := r.Formula.PkgVersion()
-		fmt.Fprintf(a.stderr, "Warning: %s %s is already installed and up-to-date.\nTo reinstall %s, run:\n  gob reinstall %s\n", name, version, version, name)
+		fmt.Fprintf(a.stderr, "Warning: %s %s is already installed.\nTo reinstall %s, run:\n  gob reinstall %s\n", name, version, version, name)
 	}
 	for _, group := range []struct {
 		label string

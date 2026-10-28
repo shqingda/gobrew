@@ -98,6 +98,23 @@ func TestCancellationDuringAutoUpdateDoesNotInstall(t *testing.T) {
 	}
 }
 
+func TestInstalledNoopDoesNotClaimLatestWithoutCatalog(t *testing.T) {
+	t.Setenv("GOBREW_NO_AUTO_UPDATE", "1")
+	a, requests, current := updateApp(t)
+	if err := os.RemoveAll(filepath.Dir(current)); err != nil {
+		t.Fatal(err)
+	}
+	var stdout bytes.Buffer
+	code := a.run(context.Background(), []string{"install", "demo"}, &stdout, BuildInfo{})
+	output := a.stderr.(*bytes.Buffer).String()
+	if code != 0 || requests.calls != 0 {
+		t.Fatalf("offline no-op: exit=%d requests=%d stdout=%s stderr=%s", code, requests.calls, &stdout, output)
+	}
+	if strings.Contains(output, "up-to-date") || !strings.Contains(output, "demo 1 is already installed") || !strings.Contains(output, "gob reinstall demo") {
+		t.Fatalf("no-op must report the installed version without claiming it is latest: %s", output)
+	}
+}
+
 // A local catalog fixture lets commands continue after a failed refresh without
 // making tests depend on a live Homebrew snapshot or weakening verification.
 func updateApp(t *testing.T) (*application, *updateFailure, string) {
