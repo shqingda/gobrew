@@ -941,7 +941,34 @@ func (a *application) uninstall(ctx context.Context, names []string) error {
 	if err != nil {
 		return err
 	}
-	a.names(removed, "Nothing to uninstall.")
+	a.setResult(removed, func(w io.Writer) error {
+		var unused []string
+		for _, name := range removed {
+			if !slices.Contains(names, name) {
+				unused = append(unused, name)
+				continue
+			}
+			if _, err := fmt.Fprintf(w, "Uninstalled %s\n", cleanText(name)); err != nil {
+				return err
+			}
+		}
+		if len(unused) == 0 {
+			return nil
+		}
+		label := "dependencies"
+		if len(unused) == 1 {
+			label = "dependency"
+		}
+		if _, err := fmt.Fprintf(w, "==> Autoremoved %d unused %s:\n", len(unused), label); err != nil {
+			return err
+		}
+		for _, name := range unused {
+			if _, err := fmt.Fprintf(w, "Uninstalled %s\n", cleanText(name)); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
 	return nil
 }
 

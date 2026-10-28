@@ -68,3 +68,9 @@
 用户实测卸载 jq 后 oniguruma 遗留。回归测试先复现只返回 jq 的失败，再在 Engine.Uninstall 原有单次 MutateRecords 内复用 autoremove 的可达性规则，同时卸载无用依赖；保留主动安装、pin 和其他主动安装包仍需要的依赖，仍拒绝直接卸载被依赖的包。补充 requested 含义和卸载语义文档。
 
 四组回归检查记录与真实 keg 的删除／保留，包含传递依赖；本地 `make check` 全部通过。隔离临时 prefix/HOME/cache 的真实 jq 1.8.2 + oniguruma 6.9.10 验证通过：jq 可执行、直接删除依赖被拒绝、卸载 jq 自动移除依赖、显式安装的 oniguruma 保留。未修改用户安装，也未运行 GitHub Actions。审查确认复用原有写锁、归属校验和 durable journal，无新事务框架。命令与日志见 `docs/verification/2026-10-28-uninstall/`。
+
+## 2026-10-28：明确卸载结果
+
+按用户反馈参考 Homebrew 的卸载／自动清理提示，普通文本改为 `Uninstalled NAME`，自动移除的依赖另列 `Autoremoved N unused dependency/dependencies` 标题；仅成功后显示，JSON 数组协议不变，不额外扫描磁盘或改变卸载行为。按低影响文案变更处理，未添加只断言字符串的单元测试。
+
+本地 `make check` 全部通过；临时 prefix/HOME/cache 的 jq 实瓶复测确认显式卸载、自动依赖清理和 requested 保留的文本正确，JSON uninstall 仍返回名称数组。自审确认错误输出与终端文本清洗保留。未运行 Actions、未正式发版，继续由用户安装测试。参考：https://docs.brew.sh/rubydoc/Homebrew/Cleanup.html 。本地日志：`/tmp/gobrew-uninstall-output-check.log`、`/tmp/gobrew-uninstall-output-smoke.log`。
