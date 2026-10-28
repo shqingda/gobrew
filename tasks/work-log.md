@@ -78,3 +78,5 @@
 ## 2026-10-29：发布 v0.4.0
 
 用户明确要求发版，授权本次使用 GitHub Actions。相对 v0.3.0 包含指定版本安装及安装／更新／清理行为调整，采用次版本 v0.4.0；新增面向用户的发布说明，特别注明自动卸载依赖和 dev 测试版升级方法。发布前本地 `make check` 全部通过，日志 `/tmp/gobrew-v0.4.0-check.log`。代码沿用已审查和验证的 main；保留原有代码检查、macOS 15/26 实瓶及五轮性能发布门槛，发布状态待远端运行确认。
+
+发布完成：tag `v0.4.0` 固定提交 `56ebbd7099dcdac6380bf0936b3e69210a540d46`；[Release 流水线 40729585163](https://github.com/shqingda/gobrew/actions/runs/40729585163) 的代码检查、macOS 15/26 实瓶、性能和发布任务全部成功，无重跑。正式产物下载后的三项 SHA-256 校验全部通过，压缩包内 `gobrew` 和 `gob` 均报告 v0.4.0 及正确提交。发布性能门槛通过：冷安装中位数 13.006s 对 Homebrew 18.960s，热重装 11.447s 对 18.507s；范围以随附 benchmark.json 为准。正式发布时间为 2026-10-29 00:55:47（Asia/Taipei）。[发布页面](https://github.com/shqingda/gobrew/releases/tag/v0.4.0)。未替用户安装正式版或改动其 Formula。
