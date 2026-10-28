@@ -40,3 +40,6 @@
 | 保存完整 JSON、命令与日志，检查逐轮阶段和版本 | 保留可复现证据，不混合历史样本 | `docs/benchmarks/2026-10-28-m3-pro-046d271.json` 及同名 `-evidence.tar.gz`；双方完整版本集合一致。固定先 gobrew 后 Homebrew，未据此声称统计置信区间或与旧版差异的因果关系。 |
 | 新增 nanobrew 独立比较工作流与脚本 | 原版固定 prefix，需一次性 hosted runner 上隔离双方并屏蔽预装 Homebrew | 固定 v0.1.212、源码提交和发布物 SHA；预检后交替测量 uv/hello/jq 五轮，逐次检查完整包集合、版本/修订、bottle SHA、实际执行、签名与链接来源。尚未有远端实测结果。 |
 | 对比较器补真实树遍历的失败 fixture，再修复校验 | 防止 symlink keg 导致零文件检查却报告成功 | 旧实现暴露零签名检查和空树未拒绝，修复后 6 项 Python 测试通过；磁盘报告区分分区和逐 keg 统计，不重复累加或宣称物理空间节省。 |
+| 创建草稿 PR #1 并运行 CI | 在真正的一次性 macOS runner 验证比较可执行性 | 首次普通 CI 发现两处已有 import 格式问题，已 gofmt；nanobrew 预检实测 uv 的额外 bzip2/xz 闭包，不能与 gobrew 的系统依赖语义直接比较。失败原始证据保存在 `docs/benchmarks/2026-10-28-nanobrew-attempt1-evidence.tar.gz`。 |
+| 分离不可比结果与执行失败，继续预检其余候选 | 一个候选的真实依赖差异不应挡住 hello/jq 的验证 | 先以失败测试复现提前停止，再改为记录 uv 不可比、寻找下一例等价安装；不放宽版本/依赖/SHA 比较。7 项 Python 测试通过；同时校正 gobrew 缓存统计到 `artifacts/blobs` 与 `artifacts/trees`。 |
+| 取消跟踪误提交的构建产物并忽略 Python bytecode | 保持源码与验证证据清晰 | 根目录 `benchmark` 二进制仍保留在本地，后续不再纳入 Git；未删除用户数据。 |

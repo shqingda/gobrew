@@ -248,6 +248,7 @@ func (i Installer) CleanupWith(ctx context.Context, opts CleanupOptions) ([]mode
 	})
 	return removed, err
 }
+
 // measure counts regular files and their bytes, like Homebrew's abv.
 func measure(path string) model.Removed {
 	r := model.Removed{Path: path}

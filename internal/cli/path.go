@@ -3,8 +3,8 @@ package cli
 import (
 	"cmp"
 	"fmt"
-	"maps"
 	"io/fs"
+	"maps"
 	"os"
 	"os/exec"
 	"path/filepath"

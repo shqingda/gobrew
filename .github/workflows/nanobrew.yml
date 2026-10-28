@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       preflight_only:
-        description: Only verify one equivalent uv installation before the full comparison
+        description: Only verify one equivalent candidate installation before the full comparison
         type: boolean
         default: false
   pull_request:

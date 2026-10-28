@@ -30,6 +30,10 @@ NB_PREFIX = NB_ROOT / "prefix"
 NB_SHORT = Path("/opt/nb")
 
 
+class NotComparable(RuntimeError):
+    """A successful installation produced a different bottle closure."""
+
+
 def digest(path):
     return hashlib.sha256(Path(path).read_bytes()).hexdigest()
 
@@ -65,7 +69,7 @@ class Comparison:
                 "nanobrew is an unmodified release binary using its compiled-in prefix; gobrew uses a short temporary prefix.",
                 "Preinstalled Homebrew and /usr/local are denied to measured processes by macOS sandbox-exec.",
                 "Catalog refresh is outside install timing. Cold clears artifact caches; warm clears installed state and mutable configuration only; no-op preserves installed state.",
-                "Both empty prefixes are initialized before timing. The one-off uv preflight is recorded separately and excluded from the five-round summary.",
+                "Both empty prefixes are initialized before timing. Candidate preflights are recorded separately and excluded from the five-round summary; non-equivalent closures receive no speed ratio.",
                 "gobrew validates signed metadata; nanobrew's native Homebrew API path uses HTTPS JSON and bottle SHA. This trust difference is disclosed, not removed from gobrew.",
                 "Comparability requires identical installed package sets, versions including revisions, and bottle SHA. Matching SHA binds nanobrew's bottle bytes to gobrew's selected tag; nanobrew state has no dependency list, so raw dependency metadata fields are not compared.",
                 "All executable, signature, linkage and installed-artifact checks run outside timing. Each installed keg must contain at least one verified Mach-O executable or library.",
@@ -232,8 +236,8 @@ class Comparison:
                   "verification": verification,
                   "disk": {"installed_keg_bytes": sum(v["logical_bytes"] for v in verification.values()),
                            "prefix_bytes": logical_bytes(self.gb_prefix if manager == "gobrew" else NB_PREFIX),
-                           "download_bytes": logical_bytes(self.gb_cache / "blobs" if manager == "gobrew" else NB_ROOT / "cache/blobs"),
-                           "prepared_bytes": logical_bytes(self.gb_cache / "trees" if manager == "gobrew" else NB_ROOT / "store-relocated"),
+                           "download_bytes": logical_bytes(self.gb_cache / "artifacts/blobs" if manager == "gobrew" else NB_ROOT / "cache/blobs"),
+                           "prepared_bytes": logical_bytes(self.gb_cache / "artifacts/trees" if manager == "gobrew" else NB_ROOT / "store-relocated"),
                            "extracted_bytes": 0 if manager == "gobrew" else logical_bytes(NB_ROOT / "store"),
                            "metadata_bytes": logical_bytes(self.gb_cache / "catalog" if manager == "gobrew" else NB_ROOT / "cache/api")}}
         if manager == "gobrew":
@@ -252,16 +256,24 @@ class Comparison:
         gb, nb = pair["gobrew"], pair["nanobrew"]
         expected = {k: {"version": v["version"], "sha256": v["sha256"]} for k, v in gb.items()}
         if expected != nb:
-            raise RuntimeError(f"installed versions/dependency closure/bottle SHA differ: {expected} != {nb}")
+            raise NotComparable(f"installed versions/dependency closure/bottle SHA differ: {expected} != {nb}")
 
     def preflight(self):
-        identities = {}
-        for manager in ("gobrew", "nanobrew"):
-            self.reset(manager, cold=True)
-            identities[manager] = self.install(manager, "uv", "preflight-cold")
-        self.check_equal(identities)
-        self.report["preflight"] = "passed"
-        self.save()
+        for token in ("uv", "hello", "jq"):
+            identities = {}
+            for manager in ("gobrew", "nanobrew"):
+                self.reset(manager, cold=True)
+                identities[manager] = self.install(manager, token, "preflight-cold")
+            try:
+                self.check_equal(identities)
+            except NotComparable as error:
+                self.report["cases"][token] = {"status": "not-comparable", "reason": str(error)}
+                self.save()
+                continue
+            self.report["preflight"] = {"status": "passed", "token": token}
+            self.save()
+            return
+        raise RuntimeError("no candidate passed equivalent-installation preflight")
 
     def compare_case(self, token):
         # Resolve the signed closure before timing, then warm only nanobrew's
@@ -304,12 +316,17 @@ class Comparison:
     def compare_all(self):
         failed = False
         for token in ("uv", "hello", "jq"):
+            if self.report["cases"].get(token, {}).get("status") == "not-comparable":
+                continue
             try:
                 self.compare_case(token)
+            except NotComparable as error:
+                self.report["cases"][token].update({"status": "not-comparable", "reason": str(error)})
+                self.save()
             except Exception as error:
                 failed = True
                 case = self.report["cases"].setdefault(token, {})
-                case.update({"status": "failed-or-not-comparable", "error": str(error)})
+                case.update({"status": "failed", "error": str(error)})
                 self.save()
         if failed:
             raise RuntimeError("one or more package comparisons failed; see cases and raw logs")
@@ -329,7 +346,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--gobrew", required=True)
     parser.add_argument("--output", required=True)
-    parser.add_argument("--preflight-only", action="store_true", help="stop after the untimed-summary uv preflight")
+    parser.add_argument("--preflight-only", action="store_true", help="stop after a candidate passes equivalent-installation preflight")
     args = parser.parse_args()
     comparison = Comparison(args)
     try:

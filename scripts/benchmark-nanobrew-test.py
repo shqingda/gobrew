@@ -13,6 +13,20 @@ spec.loader.exec_module(comparison)
 
 
 class ComparisonTests(unittest.TestCase):
+    def test_preflight_records_noncomparable_candidate_and_tries_next(self):
+        runner = object.__new__(comparison.Comparison)
+        runner.report = {"cases": {}}
+        runner.save = Mock()
+        runner.reset = Mock()
+        uv = {"uv": {"version": "1", "sha256": "uv-sha"}}
+        nb_uv = {**uv, "xz": {"version": "1", "sha256": "xz-sha"}}
+        hello = {"hello": {"version": "1", "sha256": "hello-sha"}}
+        runner.install = Mock(side_effect=[uv, nb_uv, hello, hello])
+        runner.preflight()
+        self.assertEqual(runner.report["cases"]["uv"]["status"], "not-comparable")
+        self.assertEqual(runner.report["preflight"], {"status": "passed", "token": "hello"})
+        self.assertEqual([call.args[1] for call in runner.install.call_args_list], ["uv", "uv", "hello", "hello"])
+
     def installed_fixture(self, directory, symlink=False, macho=True):
         root = Path(directory)
         prefix = root / "prefix"
