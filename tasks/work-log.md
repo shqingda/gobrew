@@ -43,3 +43,4 @@
 | 创建草稿 PR #1 并运行 CI | 在真正的一次性 macOS runner 验证比较可执行性 | 首次普通 CI 发现两处已有 import 格式问题，已 gofmt；nanobrew 预检实测 uv 的额外 bzip2/xz 闭包，不能与 gobrew 的系统依赖语义直接比较。失败原始证据保存在 `docs/benchmarks/2026-10-28-nanobrew-attempt1-evidence.tar.gz`。 |
 | 分离不可比结果与执行失败，继续预检其余候选 | 一个候选的真实依赖差异不应挡住 hello/jq 的验证 | 先以失败测试复现提前停止，再改为记录 uv 不可比、寻找下一例等价安装；不放宽版本/依赖/SHA 比较。7 项 Python 测试通过；同时校正 gobrew 缓存统计到 `artifacts/blobs` 与 `artifacts/trees`。 |
 | 取消跟踪误提交的构建产物并忽略 Python bytecode | 保持源码与验证证据清晰 | 根目录 `benchmark` 二进制仍保留在本地，后续不再纳入 Git；未删除用户数据。 |
+| 复现并修复显式降级绕过已安装消费者最低版本的问题 | 相同 ABI 标记不代表旧依赖满足已记录的 runtime minimum | 版本不足／修订不足，在消费者 pin/unpin 两种状态下共四例先失败；在反向依赖扩展完成后检查保留消费者，低于最低值时拒绝，满足最低值或同步替换消费者仍允许。resolver race 测试通过。 |

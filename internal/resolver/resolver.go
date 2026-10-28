@@ -224,6 +224,25 @@ func Build(req model.Request, generation string, formulae map[string]model.Formu
 			changed = true
 		}
 	}
+	// Only consumers retained after reverse expansion constrain a replacement.
+	// An unchanged ABI hint cannot waive their recorded runtime minimum when an
+	// explicit version request downgrades a dependency.
+	for name, record := range state.Records {
+		if _, replaced := selected[name]; replaced {
+			continue
+		}
+		for _, dep := range record.Dependencies {
+			depName := strings.TrimPrefix(dep.Name, "homebrew/core/")
+			target, changed := selected[depName]
+			if !changed || dep.Version == "" {
+				continue
+			}
+			comparison := CompareVersions(target.Formula.Version, dep.Version)
+			if comparison < 0 || comparison == 0 && target.Formula.Revision < dep.Revision {
+				return plan, fmt.Errorf("%w: retained %s requires %s >= %s_%d; plan provides %s", model.ErrConflict, name, depName, dep.Version, dep.Revision, target.Formula.PkgVersion())
+			}
+		}
+	}
 	for name, pkg := range selected {
 		for _, conflict := range pkg.Formula.Conflicts {
 			conflict = strings.TrimPrefix(conflict, "homebrew/core/")

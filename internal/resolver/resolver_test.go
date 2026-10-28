@@ -254,3 +254,60 @@ func TestExactVersionMayReplaceButNotOverrideAPin(t *testing.T) {
 		t.Fatalf("same pinned version = %+v, %v", plan, err)
 	}
 }
+
+func TestExactDowngradePreservesInstalledReverseRuntimeMinimum(t *testing.T) {
+	for _, tc := range []struct {
+		name                                             string
+		current, target, minimum                         string
+		currentRevision, targetRevision, minimumRevision int
+		wantConflict                                     bool
+		replaceConsumer                                  bool
+	}{
+		{name: "version below minimum", current: "2", target: "1", minimum: "2", wantConflict: true},
+		{name: "revision below minimum", current: "1", target: "1", minimum: "1", currentRevision: 1, minimumRevision: 1, wantConflict: true},
+		{name: "minimum still satisfied", current: "3", target: "2", minimum: "2"},
+		{name: "consumer also replaced", current: "2", target: "1", minimum: "2", replaceConsumer: true},
+	} {
+		for _, pinned := range []bool{false, true} {
+			if pinned && tc.replaceConsumer {
+				continue
+			}
+			t.Run(tc.name+map[bool]string{false: "/unpinned", true: "/pinned"}[pinned], func(t *testing.T) {
+				abi := 1
+				current, target := formula("lib", tc.current), formula("lib", tc.target)
+				current.Revision, target.Revision = tc.currentRevision, tc.targetRevision
+				current.CompatibilityVersion, target.CompatibilityVersion = &abi, &abi
+				app := formula("app", "1", "lib")
+				snapshot := model.Snapshot{Records: map[string]model.Record{
+					"lib": {Formula: current, Status: model.Ready},
+					"app": {Formula: app, Status: model.Ready, Pinned: pinned, Dependencies: []model.RuntimeDependency{{Name: "homebrew/core/lib", Version: tc.minimum, Revision: tc.minimumRevision}}},
+				}}
+				req := model.Request{Action: "install", Names: []string{"lib"}, Exact: []string{"lib"}}
+				wantPackages := 1
+				if tc.replaceConsumer {
+					req.Names = append(req.Names, "app")
+					app.Version = "2"
+					wantPackages = 2
+				}
+				plan, err := Build(req, "snapshot", map[string]model.Formula{"lib": target, "app": app}, snapshot, host, "/opt/gobrew")
+				if err == nil {
+					var prepared []model.PreparedPackage
+					for _, pkg := range plan.Packages {
+						prepared = append(prepared, model.PreparedPackage{Package: pkg})
+					}
+					err = ValidateRuntime(plan, prepared, snapshot)
+				}
+				if tc.wantConflict {
+					if !errors.Is(err, model.ErrConflict) {
+						t.Fatalf("downgrade violates installed app's runtime minimum but was accepted: %v", err)
+					}
+					if !strings.Contains(err.Error(), "retained app requires lib >= ") {
+						t.Fatalf("error does not identify the dependent's minimum: %v", err)
+					}
+				} else if err != nil || len(plan.Packages) != wantPackages || plan.Packages[0].Formula.Name != "lib" {
+					t.Fatalf("safe downgrade changed the dependent or failed: %+v, %v", plan.Packages, err)
+				}
+			})
+		}
+	}
+}
