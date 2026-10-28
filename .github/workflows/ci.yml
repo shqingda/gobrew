@@ -1,9 +1,6 @@
 name: CI
 
 on:
-  push:
-    branches: [main]
-  pull_request:
   workflow_call:
 
 permissions:
@@ -21,23 +18,5 @@ jobs:
         with:
           go-version-file: go.mod
           cache-dependency-path: go.sum
-      - name: Formatting
-        run: |
-          unformatted=$(gofmt -l .)
-          if [[ -n "$unformatted" ]]; then
-            echo "$unformatted"
-            exit 1
-          fi
-      - run: go mod verify
-      - run: go vet ./...
-      - run: go test -race ./...
-      - name: Verify complete tutorial examples
-        run: go run ./scripts/check-tutorial.go
-      - name: Build without CGO
-        run: go build -trimpath -o bin/gobrew ./cmd/gobrew
-        env:
-          CGO_ENABLED: '0'
-      - name: Verify curl bootstrap and CLI lifecycle
-        run: scripts/test-bootstrap.sh "$PWD/bin/gobrew"
-      - name: Vulnerability analysis
-        run: go run golang.org/x/vuln/cmd/govulncheck@v1.9.0 ./...
+      - name: Verify and build through the local entry point
+        run: make check

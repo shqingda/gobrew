@@ -9,4 +9,6 @@
 - Do not alter existing Homebrew installations or user configuration during development or benchmarks.
 - Keep dependencies pinned and explain additions; use the standard library when it is sufficient.
 - Required verification: formatting, go vet, go test -race, CGO_ENABLED=0 build, govulncheck and documented real-bottle smoke tests.
+- Routine validation runs locally. Use `make check` (also run by `make build`) before delivering a build or preparing a release. It produces a release-mode test executable (CGO disabled, trimpath, stripped symbols); provide the artifact or local path, source commit and SHA-256, installation/use instructions and test scope for the user to install and test. Keep the dev label; do not create or push a version tag for a local test build.
+- GitHub Actions is reserved for user-confirmed releases, including release verification. Do not trigger or retry Actions for routine development, commits, PRs or local test deliveries; manual dispatch also requires release confirmation. Keep the release verification gates intact.
 - Report unsupported capabilities and unverified release gates truthfully.

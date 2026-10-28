@@ -7,10 +7,6 @@ on:
         description: Only verify one equivalent candidate installation before the full comparison
         type: boolean
         default: false
-  pull_request:
-    paths:
-      - 'scripts/benchmark-nanobrew*'
-      - '.github/workflows/nanobrew.yml'
 
 permissions:
   contents: read

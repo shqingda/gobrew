@@ -85,6 +85,6 @@ uv 两端都成功安装并验证 `0.13.6`，uv bottle SHA 也相同；但 gobre
 
 ## 复现
 
-使用仓库的 [Nanobrew comparison 工作流](../.github/workflows/nanobrew.yml)，在一次性 GitHub hosted macOS 26 ARM64 runner 上执行。手动运行时，`preflight_only=true` 只做到首个等价候选；完整运行保留默认 `false`。不要把脚本的 runner 检查移除后在开发机试跑。
+仅在用户确认发版后，使用仓库的 [Nanobrew comparison 工作流](../.github/workflows/nanobrew.yml)；本页历史方法不代表日常默认验证方式。它在一次性 GitHub hosted macOS 26 ARM64 runner 上执行，`preflight_only=true` 只做到首个等价候选，完整运行保留默认 `false`。不要把 runner 检查移除后在开发机试跑。
 
 每次重测单独保留 JSON、命令输出、实际构建提交和二进制 SHA。后续结果替换本页主表时，此前完整证据仍保留为历史，不拼接不同提交或不同 runner 的最快样本。

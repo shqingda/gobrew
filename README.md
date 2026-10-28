@@ -71,7 +71,7 @@ type -a uv
 ## 构建源码
 
 ```sh
-go build -trimpath -o bin/gobrew ./cmd/gobrew
+make build
 ./bin/gobrew --version
 ```
 
@@ -216,16 +216,18 @@ gobrew completion zsh
 
 ## 验证与发布
 
+日常构建、预构建和发版准备先执行 `make check`；`make build` 也会执行同一套检查。通过后输出 release 模式的 `bin/gobrew` 与 `bin/gobrew.sha256`，标记为 dev 测试构建，交付产物、提交号和使用／测试说明，由用户安装后测试，不打版本 tag。
+
+GitHub Actions 仅在用户明确确认发版后用于发布验证和发布；普通提交、PR 与测试交付不触发，手动运行也遵守此规则。详见 [工程约束](CONSTRAINTS.md)。
+
 ```sh
-go test -race ./...
-go vet ./...
-go run ./scripts/check-tutorial.go
-go run golang.org/x/vuln/cmd/govulncheck@v1.9.0 ./...
-CGO_ENABLED=0 go build -trimpath -o bin/gobrew ./cmd/gobrew
-scripts/test-bootstrap.sh "$PWD/bin/gobrew"
+make check
+# 安装行为变更或正式发版前，另跑隔离实瓶验证：
 scripts/smoke.sh "$PWD/bin/gobrew"
 scripts/smoke-version.sh "$PWD/bin/gobrew"
 ```
+
+`make check` 本地执行格式、依赖、vet、全量 race、比较器测试、教程、漏洞检查、构建和 bootstrap；正式发布 CI 复用相同入口，不调用云端来模拟 CI。
 
 测试集中于签名、归档安全、依赖、缓存隔离、状态恢复、链接归属和真实运行。没有覆盖率配额。实瓶 smoke 使用自己的临时目录，不操作现有 Homebrew。`smoke-version.sh` 另外验证历史 uv 安装、pin、解除 pin、升级、自动清理和 no-op，结束时打印保留的证据目录；第二个参数可指定一个尚不存在的证据目录。
 
@@ -233,7 +235,7 @@ scripts/smoke-version.sh "$PWD/bin/gobrew"
 
 2026-10-27 的 M3 Pro 历史五轮实测中，`hello`、`jq`、证书集合的冷安装中位数为 9.58 秒，热缓存重新安装为 6.99 秒；对照 Homebrew 为 12.81 秒和 10.86 秒。这组数据绑定当时的提交，不能代表后续改动的性能；各次测量版本、方法、限制与原始数据见[性能验证记录](docs/performance.md)。
 
-GitHub Actions 在 PR 运行检查，包括临时目录内的 curl 引导安装、别名和自身卸载验证。版本 tag 必须通过检查、真实安装及五轮性能门禁，才发布已测量的 ARM64 二进制、`gob` 链接、安装脚本、校验文件和基准原始数据。不会自动创建版本 tag。
+确认发版后，版本 tag 必须通过检查、真实安装及五轮性能门禁，才发布已测量的 ARM64 二进制、`gob` 链接、安装脚本、校验文件和基准原始数据。不会自动创建版本 tag。
 
 ## 文档
 
