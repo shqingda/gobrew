@@ -25,3 +25,6 @@
 | 在 CLI 自动更新条件中排除 dry-run，补命令触发、失败回退及取消验证 | 修复已复现行为，保留缺失目录的正常规划获取 | `go test ./internal/cli ./internal/resolver -count=1` 通过；JSON 仍是单文档。 |
 | 补安装后清理与兼容依赖方回归 | 覆盖编排缺口，不重写已有保护 | 验证禁用/排除、周期清理、清理失败、部分安装成功的修复材料保留；兼容但过时的依赖方不额外升级。 |
 | 运行相关包 race 检查及构建 | 确认本单元可交付 | `go test -race ./internal/cli ./internal/resolver ./internal/engine ./internal/installer ./internal/artifact` 和 `CGO_ENABLED=0` 构建通过。 |
+| 增加并运行独立版本 smoke | 用真实 bottle 验证整个版本切换链路 | uv 0.13.5 → 0.13.6 全链路通过；证据保存在 `docs/verification/2026-10-28-version-smoke/`，包含构建时未提交状态与对应产品补丁。 |
+| 核对 nanobrew v0.1.212 的源码和发布物 | 确认隔离与比较条件 | 原版硬编码 `/opt/nanobrew`，不在开发机运行；转用一次性 GitHub hosted macOS runner 同机对比，固定 commit 和发布物 SHA。 |
+| 运行 vet、依赖校验、教程和漏洞检查 | 验证静态质量及依赖状况 | 全部通过；16 个教程示例通过，govulncheck@v1.9.0 未发现漏洞。 |
