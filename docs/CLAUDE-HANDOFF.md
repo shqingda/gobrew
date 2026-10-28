@@ -23,7 +23,10 @@
 - `695300f` 补齐安装后清理编排和兼容依赖方保留的回归。清理失败仍保留成功安装；部分安装成功后的清理保留 needs-postinstall 包及修复所需文件。未添加“所有过时依赖方自动升级”。
 - 新增 `scripts/smoke-version.sh`，已在隔离短 prefix、HOME 和缓存中实测 uv `0.13.5` → unpin → `0.13.6` 升级、自动清理及后续 no-op。证据整理见 [工作日志](../tasks/work-log.md)；这个结果不能代替其余实瓶或性能门禁。
 - README 已按当前代码同步自动更新范围、pin/held 非零退出、环境变量默认值及清理周期位置。周期标记为 `<cache-dir>/.cleaned`。
-- 本节只记录以上已验证进展；最终全量检查、当前二进制性能结论、nanobrew 对比和交付状态继续跟踪 [当前待办](../tasks/todo.md)。
+- 最终审查另修复三项：显式降级不能突破保留消费者的最低运行版本／修订；历史版本规划能加载当前配方闭包外的依赖；离线 no-op 不再无依据声称已是最新版。产品源码固定于 `384b44d`，各项先复现失败再验证修复。
+- 最终全量质量检查、bootstrap、两个真实 smoke 均通过，见 [最终验证](verification/2026-10-28-final/README.md)。专用 crapper/dryer/mutator 不可用，未执行、未评分。
+- [最终 Homebrew 五轮对照](performance.md)冷／热门禁通过；[nanobrew 对照](nanobrew-comparison.md)的 hello/jq 冷安装较慢、热重装和 no-op 较快，uv 因依赖集合不同不可比。所有样本与失败证据均保留，未制造优化提交。
+- 合入与推送状态继续跟踪 [当前待办](../tasks/todo.md)；不默认打 tag 或正式发版。
 
 ## 0. 历史：2026-10-27 进展更新（Claude Code）
 

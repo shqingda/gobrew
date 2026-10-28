@@ -1,0 +1,1675 @@
+{
+  "schema_version": 1,
+  "timestamp": "2026-10-28T12:52:31Z",
+  "platform": "darwin/arm64",
+  "os_version": "27.0.1",
+  "packages": [
+    "hello",
+    "jq",
+    "ca-certificates"
+  ],
+  "gobrew_prefix": "/tmp/gc16d",
+  "brew_prefix": "/private/tmp/gbperf.W4hR1w/Homebrew",
+  "gobrew_version": "gobrew dev (commit 384b44d26e52485924ad4415c4099a914a9c911a, built 2026-10-28T20:48:01+08:00)",
+  "brew_version": "Homebrew \u003e=4.3.0 (shallow or no git repository)",
+  "brew_commit": "c6069d2a943b71b0a90d91fc1ac93cb9c1634dcc",
+  "gobrew_sha256": "851e4c324529eb9703371ac5a0b63364a0adbfd6010b0e08308c2b2797a89dbd",
+  "source_commit": "384b44d26e52485924ad4415c4099a914a9c911a",
+  "go_version": "go1.27.3",
+  "measurements": [
+    {
+      "name": "gobrew.catalog",
+      "milliseconds": [
+        2727.542292,
+        4095.271459,
+        1762.138292,
+        2295.076042,
+        2125.129959
+      ],
+      "median_ms": 2295.076042,
+      "p95_ms": 4095.271459
+    },
+    {
+      "name": "gobrew.cold",
+      "milliseconds": [
+        10540.723375,
+        12198.588417,
+        10376.5885,
+        10593.413292,
+        10355.725708
+      ],
+      "median_ms": 10540.723375,
+      "p95_ms": 12198.588417
+    },
+    {
+      "name": "gobrew.warm",
+      "milliseconds": [
+        7507.801667,
+        9265.1715,
+        7390.587125,
+        8035.082584,
+        7800.610375
+      ],
+      "median_ms": 7800.610375,
+      "p95_ms": 9265.1715
+    },
+    {
+      "name": "gobrew.noop",
+      "milliseconds": [
+        16.982625,
+        12.40025,
+        13.228375,
+        13.1905,
+        13.920083
+      ],
+      "median_ms": 13.228375,
+      "p95_ms": 16.982625
+    },
+    {
+      "name": "brew.catalog",
+      "milliseconds": [
+        5543.205542,
+        429.362291,
+        340.704708,
+        393.169459,
+        420.662625
+      ],
+      "median_ms": 420.662625,
+      "p95_ms": 5543.205542
+    },
+    {
+      "name": "brew.cold",
+      "milliseconds": [
+        19375.019459,
+        13597.973542,
+        15433.396416,
+        14150.608292,
+        14819.852
+      ],
+      "median_ms": 14819.852,
+      "p95_ms": 19375.019459
+    },
+    {
+      "name": "brew.warm",
+      "milliseconds": [
+        11315.899708,
+        11567.366292,
+        11894.907625,
+        11825.080209,
+        12585.032167
+      ],
+      "median_ms": 11825.080209,
+      "p95_ms": 12585.032167
+    },
+    {
+      "name": "brew.noop",
+      "milliseconds": [
+        344.092542,
+        326.572333,
+        348.690833,
+        330.4875,
+        412.59325
+      ],
+      "median_ms": 344.092542,
+      "p95_ms": 412.59325
+    }
+  ],
+  "samples": [
+    {
+      "tool": "gobrew",
+      "scenario": "cold",
+      "round": 1,
+      "wall_ms": 10540.723375,
+      "timings_ms": {
+        "plan": 0.439625,
+        "prepare": 3382.806167,
+        "apply": 7150.485667
+      },
+      "disk_logical_bytes": {
+        "prefix_total": 3647219,
+        "cache_total": 63224294,
+        "prefix": {
+          "configuration": 286958,
+          "kegs": 3098117,
+          "mutable_data": 0,
+          "other": 0,
+          "state": 262144
+        },
+        "cache": {
+          "catalog": 59064385,
+          "other": 0,
+          "prepared": 3098764,
+          "raw": 1061145
+        }
+      }
+    },
+    {
+      "tool": "gobrew",
+      "scenario": "warm",
+      "round": 1,
+      "wall_ms": 7507.801667,
+      "timings_ms": {
+        "plan": 0.973167,
+        "prepare": 1.047125,
+        "apply": 7493.532834
+      },
+      "disk_logical_bytes": {
+        "prefix_total": 3647219,
+        "cache_total": 63224294,
+        "prefix": {
+          "configuration": 286958,
+          "kegs": 3098117,
+          "mutable_data": 0,
+          "other": 0,
+          "state": 262144
+        },
+        "cache": {
+          "catalog": 59064385,
+          "other": 0,
+          "prepared": 3098764,
+          "raw": 1061145
+        }
+      }
+    },
+    {
+      "tool": "gobrew",
+      "scenario": "noop",
+      "round": 1,
+      "wall_ms": 16.982625,
+      "timings_ms": {
+        "plan": 1.309583,
+        "prepare": 0,
+        "apply": 0
+      },
+      "disk_logical_bytes": {
+        "prefix_total": 3647219,
+        "cache_total": 63224294,
+        "prefix": {
+          "configuration": 286958,
+          "kegs": 3098117,
+          "mutable_data": 0,
+          "other": 0,
+          "state": 262144
+        },
+        "cache": {
+          "catalog": 59064385,
+          "other": 0,
+          "prepared": 3098764,
+          "raw": 1061145
+        }
+      }
+    },
+    {
+      "tool": "brew",
+      "scenario": "cold",
+      "round": 1,
+      "wall_ms": 19375.019459,
+      "disk_logical_bytes": {
+        "prefix_total": 63756148,
+        "cache_total": 39703625,
+        "prefix": {
+          "configuration": 286958,
+          "kegs": 3114947,
+          "mutable_data": 0,
+          "other": 60354243
+        },
+        "cache": {
+          "catalog": 31417987,
+          "other": 7164583,
+          "raw": 1121055
+        }
+      }
+    },
+    {
+      "tool": "brew",
+      "scenario": "warm",
+      "round": 1,
+      "wall_ms": 11315.899708,
+      "disk_logical_bytes": {
+        "prefix_total": 63756148,
+        "cache_total": 39841501,
+        "prefix": {
+          "configuration": 286958,
+          "kegs": 3114947,
+          "mutable_data": 0,
+          "other": 60354243
+        },
+        "cache": {
+          "catalog": 31417987,
+          "other": 7302459,
+          "raw": 1121055
+        }
+      }
+    },
+    {
+      "tool": "brew",
+      "scenario": "noop",
+      "round": 1,
+      "wall_ms": 344.092542,
+      "disk_logical_bytes": {
+        "prefix_total": 63756148,
+        "cache_total": 39841501,
+        "prefix": {
+          "configuration": 286958,
+          "kegs": 3114947,
+          "mutable_data": 0,
+          "other": 60354243
+        },
+        "cache": {
+          "catalog": 31417987,
+          "other": 7302459,
+          "raw": 1121055
+        }
+      }
+    },
+    {
+      "tool": "gobrew",
+      "scenario": "cold",
+      "round": 2,
+      "wall_ms": 12198.588417,
+      "timings_ms": {
+        "plan": 1.286416,
+        "prepare": 2613.960958,
+        "apply": 9576.800958
+      },
+      "disk_logical_bytes": {
+        "prefix_total": 3647219,
+        "cache_total": 63224294,
+        "prefix": {
+          "configuration": 286958,
+          "kegs": 3098117,
+          "mutable_data": 0,
+          "other": 0,
+          "state": 262144
+        },
+        "cache": {
+          "catalog": 59064385,
+          "other": 0,
+          "prepared": 3098764,
+          "raw": 1061145
+        }
+      }
+    },
+    {
+      "tool": "gobrew",
+      "scenario": "warm",
+      "round": 2,
+      "wall_ms": 9265.1715,
+      "timings_ms": {
+        "plan": 3.17425,
+        "prepare": 0.69025,
+        "apply": 9254.1745
+      },
+      "disk_logical_bytes": {
+        "prefix_total": 3647219,
+        "cache_total": 63224294,
+        "prefix": {
+          "configuration": 286958,
+          "kegs": 3098117,
+          "mutable_data": 0,
+          "other": 0,
+          "state": 262144
+        },
+        "cache": {
+          "catalog": 59064385,
+          "other": 0,
+          "prepared": 3098764,
+          "raw": 1061145
+        }
+      }
+    },
+    {
+      "tool": "gobrew",
+      "scenario": "noop",
+      "round": 2,
+      "wall_ms": 12.40025,
+      "timings_ms": {
+        "plan": 0.676334,
+        "prepare": 0,
+        "apply": 0
+      },
+      "disk_logical_bytes": {
+        "prefix_total": 3647219,
+        "cache_total": 63224294,
+        "prefix": {
+          "configuration": 286958,
+          "kegs": 3098117,
+          "mutable_data": 0,
+          "other": 0,
+          "state": 262144
+        },
+        "cache": {
+          "catalog": 59064385,
+          "other": 0,
+          "prepared": 3098764,
+          "raw": 1061145
+        }
+      }
+    },
+    {
+      "tool": "brew",
+      "scenario": "cold",
+      "round": 2,
+      "wall_ms": 13597.973542,
+      "disk_logical_bytes": {
+        "prefix_total": 63756148,
+        "cache_total": 39841501,
+        "prefix": {
+          "configuration": 286958,
+          "kegs": 3114947,
+          "mutable_data": 0,
+          "other": 60354243
+        },
+        "cache": {
+          "catalog": 31417987,
+          "other": 7302459,
+          "raw": 1121055
+        }
+      }
+    },
+    {
+      "tool": "brew",
+      "scenario": "warm",
+      "round": 2,
+      "wall_ms": 11567.366292,
+      "disk_logical_bytes": {
+        "prefix_total": 63756148,
+        "cache_total": 39841501,
+        "prefix": {
+          "configuration": 286958,
+          "kegs": 3114947,
+          "mutable_data": 0,
+          "other": 60354243
+        },
+        "cache": {
+          "catalog": 31417987,
+          "other": 7302459,
+          "raw": 1121055
+        }
+      }
+    },
+    {
+      "tool": "brew",
+      "scenario": "noop",
+      "round": 2,
+      "wall_ms": 326.572333,
+      "disk_logical_bytes": {
+        "prefix_total": 63756148,
+        "cache_total": 39841501,
+        "prefix": {
+          "configuration": 286958,
+          "kegs": 3114947,
+          "mutable_data": 0,
+          "other": 60354243
+        },
+        "cache": {
+          "catalog": 31417987,
+          "other": 7302459,
+          "raw": 1121055
+        }
+      }
+    },
+    {
+      "tool": "gobrew",
+      "scenario": "cold",
+      "round": 3,
+      "wall_ms": 10376.5885,
+      "timings_ms": {
+        "plan": 0.478125,
+        "prepare": 2988.539458,
+        "apply": 7380.896917
+      },
+      "disk_logical_bytes": {
+        "prefix_total": 3647219,
+        "cache_total": 63224294,
+        "prefix": {
+          "configuration": 286958,
+          "kegs": 3098117,
+          "mutable_data": 0,
+          "other": 0,
+          "state": 262144
+        },
+        "cache": {
+          "catalog": 59064385,
+          "other": 0,
+          "prepared": 3098764,
+          "raw": 1061145
+        }
+      }
+    },
+    {
+      "tool": "gobrew",
+      "scenario": "warm",
+      "round": 3,
+      "wall_ms": 7390.587125,
+      "timings_ms": {
+        "plan": 0.500709,
+        "prepare": 0.470125,
+        "apply": 7382.692959
+      },
+      "disk_logical_bytes": {
+        "prefix_total": 3647219,
+        "cache_total": 63224294,
+        "prefix": {
+          "configuration": 286958,
+          "kegs": 3098117,
+          "mutable_data": 0,
+          "other": 0,
+          "state": 262144
+        },
+        "cache": {
+          "catalog": 59064385,
+          "other": 0,
+          "prepared": 3098764,
+          "raw": 1061145
+        }
+      }
+    },
+    {
+      "tool": "gobrew",
+      "scenario": "noop",
+      "round": 3,
+      "wall_ms": 13.228375,
+      "timings_ms": {
+        "plan": 0.860209,
+        "prepare": 0,
+        "apply": 0
+      },
+      "disk_logical_bytes": {
+        "prefix_total": 3647219,
+        "cache_total": 63224294,
+        "prefix": {
+          "configuration": 286958,
+          "kegs": 3098117,
+          "mutable_data": 0,
+          "other": 0,
+          "state": 262144
+        },
+        "cache": {
+          "catalog": 59064385,
+          "other": 0,
+          "prepared": 3098764,
+          "raw": 1061145
+        }
+      }
+    },
+    {
+      "tool": "brew",
+      "scenario": "cold",
+      "round": 3,
+      "wall_ms": 15433.396416,
+      "disk_logical_bytes": {
+        "prefix_total": 63756148,
+        "cache_total": 39841501,
+        "prefix": {
+          "configuration": 286958,
+          "kegs": 3114947,
+          "mutable_data": 0,
+          "other": 60354243
+        },
+        "cache": {
+          "catalog": 31417987,
+          "other": 7302459,
+          "raw": 1121055
+        }
+      }
+    },
+    {
+      "tool": "brew",
+      "scenario": "warm",
+      "round": 3,
+      "wall_ms": 11894.907625,
+      "disk_logical_bytes": {
+        "prefix_total": 63756148,
+        "cache_total": 39841501,
+        "prefix": {
+          "configuration": 286958,
+          "kegs": 3114947,
+          "mutable_data": 0,
+          "other": 60354243
+        },
+        "cache": {
+          "catalog": 31417987,
+          "other": 7302459,
+          "raw": 1121055
+        }
+      }
+    },
+    {
+      "tool": "brew",
+      "scenario": "noop",
+      "round": 3,
+      "wall_ms": 348.690833,
+      "disk_logical_bytes": {
+        "prefix_total": 63756148,
+        "cache_total": 39841501,
+        "prefix": {
+          "configuration": 286958,
+          "kegs": 3114947,
+          "mutable_data": 0,
+          "other": 60354243
+        },
+        "cache": {
+          "catalog": 31417987,
+          "other": 7302459,
+          "raw": 1121055
+        }
+      }
+    },
+    {
+      "tool": "gobrew",
+      "scenario": "cold",
+      "round": 4,
+      "wall_ms": 10593.413292,
+      "timings_ms": {
+        "plan": 0.475125,
+        "prepare": 2653.501875,
+        "apply": 7932.912458
+      },
+      "disk_logical_bytes": {
+        "prefix_total": 3647219,
+        "cache_total": 63224294,
+        "prefix": {
+          "configuration": 286958,
+          "kegs": 3098117,
+          "mutable_data": 0,
+          "other": 0,
+          "state": 262144
+        },
+        "cache": {
+          "catalog": 59064385,
+          "other": 0,
+          "prepared": 3098764,
+          "raw": 1061145
+        }
+      }
+    },
+    {
+      "tool": "gobrew",
+      "scenario": "warm",
+      "round": 4,
+      "wall_ms": 8035.082584,
+      "timings_ms": {
+        "plan": 0.512833,
+        "prepare": 0.470625,
+        "apply": 8026.973292
+      },
+      "disk_logical_bytes": {
+        "prefix_total": 3647219,
+        "cache_total": 63224294,
+        "prefix": {
+          "configuration": 286958,
+          "kegs": 3098117,
+          "mutable_data": 0,
+          "other": 0,
+          "state": 262144
+        },
+        "cache": {
+          "catalog": 59064385,
+          "other": 0,
+          "prepared": 3098764,
+          "raw": 1061145
+        }
+      }
+    },
+    {
+      "tool": "gobrew",
+      "scenario": "noop",
+      "round": 4,
+      "wall_ms": 13.1905,
+      "timings_ms": {
+        "plan": 1.3225,
+        "prepare": 0,
+        "apply": 0
+      },
+      "disk_logical_bytes": {
+        "prefix_total": 3647219,
+        "cache_total": 63224294,
+        "prefix": {
+          "configuration": 286958,
+          "kegs": 3098117,
+          "mutable_data": 0,
+          "other": 0,
+          "state": 262144
+        },
+        "cache": {
+          "catalog": 59064385,
+          "other": 0,
+          "prepared": 3098764,
+          "raw": 1061145
+        }
+      }
+    },
+    {
+      "tool": "brew",
+      "scenario": "cold",
+      "round": 4,
+      "wall_ms": 14150.608292,
+      "disk_logical_bytes": {
+        "prefix_total": 63756148,
+        "cache_total": 39841501,
+        "prefix": {
+          "configuration": 286958,
+          "kegs": 3114947,
+          "mutable_data": 0,
+          "other": 60354243
+        },
+        "cache": {
+          "catalog": 31417987,
+          "other": 7302459,
+          "raw": 1121055
+        }
+      }
+    },
+    {
+      "tool": "brew",
+      "scenario": "warm",
+      "round": 4,
+      "wall_ms": 11825.080209,
+      "disk_logical_bytes": {
+        "prefix_total": 63756148,
+        "cache_total": 39841501,
+        "prefix": {
+          "configuration": 286958,
+          "kegs": 3114947,
+          "mutable_data": 0,
+          "other": 60354243
+        },
+        "cache": {
+          "catalog": 31417987,
+          "other": 7302459,
+          "raw": 1121055
+        }
+      }
+    },
+    {
+      "tool": "brew",
+      "scenario": "noop",
+      "round": 4,
+      "wall_ms": 330.4875,
+      "disk_logical_bytes": {
+        "prefix_total": 63756148,
+        "cache_total": 39841501,
+        "prefix": {
+          "configuration": 286958,
+          "kegs": 3114947,
+          "mutable_data": 0,
+          "other": 60354243
+        },
+        "cache": {
+          "catalog": 31417987,
+          "other": 7302459,
+          "raw": 1121055
+        }
+      }
+    },
+    {
+      "tool": "gobrew",
+      "scenario": "cold",
+      "round": 5,
+      "wall_ms": 10355.725708,
+      "timings_ms": {
+        "plan": 0.4975,
+        "prepare": 2637.501667,
+        "apply": 7709.780125
+      },
+      "disk_logical_bytes": {
+        "prefix_total": 3647219,
+        "cache_total": 63224294,
+        "prefix": {
+          "configuration": 286958,
+          "kegs": 3098117,
+          "mutable_data": 0,
+          "other": 0,
+          "state": 262144
+        },
+        "cache": {
+          "catalog": 59064385,
+          "other": 0,
+          "prepared": 3098764,
+          "raw": 1061145
+        }
+      }
+    },
+    {
+      "tool": "gobrew",
+      "scenario": "warm",
+      "round": 5,
+      "wall_ms": 7800.610375,
+      "timings_ms": {
+        "plan": 0.596833,
+        "prepare": 0.605834,
+        "apply": 7787.164958
+      },
+      "disk_logical_bytes": {
+        "prefix_total": 3647219,
+        "cache_total": 63224294,
+        "prefix": {
+          "configuration": 286958,
+          "kegs": 3098117,
+          "mutable_data": 0,
+          "other": 0,
+          "state": 262144
+        },
+        "cache": {
+          "catalog": 59064385,
+          "other": 0,
+          "prepared": 3098764,
+          "raw": 1061145
+        }
+      }
+    },
+    {
+      "tool": "gobrew",
+      "scenario": "noop",
+      "round": 5,
+      "wall_ms": 13.920083,
+      "timings_ms": {
+        "plan": 1.237583,
+        "prepare": 0,
+        "apply": 0
+      },
+      "disk_logical_bytes": {
+        "prefix_total": 3647219,
+        "cache_total": 63224294,
+        "prefix": {
+          "configuration": 286958,
+          "kegs": 3098117,
+          "mutable_data": 0,
+          "other": 0,
+          "state": 262144
+        },
+        "cache": {
+          "catalog": 59064385,
+          "other": 0,
+          "prepared": 3098764,
+          "raw": 1061145
+        }
+      }
+    },
+    {
+      "tool": "brew",
+      "scenario": "cold",
+      "round": 5,
+      "wall_ms": 14819.852,
+      "disk_logical_bytes": {
+        "prefix_total": 63756148,
+        "cache_total": 39841501,
+        "prefix": {
+          "configuration": 286958,
+          "kegs": 3114947,
+          "mutable_data": 0,
+          "other": 60354243
+        },
+        "cache": {
+          "catalog": 31417987,
+          "other": 7302459,
+          "raw": 1121055
+        }
+      }
+    },
+    {
+      "tool": "brew",
+      "scenario": "warm",
+      "round": 5,
+      "wall_ms": 12585.032167,
+      "disk_logical_bytes": {
+        "prefix_total": 63756148,
+        "cache_total": 39841501,
+        "prefix": {
+          "configuration": 286958,
+          "kegs": 3114947,
+          "mutable_data": 0,
+          "other": 60354243
+        },
+        "cache": {
+          "catalog": 31417987,
+          "other": 7302459,
+          "raw": 1121055
+        }
+      }
+    },
+    {
+      "tool": "brew",
+      "scenario": "noop",
+      "round": 5,
+      "wall_ms": 412.59325,
+      "disk_logical_bytes": {
+        "prefix_total": 63756148,
+        "cache_total": 39841501,
+        "prefix": {
+          "configuration": 286958,
+          "kegs": 3114947,
+          "mutable_data": 0,
+          "other": 60354243
+        },
+        "cache": {
+          "catalog": 31417987,
+          "other": 7302459,
+          "raw": 1121055
+        }
+      }
+    }
+  ],
+  "installed": {
+    "schema_version": 1,
+    "command": "list",
+    "data": [
+      {
+        "formula": {
+          "name": "ca-certificates",
+          "description": "Mozilla CA certificate store",
+          "homepage": "https://curl.se/docs/caextract.html",
+          "license": "MPL-2.0",
+          "version": "2026-10-20",
+          "revision": 0,
+          "version_scheme": 0,
+          "compatibility_version": 1,
+          "bottle_rebuild": 0,
+          "bottles": {
+            "all": {
+              "tag": "all",
+              "url": "https://ghcr.io/v2/homebrew/core/ca-certificates/blobs/sha256:8589f4e61b3afcc5ea375aab11af1c891ec4c94421c699c2a5a4765078de4443",
+              "sha256": "8589f4e61b3afcc5ea375aab11af1c891ec4c94421c699c2a5a4765078de4443",
+              "cellar": ":any_skip_relocation"
+            }
+          },
+          "keg_only": false,
+          "disabled": false,
+          "deprecated": false,
+          "post_install_defined": false,
+          "post_install_steps": [
+            {
+              "command": {
+                "base": "libexec",
+                "path": "post-install"
+              },
+              "type": "run",
+              "args": [
+                "{{pkgshare}}/cacert.pem",
+                "{{pkgetc}}/cert.pem"
+              ]
+            }
+          ]
+        },
+        "bottle": {
+          "tag": "all",
+          "url": "https://ghcr.io/v2/homebrew/core/ca-certificates/blobs/sha256:8589f4e61b3afcc5ea375aab11af1c891ec4c94421c699c2a5a4765078de4443",
+          "sha256": "8589f4e61b3afcc5ea375aab11af1c891ec4c94421c699c2a5a4765078de4443",
+          "cellar": ":any_skip_relocation"
+        },
+        "keg": "/tmp/gc16d/Cellar/ca-certificates/2026-10-20",
+        "owner": "d032ef0d3c90cd36777e0ae2c787d1e3:ca-certificates",
+        "requested": true,
+        "pinned": false,
+        "linked": true,
+        "status": "ready",
+        "links": {
+          "opt/ca-certificates": "/tmp/gc16d/Cellar/ca-certificates/2026-10-20",
+          "share/ca-certificates/cacert.pem": "/tmp/gc16d/Cellar/ca-certificates/2026-10-20/share/ca-certificates/cacert.pem"
+        },
+        "installed_at": "2026-10-28T12:56:30.643109Z",
+        "post_install_complete": true
+      },
+      {
+        "formula": {
+          "name": "hello",
+          "description": "Program providing model for GNU coding standards and practices",
+          "homepage": "https://www.gnu.org/software/hello/",
+          "license": "GPL-3.0-or-later",
+          "version": "2.12.3",
+          "revision": 0,
+          "version_scheme": 0,
+          "bottle_rebuild": 1,
+          "bottles": {
+            "arm64_golden_gate": {
+              "tag": "arm64_golden_gate",
+              "url": "https://ghcr.io/v2/homebrew/core/hello/blobs/sha256:4dd2596c2e897c81eae2dbf5030da37b43e797d217f0f0892d39343d0b8c2ca7",
+              "sha256": "4dd2596c2e897c81eae2dbf5030da37b43e797d217f0f0892d39343d0b8c2ca7",
+              "cellar": ":any_skip_relocation"
+            },
+            "arm64_linux": {
+              "tag": "arm64_linux",
+              "url": "https://ghcr.io/v2/homebrew/core/hello/blobs/sha256:0557a40320fc342b63c4ebca125d81b8dc782576d619800506e00c4d6dffdf68",
+              "sha256": "0557a40320fc342b63c4ebca125d81b8dc782576d619800506e00c4d6dffdf68",
+              "cellar": "/home/linuxbrew/.linuxbrew/Cellar"
+            },
+            "arm64_sequoia": {
+              "tag": "arm64_sequoia",
+              "url": "https://ghcr.io/v2/homebrew/core/hello/blobs/sha256:78566829e680af4ececbe5b3aa596c06f9bd0c7b83172a50c4347510a0d8cf0a",
+              "sha256": "78566829e680af4ececbe5b3aa596c06f9bd0c7b83172a50c4347510a0d8cf0a",
+              "cellar": ":any_skip_relocation"
+            },
+            "arm64_sonoma": {
+              "tag": "arm64_sonoma",
+              "url": "https://ghcr.io/v2/homebrew/core/hello/blobs/sha256:90e62f2bc18a74b2ce845e6d5b6b53b96a11e3ce304b83e6278fd3ca0fbed922",
+              "sha256": "90e62f2bc18a74b2ce845e6d5b6b53b96a11e3ce304b83e6278fd3ca0fbed922",
+              "cellar": ":any_skip_relocation"
+            },
+            "arm64_tahoe": {
+              "tag": "arm64_tahoe",
+              "url": "https://ghcr.io/v2/homebrew/core/hello/blobs/sha256:ae6237e3001bd354783f469d754cee875ee9828910461b85a5803f5990213dde",
+              "sha256": "ae6237e3001bd354783f469d754cee875ee9828910461b85a5803f5990213dde",
+              "cellar": ":any_skip_relocation"
+            },
+            "x86_64_linux": {
+              "tag": "x86_64_linux",
+              "url": "https://ghcr.io/v2/homebrew/core/hello/blobs/sha256:ab40f4006173c63e0d138bdd2b6634ee467f4685c2b130a3edaa712bfee0809a",
+              "sha256": "ab40f4006173c63e0d138bdd2b6634ee467f4685c2b130a3edaa712bfee0809a",
+              "cellar": "/home/linuxbrew/.linuxbrew/Cellar"
+            }
+          },
+          "keg_only": false,
+          "disabled": false,
+          "deprecated": false,
+          "post_install_defined": false
+        },
+        "bottle": {
+          "tag": "arm64_golden_gate",
+          "url": "https://ghcr.io/v2/homebrew/core/hello/blobs/sha256:4dd2596c2e897c81eae2dbf5030da37b43e797d217f0f0892d39343d0b8c2ca7",
+          "sha256": "4dd2596c2e897c81eae2dbf5030da37b43e797d217f0f0892d39343d0b8c2ca7",
+          "cellar": ":any_skip_relocation"
+        },
+        "keg": "/tmp/gc16d/Cellar/hello/2.12.3",
+        "owner": "d032ef0d3c90cd36777e0ae2c787d1e3:hello",
+        "requested": true,
+        "pinned": false,
+        "linked": true,
+        "status": "ready",
+        "links": {
+          "bin/hello": "/tmp/gc16d/Cellar/hello/2.12.3/bin/hello",
+          "opt/hello": "/tmp/gc16d/Cellar/hello/2.12.3",
+          "share/info/hello.info": "/tmp/gc16d/Cellar/hello/2.12.3/share/info/hello.info",
+          "share/man/man1/hello.1": "/tmp/gc16d/Cellar/hello/2.12.3/share/man/man1/hello.1"
+        },
+        "installed_at": "2026-10-28T12:56:30.661086Z",
+        "post_install_complete": true
+      },
+      {
+        "formula": {
+          "name": "jq",
+          "description": "Lightweight and flexible command-line JSON processor",
+          "homepage": "https://jqlang.github.io/jq/",
+          "license": "MIT",
+          "version": "1.8.2",
+          "revision": 0,
+          "version_scheme": 0,
+          "compatibility_version": 1,
+          "bottle_rebuild": 1,
+          "bottles": {
+            "arm64_golden_gate": {
+              "tag": "arm64_golden_gate",
+              "url": "https://ghcr.io/v2/homebrew/core/jq/blobs/sha256:d048dd4c28d867e939065a3bc8209f37e2a5be3e2c18d18c8c7da8f4d1629a4a",
+              "sha256": "d048dd4c28d867e939065a3bc8209f37e2a5be3e2c18d18c8c7da8f4d1629a4a",
+              "cellar": ":any"
+            },
+            "arm64_linux": {
+              "tag": "arm64_linux",
+              "url": "https://ghcr.io/v2/homebrew/core/jq/blobs/sha256:d67a00e578f6684163660fed1accb56ef87b01651e37dec737d362d09ece9eab",
+              "sha256": "d67a00e578f6684163660fed1accb56ef87b01651e37dec737d362d09ece9eab",
+              "cellar": ":any"
+            },
+            "arm64_sequoia": {
+              "tag": "arm64_sequoia",
+              "url": "https://ghcr.io/v2/homebrew/core/jq/blobs/sha256:ef70e236f58a8a781436ee400f9bdf847ad7d12e75115871fb6a94b9214a1a41",
+              "sha256": "ef70e236f58a8a781436ee400f9bdf847ad7d12e75115871fb6a94b9214a1a41",
+              "cellar": ":any"
+            },
+            "arm64_sonoma": {
+              "tag": "arm64_sonoma",
+              "url": "https://ghcr.io/v2/homebrew/core/jq/blobs/sha256:39f30266edd431962b606353091035a9cec9a61437252f448a3a8cf69dbc0551",
+              "sha256": "39f30266edd431962b606353091035a9cec9a61437252f448a3a8cf69dbc0551",
+              "cellar": ":any"
+            },
+            "arm64_tahoe": {
+              "tag": "arm64_tahoe",
+              "url": "https://ghcr.io/v2/homebrew/core/jq/blobs/sha256:ca67c64d0aaf1e5472790ec2cc081ff7972316f27095d8a8aab81b3321247036",
+              "sha256": "ca67c64d0aaf1e5472790ec2cc081ff7972316f27095d8a8aab81b3321247036",
+              "cellar": ":any"
+            },
+            "sonoma": {
+              "tag": "sonoma",
+              "url": "https://ghcr.io/v2/homebrew/core/jq/blobs/sha256:af9ddba2379910ceed96961891002b1c8c133f6f3f290ccb3d7c7d877dd4e9e9",
+              "sha256": "af9ddba2379910ceed96961891002b1c8c133f6f3f290ccb3d7c7d877dd4e9e9",
+              "cellar": ":any"
+            },
+            "x86_64_linux": {
+              "tag": "x86_64_linux",
+              "url": "https://ghcr.io/v2/homebrew/core/jq/blobs/sha256:631787d9b19df5e5557cc83f972080e541f543f8df2d1f212ca4290ff23e9764",
+              "sha256": "631787d9b19df5e5557cc83f972080e541f543f8df2d1f212ca4290ff23e9764",
+              "cellar": ":any"
+            }
+          },
+          "dependencies": [
+            "oniguruma"
+          ],
+          "keg_only": false,
+          "disabled": false,
+          "deprecated": false,
+          "post_install_defined": false
+        },
+        "bottle": {
+          "tag": "arm64_golden_gate",
+          "url": "https://ghcr.io/v2/homebrew/core/jq/blobs/sha256:d048dd4c28d867e939065a3bc8209f37e2a5be3e2c18d18c8c7da8f4d1629a4a",
+          "sha256": "d048dd4c28d867e939065a3bc8209f37e2a5be3e2c18d18c8c7da8f4d1629a4a",
+          "cellar": ":any"
+        },
+        "keg": "/tmp/gc16d/Cellar/jq/1.8.2",
+        "owner": "d032ef0d3c90cd36777e0ae2c787d1e3:jq",
+        "dependencies": [
+          {
+            "full_name": "oniguruma",
+            "version": "6.9.10",
+            "revision": 0,
+            "pkg_version": "6.9.10",
+            "declared_directly": true
+          }
+        ],
+        "requested": true,
+        "pinned": false,
+        "linked": true,
+        "status": "ready",
+        "links": {
+          "bin/jq": "/tmp/gc16d/Cellar/jq/1.8.2/bin/jq",
+          "include/jq.h": "/tmp/gc16d/Cellar/jq/1.8.2/include/jq.h",
+          "include/jv.h": "/tmp/gc16d/Cellar/jq/1.8.2/include/jv.h",
+          "lib/libjq.1.dylib": "/tmp/gc16d/Cellar/jq/1.8.2/lib/libjq.1.dylib",
+          "lib/libjq.a": "/tmp/gc16d/Cellar/jq/1.8.2/lib/libjq.a",
+          "lib/libjq.dylib": "/tmp/gc16d/Cellar/jq/1.8.2/lib/libjq.dylib",
+          "lib/pkgconfig/libjq.pc": "/tmp/gc16d/Cellar/jq/1.8.2/lib/pkgconfig/libjq.pc",
+          "opt/jq": "/tmp/gc16d/Cellar/jq/1.8.2",
+          "share/doc/jq/AUTHORS": "/tmp/gc16d/Cellar/jq/1.8.2/share/doc/jq/AUTHORS",
+          "share/doc/jq/COPYING": "/tmp/gc16d/Cellar/jq/1.8.2/share/doc/jq/COPYING",
+          "share/doc/jq/NEWS.md": "/tmp/gc16d/Cellar/jq/1.8.2/share/doc/jq/NEWS.md",
+          "share/doc/jq/README.md": "/tmp/gc16d/Cellar/jq/1.8.2/share/doc/jq/README.md",
+          "share/man/man1/jq.1": "/tmp/gc16d/Cellar/jq/1.8.2/share/man/man1/jq.1"
+        },
+        "installed_at": "2026-10-28T12:56:30.699105Z",
+        "post_install_complete": true
+      },
+      {
+        "formula": {
+          "name": "oniguruma",
+          "description": "Regular expressions library",
+          "homepage": "https://github.com/kkos/oniguruma/",
+          "license": "BSD-2-Clause",
+          "version": "6.9.10",
+          "revision": 0,
+          "version_scheme": 0,
+          "bottle_rebuild": 0,
+          "bottles": {
+            "arm64_golden_gate": {
+              "tag": "arm64_golden_gate",
+              "url": "https://ghcr.io/v2/homebrew/core/oniguruma/blobs/sha256:faabe05d9d5379c42d47deba427021e4f40b551b3b95b74675d42e00a8321c23",
+              "sha256": "faabe05d9d5379c42d47deba427021e4f40b551b3b95b74675d42e00a8321c23",
+              "cellar": ":any"
+            },
+            "arm64_linux": {
+              "tag": "arm64_linux",
+              "url": "https://ghcr.io/v2/homebrew/core/oniguruma/blobs/sha256:b9c6066f02e365ccac0ca20cbcb8ca5d586c0ae781977d363bd411594946d944",
+              "sha256": "b9c6066f02e365ccac0ca20cbcb8ca5d586c0ae781977d363bd411594946d944",
+              "cellar": ":any_skip_relocation"
+            },
+            "arm64_sequoia": {
+              "tag": "arm64_sequoia",
+              "url": "https://ghcr.io/v2/homebrew/core/oniguruma/blobs/sha256:7d6ab71fff646664b91e8ff91744696ec775357787dbc1a28e45d52759662e8d",
+              "sha256": "7d6ab71fff646664b91e8ff91744696ec775357787dbc1a28e45d52759662e8d",
+              "cellar": ":any"
+            },
+            "arm64_sonoma": {
+              "tag": "arm64_sonoma",
+              "url": "https://ghcr.io/v2/homebrew/core/oniguruma/blobs/sha256:86beadf2205c134bfc642be07b663476532c10591743461c2c64bc85be51afc8",
+              "sha256": "86beadf2205c134bfc642be07b663476532c10591743461c2c64bc85be51afc8",
+              "cellar": ":any"
+            },
+            "arm64_tahoe": {
+              "tag": "arm64_tahoe",
+              "url": "https://ghcr.io/v2/homebrew/core/oniguruma/blobs/sha256:eb6bda3b333f497b5d294388f39fd0902a5c79a52ae16858eff711d2d104cc4d",
+              "sha256": "eb6bda3b333f497b5d294388f39fd0902a5c79a52ae16858eff711d2d104cc4d",
+              "cellar": ":any"
+            },
+            "arm64_ventura": {
+              "tag": "arm64_ventura",
+              "url": "https://ghcr.io/v2/homebrew/core/oniguruma/blobs/sha256:b0c3bbabe91edecb282b400150f05ba77360b5ea0a5950df70f0ae53b79d3d68",
+              "sha256": "b0c3bbabe91edecb282b400150f05ba77360b5ea0a5950df70f0ae53b79d3d68",
+              "cellar": ":any"
+            },
+            "sonoma": {
+              "tag": "sonoma",
+              "url": "https://ghcr.io/v2/homebrew/core/oniguruma/blobs/sha256:174fa500f45c9421915e22c34f51abc2849cbce2c05b64f013e4949bf2edd7e0",
+              "sha256": "174fa500f45c9421915e22c34f51abc2849cbce2c05b64f013e4949bf2edd7e0",
+              "cellar": ":any"
+            },
+            "ventura": {
+              "tag": "ventura",
+              "url": "https://ghcr.io/v2/homebrew/core/oniguruma/blobs/sha256:38ea1c89b9e4fe235788557ce0eaa3812d5287c66b217fe798a95f436c241918",
+              "sha256": "38ea1c89b9e4fe235788557ce0eaa3812d5287c66b217fe798a95f436c241918",
+              "cellar": ":any"
+            },
+            "x86_64_linux": {
+              "tag": "x86_64_linux",
+              "url": "https://ghcr.io/v2/homebrew/core/oniguruma/blobs/sha256:49eb885ab9a80ce30edc0aaa5f531fc0079a17e5cf41c2b6c34be0e53e763993",
+              "sha256": "49eb885ab9a80ce30edc0aaa5f531fc0079a17e5cf41c2b6c34be0e53e763993",
+              "cellar": ":any_skip_relocation"
+            }
+          },
+          "keg_only": false,
+          "disabled": false,
+          "deprecated": false,
+          "post_install_defined": false
+        },
+        "bottle": {
+          "tag": "arm64_golden_gate",
+          "url": "https://ghcr.io/v2/homebrew/core/oniguruma/blobs/sha256:faabe05d9d5379c42d47deba427021e4f40b551b3b95b74675d42e00a8321c23",
+          "sha256": "faabe05d9d5379c42d47deba427021e4f40b551b3b95b74675d42e00a8321c23",
+          "cellar": ":any"
+        },
+        "keg": "/tmp/gc16d/Cellar/oniguruma/6.9.10",
+        "owner": "d032ef0d3c90cd36777e0ae2c787d1e3:oniguruma",
+        "requested": false,
+        "pinned": false,
+        "linked": true,
+        "status": "ready",
+        "links": {
+          "bin/onig-config": "/tmp/gc16d/Cellar/oniguruma/6.9.10/bin/onig-config",
+          "include/oniggnu.h": "/tmp/gc16d/Cellar/oniguruma/6.9.10/include/oniggnu.h",
+          "include/oniguruma.h": "/tmp/gc16d/Cellar/oniguruma/6.9.10/include/oniguruma.h",
+          "lib/libonig.5.dylib": "/tmp/gc16d/Cellar/oniguruma/6.9.10/lib/libonig.5.dylib",
+          "lib/libonig.a": "/tmp/gc16d/Cellar/oniguruma/6.9.10/lib/libonig.a",
+          "lib/libonig.dylib": "/tmp/gc16d/Cellar/oniguruma/6.9.10/lib/libonig.dylib",
+          "lib/pkgconfig/oniguruma.pc": "/tmp/gc16d/Cellar/oniguruma/6.9.10/lib/pkgconfig/oniguruma.pc",
+          "opt/oniguruma": "/tmp/gc16d/Cellar/oniguruma/6.9.10"
+        },
+        "installed_at": "2026-10-28T12:56:30.679118Z",
+        "post_install_complete": true
+      }
+    ]
+  },
+  "brew_installed": {
+    "formulae": [
+      {
+        "name": "ca-certificates",
+        "full_name": "ca-certificates",
+        "tap": "homebrew/core",
+        "oldnames": [],
+        "aliases": [],
+        "versioned_formulae": [],
+        "desc": "Mozilla CA certificate store",
+        "license": "MPL-2.0",
+        "homepage": "https://curl.se/docs/caextract.html",
+        "versions": {
+          "stable": "2026-10-20",
+          "head": null,
+          "bottle": true
+        },
+        "urls": {
+          "stable": {
+            "url": "https://curl.se/ca/cacert-2026-10-20.pem",
+            "tag": null,
+            "revision": null,
+            "using": null,
+            "checksum": "796f1389bfea13c0ed78f663b765baaff54a508e5483786bd6ece73c5e3e3cbe"
+          }
+        },
+        "patches": [],
+        "local_patch_checksums": {},
+        "revision": 0,
+        "version_scheme": 0,
+        "compatibility_version": 1,
+        "autobump": true,
+        "no_autobump_message": null,
+        "skip_livecheck": false,
+        "bottle": {
+          "stable": {
+            "rebuild": 0,
+            "root_url": "https://ghcr.io/v2/homebrew/core",
+            "files": {
+              "all": {
+                "cellar": ":any_skip_relocation",
+                "url": "https://ghcr.io/v2/homebrew/core/ca-certificates/blobs/sha256:8589f4e61b3afcc5ea375aab11af1c891ec4c94421c699c2a5a4765078de4443",
+                "sha256": "8589f4e61b3afcc5ea375aab11af1c891ec4c94421c699c2a5a4765078de4443"
+              }
+            }
+          }
+        },
+        "pour_bottle_only_if": null,
+        "keg_only": false,
+        "keg_only_reason": null,
+        "options": [],
+        "build_dependencies": [],
+        "dependencies": [],
+        "test_dependencies": [],
+        "recommended_dependencies": [],
+        "optional_dependencies": [],
+        "no_linkage_dependencies": [],
+        "uses_from_macos": [],
+        "uses_from_macos_bounds": [],
+        "requirements": [],
+        "conflicts_with": [],
+        "conflicts_with_reasons": [],
+        "link_overwrite": [],
+        "caveats": null,
+        "installed": [
+          {
+            "sbom": "/private/tmp/gbperf.W4hR1w/Homebrew/Cellar/ca-certificates/2026-10-20/sbom.spdx.json",
+            "version": "2026-10-20",
+            "used_options": [],
+            "built_as_bottle": true,
+            "poured_from_bottle": true,
+            "time": 1793192221,
+            "runtime_dependencies": [],
+            "installed_on_request": true
+          }
+        ],
+        "linked_keg": "2026-10-20",
+        "pinned": false,
+        "outdated": false,
+        "deprecated": false,
+        "deprecation_date": null,
+        "deprecation_reason": null,
+        "deprecation_replacement_formula": null,
+        "deprecation_replacement_cask": null,
+        "deprecate_args": null,
+        "disabled": false,
+        "disable_date": null,
+        "disable_reason": null,
+        "disable_replacement_formula": null,
+        "disable_replacement_cask": null,
+        "disable_args": null,
+        "post_install_steps": [
+          {
+            "command": {
+              "base": "libexec",
+              "path": "post-install"
+            },
+            "type": "run",
+            "args": [
+              "{{pkgshare}}/cacert.pem",
+              "{{pkgetc}}/cert.pem"
+            ]
+          }
+        ],
+        "post_install_defined": false,
+        "service": null,
+        "tap_git_head": "c643f485a05a11abe7d73cfe13d8781e344b295b",
+        "ruby_source_path": "Formula/c/ca-certificates.rb",
+        "ruby_source_checksum": {
+          "sha256": "535300ac0e99511a36340454bd5287cfff097191de9d7b9675ed924f3a692317"
+        }
+      },
+      {
+        "name": "hello",
+        "full_name": "hello",
+        "tap": "homebrew/core",
+        "oldnames": [],
+        "aliases": [],
+        "versioned_formulae": [],
+        "desc": "Program providing model for GNU coding standards and practices",
+        "license": "GPL-3.0-or-later",
+        "homepage": "https://www.gnu.org/software/hello/",
+        "versions": {
+          "stable": "2.12.3",
+          "head": null,
+          "bottle": true
+        },
+        "urls": {
+          "stable": {
+            "url": "https://ftpmirror.gnu.org/hello/hello-2.12.3.tar.gz",
+            "tag": null,
+            "revision": null,
+            "using": null,
+            "checksum": "0d5f60154382fee10b114a1c34e785d8b1f492073ae2d3a6f7b147687b366aa0"
+          }
+        },
+        "patches": [],
+        "local_patch_checksums": {},
+        "revision": 0,
+        "version_scheme": 0,
+        "compatibility_version": null,
+        "autobump": true,
+        "no_autobump_message": null,
+        "skip_livecheck": false,
+        "bottle": {
+          "stable": {
+            "rebuild": 1,
+            "root_url": "https://ghcr.io/v2/homebrew/core",
+            "files": {
+              "arm64_golden_gate": {
+                "cellar": ":any_skip_relocation",
+                "url": "https://ghcr.io/v2/homebrew/core/hello/blobs/sha256:4dd2596c2e897c81eae2dbf5030da37b43e797d217f0f0892d39343d0b8c2ca7",
+                "sha256": "4dd2596c2e897c81eae2dbf5030da37b43e797d217f0f0892d39343d0b8c2ca7"
+              }
+            }
+          }
+        },
+        "pour_bottle_only_if": null,
+        "keg_only": false,
+        "keg_only_reason": null,
+        "options": [],
+        "build_dependencies": [],
+        "dependencies": [],
+        "test_dependencies": [],
+        "recommended_dependencies": [],
+        "optional_dependencies": [],
+        "no_linkage_dependencies": [],
+        "uses_from_macos": [],
+        "uses_from_macos_bounds": [],
+        "requirements": [],
+        "conflicts_with": [],
+        "conflicts_with_reasons": [],
+        "link_overwrite": [],
+        "caveats": null,
+        "installed": [
+          {
+            "sbom": "/private/tmp/gbperf.W4hR1w/Homebrew/Cellar/hello/2.12.3/sbom.spdx.json",
+            "version": "2.12.3",
+            "used_options": [],
+            "built_as_bottle": true,
+            "poured_from_bottle": true,
+            "time": 1793192219,
+            "runtime_dependencies": [],
+            "installed_on_request": true
+          }
+        ],
+        "linked_keg": "2.12.3",
+        "pinned": false,
+        "outdated": false,
+        "deprecated": false,
+        "deprecation_date": null,
+        "deprecation_reason": null,
+        "deprecation_replacement_formula": null,
+        "deprecation_replacement_cask": null,
+        "deprecate_args": null,
+        "disabled": false,
+        "disable_date": null,
+        "disable_reason": null,
+        "disable_replacement_formula": null,
+        "disable_replacement_cask": null,
+        "disable_args": null,
+        "post_install_steps": [],
+        "post_install_defined": false,
+        "service": null,
+        "tap_git_head": "c643f485a05a11abe7d73cfe13d8781e344b295b",
+        "ruby_source_path": "Formula/h/hello.rb",
+        "ruby_source_checksum": {
+          "sha256": "5b7509fca45647cc02a4cf9bb7937809f32e8ccb014f255d45dcede17e38bcbf"
+        }
+      },
+      {
+        "name": "jq",
+        "full_name": "jq",
+        "tap": "homebrew/core",
+        "oldnames": [],
+        "aliases": [],
+        "versioned_formulae": [],
+        "desc": "Lightweight and flexible command-line JSON processor",
+        "license": "MIT",
+        "homepage": "https://jqlang.github.io/jq/",
+        "versions": {
+          "stable": "1.8.2",
+          "head": "HEAD",
+          "bottle": true
+        },
+        "urls": {
+          "stable": {
+            "url": "https://github.com/jqlang/jq/releases/download/jq-1.8.2/jq-1.8.2.tar.gz",
+            "tag": null,
+            "revision": null,
+            "using": null,
+            "checksum": "71b8d6e8f5fe81f6c6d0d110e3892251f6ce76ed095abd315e26e6e1193af3af"
+          },
+          "head": {
+            "url": "https://github.com/jqlang/jq.git",
+            "branch": "master",
+            "using": null
+          }
+        },
+        "patches": [],
+        "local_patch_checksums": {},
+        "revision": 0,
+        "version_scheme": 0,
+        "compatibility_version": 1,
+        "autobump": true,
+        "no_autobump_message": null,
+        "skip_livecheck": false,
+        "bottle": {
+          "stable": {
+            "rebuild": 1,
+            "root_url": "https://ghcr.io/v2/homebrew/core",
+            "files": {
+              "arm64_golden_gate": {
+                "cellar": ":any",
+                "url": "https://ghcr.io/v2/homebrew/core/jq/blobs/sha256:d048dd4c28d867e939065a3bc8209f37e2a5be3e2c18d18c8c7da8f4d1629a4a",
+                "sha256": "d048dd4c28d867e939065a3bc8209f37e2a5be3e2c18d18c8c7da8f4d1629a4a"
+              }
+            }
+          }
+        },
+        "pour_bottle_only_if": null,
+        "keg_only": false,
+        "keg_only_reason": null,
+        "options": [],
+        "build_dependencies": [],
+        "dependencies": [
+          "oniguruma"
+        ],
+        "test_dependencies": [],
+        "recommended_dependencies": [],
+        "optional_dependencies": [],
+        "no_linkage_dependencies": [],
+        "uses_from_macos": [],
+        "uses_from_macos_bounds": [],
+        "requirements": [],
+        "conflicts_with": [],
+        "conflicts_with_reasons": [],
+        "link_overwrite": [],
+        "caveats": null,
+        "installed": [
+          {
+            "sbom": "/private/tmp/gbperf.W4hR1w/Homebrew/Cellar/jq/1.8.2/sbom.spdx.json",
+            "version": "1.8.2",
+            "used_options": [],
+            "built_as_bottle": true,
+            "poured_from_bottle": true,
+            "time": 1793192220,
+            "runtime_dependencies": [
+              {
+                "full_name": "oniguruma",
+                "version": "6.9.10",
+                "revision": 0,
+                "bottle_rebuild": 0,
+                "pkg_version": "6.9.10",
+                "declared_directly": true
+              }
+            ],
+            "installed_on_request": true
+          }
+        ],
+        "linked_keg": "1.8.2",
+        "pinned": false,
+        "outdated": false,
+        "deprecated": false,
+        "deprecation_date": null,
+        "deprecation_reason": null,
+        "deprecation_replacement_formula": null,
+        "deprecation_replacement_cask": null,
+        "deprecate_args": null,
+        "disabled": false,
+        "disable_date": null,
+        "disable_reason": null,
+        "disable_replacement_formula": null,
+        "disable_replacement_cask": null,
+        "disable_args": null,
+        "post_install_steps": [],
+        "post_install_defined": false,
+        "service": null,
+        "tap_git_head": "c643f485a05a11abe7d73cfe13d8781e344b295b",
+        "ruby_source_path": "Formula/j/jq.rb",
+        "ruby_source_checksum": {
+          "sha256": "0081a3a8d8afaa165b4bfa9b222723916b56f4d04b975d7aad35e8cdad0b0296"
+        },
+        "head_dependencies": {
+          "build_dependencies": [
+            "autoconf",
+            "automake",
+            "libtool"
+          ],
+          "dependencies": [
+            "oniguruma"
+          ],
+          "test_dependencies": [],
+          "recommended_dependencies": [],
+          "optional_dependencies": [],
+          "no_linkage_dependencies": [],
+          "uses_from_macos": [],
+          "uses_from_macos_bounds": []
+        }
+      },
+      {
+        "name": "oniguruma",
+        "full_name": "oniguruma",
+        "tap": "homebrew/core",
+        "oldnames": [],
+        "aliases": [],
+        "versioned_formulae": [],
+        "desc": "Regular expressions library",
+        "license": "BSD-2-Clause",
+        "homepage": "https://github.com/kkos/oniguruma/",
+        "versions": {
+          "stable": "6.9.10",
+          "head": "HEAD",
+          "bottle": true
+        },
+        "urls": {
+          "stable": {
+            "url": "https://github.com/kkos/oniguruma/releases/download/v6.9.10/onig-6.9.10.tar.gz",
+            "tag": null,
+            "revision": null,
+            "using": null,
+            "checksum": "2a5cfc5ae259e4e97f86b68dfffc152cdaffe94e2060b770cb827238d769fc05"
+          },
+          "head": {
+            "url": "https://github.com/kkos/oniguruma.git",
+            "branch": "master",
+            "using": null
+          }
+        },
+        "patches": [],
+        "local_patch_checksums": {},
+        "revision": 0,
+        "version_scheme": 0,
+        "compatibility_version": null,
+        "autobump": true,
+        "no_autobump_message": null,
+        "skip_livecheck": false,
+        "bottle": {
+          "stable": {
+            "rebuild": 0,
+            "root_url": "https://ghcr.io/v2/homebrew/core",
+            "files": {
+              "arm64_golden_gate": {
+                "cellar": ":any",
+                "url": "https://ghcr.io/v2/homebrew/core/oniguruma/blobs/sha256:faabe05d9d5379c42d47deba427021e4f40b551b3b95b74675d42e00a8321c23",
+                "sha256": "faabe05d9d5379c42d47deba427021e4f40b551b3b95b74675d42e00a8321c23"
+              }
+            }
+          }
+        },
+        "pour_bottle_only_if": null,
+        "keg_only": false,
+        "keg_only_reason": null,
+        "options": [],
+        "build_dependencies": [
+          "autoconf",
+          "automake",
+          "libtool"
+        ],
+        "dependencies": [],
+        "test_dependencies": [],
+        "recommended_dependencies": [],
+        "optional_dependencies": [],
+        "no_linkage_dependencies": [],
+        "uses_from_macos": [],
+        "uses_from_macos_bounds": [],
+        "requirements": [],
+        "conflicts_with": [],
+        "conflicts_with_reasons": [],
+        "link_overwrite": [],
+        "caveats": null,
+        "installed": [
+          {
+            "sbom": "/private/tmp/gbperf.W4hR1w/Homebrew/Cellar/oniguruma/6.9.10/sbom.spdx.json",
+            "version": "6.9.10",
+            "used_options": [],
+            "built_as_bottle": true,
+            "poured_from_bottle": true,
+            "time": 1793192219,
+            "runtime_dependencies": [],
+            "installed_on_request": false
+          }
+        ],
+        "linked_keg": "6.9.10",
+        "pinned": false,
+        "outdated": false,
+        "deprecated": false,
+        "deprecation_date": null,
+        "deprecation_reason": null,
+        "deprecation_replacement_formula": null,
+        "deprecation_replacement_cask": null,
+        "deprecate_args": null,
+        "disabled": false,
+        "disable_date": null,
+        "disable_reason": null,
+        "disable_replacement_formula": null,
+        "disable_replacement_cask": null,
+        "disable_args": null,
+        "post_install_steps": [],
+        "post_install_defined": false,
+        "service": null,
+        "tap_git_head": "c643f485a05a11abe7d73cfe13d8781e344b295b",
+        "ruby_source_path": "Formula/o/oniguruma.rb",
+        "ruby_source_checksum": {
+          "sha256": "2656eda555be128035d8dcf82bb04d094f96b06b7f5dd1b65f967bc76aa0b1c3"
+        }
+      }
+    ],
+    "casks": []
+  },
+  "matched_package_versions": {
+    "ca-certificates": "2026-10-20",
+    "hello": "2.12.3",
+    "jq": "1.8.2",
+    "oniguruma": "6.9.10"
+  },
+  "notes": [
+    "Wall-clock process durations in milliseconds. Each round measures cold, warm and no-op independently; no speed ratios are fabricated.",
+    "Metadata is refreshed outside install timing and measured separately. Cold installs start with empty artifact caches.",
+    "Warm installs reset installed state and mutable configuration, retaining that round's artifact cache; full post-install commands still run.",
+    "Gobrew uses one generated prefix throughout. Optional Homebrew must have no installed formulae; its initial etc/var are restored between samples and after completion.",
+    "The two tools use separate prefixes recorded in this report; prefix-specific relocation work can differ.",
+    "Homebrew installs use --force-bottle, without skipping dependencies, linking, verification or post-install.",
+    "Homebrew uses system tools on PATH and isolated cache/log directories; automatic catalog refresh, analytics and automatic cleanup are disabled outside the explicit sample lifecycle.",
+    "The baseline ignores user brew.env via an isolated XDG config directory and refuses system/prefix brew.env files that could override isolation.",
+    "After every cold and warm installation, executable and certificate fixture checks run outside the timed interval.",
+    "Stage timings come from gobrew's install result; the release gate uses full process wall time. Homebrew does not expose matching internal stages.",
+    "Disk samples are collected after each scenario, outside wall timing. Logical bytes sum regular file lengths without following symlinks; they do not measure APFS shared physical blocks. Homebrew prefix.other includes its repository and runtime.",
+    "This is a small benchmark, not a performance guarantee; network, CPU and OS cache effects remain."
+  ],
+  "performance_gate": {
+    "passed": true,
+    "comparisons": [
+      {
+        "scenario": "cold",
+        "gobrew_median_ms": 10540.723375,
+        "brew_median_ms": 14819.852,
+        "passed": true
+      },
+      {
+        "scenario": "warm",
+        "gobrew_median_ms": 7800.610375,
+        "brew_median_ms": 11825.080209,
+        "passed": true
+      }
+    ]
+  }
+}
