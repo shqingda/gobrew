@@ -61,7 +61,7 @@ user; it never adopts or chowns an existing directory, and removes the prefix
 again if the handover fails. Normal formula execution never runs as root.
 
 Initialization is not a separate user step. The curl bootstrap runs `init`
-after installing the CLI, and the first `install` or `migrate` initializes a
+after installing the CLI, and the first `install` or `import-homebrew` initializes a
 missing prefix before planning. The engine reports a non-writable parent as
 `ErrPrivilegeRequired` and never prompts. The CLI alone decides to elevate: only
 for the fixed default prefix, only with a controlling terminal and without
@@ -69,6 +69,10 @@ for the fixed default prefix, only with a controlling terminal and without
 sudo reads the password from the terminal, never from stdin. The unprivileged
 `init` then creates the database. Without a terminal the command fails with an
 absolute manual command. Read-only commands and dry runs never initialize.
+Install and upgrade dry runs skip automatic catalog/CLI updates entirely. They
+only plan and never elevate, initialize the prefix, apply packages, run cleanup,
+or modify shell configuration. Planning may still fetch and cache a missing
+catalog snapshot; dry-run is not an offline guarantee.
 `init` is idempotent and concurrent-safe; it completes a prefix that contains
 only empty layout directories left by an interrupted run, and refuses any other
 existing content.
@@ -153,9 +157,30 @@ closure; directly declared and actually imported libraries remain authoritative.
 
 ## Performance and cache identity
 
-An already-installed install is a local no-op; upgrade is explicit. Help, version
+Install upgrades outdated requested formulae unless pinned or held by
+`GOBREW_NO_INSTALL_UPGRADE`; held outdated requests keep their version and the
+CLI exits nonzero with upgrade guidance. When all requested installations and
+their dependencies are healthy and the local catalog shows no newer version,
+install needs no Prepare or Apply. It attempts a local catalog lookup; a missing
+catalog or a formula absent from it also permits this offline fallback, without
+claiming the installed version is current. Before ordinary install, upgrade and
+outdated, the CLI attempts automatic self/catalog updates when the catalog is
+stale (24 hours by default), unless disabled. Reinstall, version-install,
+import-homebrew and dry-run do not trigger this automatic update. With automatic
+updates disabled, or after a failed refresh, healthy installed requests can
+therefore remain unchanged even without a catalog. The automatic update itself
+may have used the network before the local no-op. Help, version
 and installed queries do not load the catalog or network. Catalog refresh builds
-an immutable indexed generation and atomically publishes it.
+an immutable indexed generation and atomically publishes it; the `catalog/CURRENT`
+mtime records the last successful refresh even when its generation is unchanged.
+
+After an operation with successful packages, the CLI requests cleanup for their
+unreferenced old kegs; pins, explicit exclusions and runtime references protect
+retained kegs. Periodic full cleanup defaults to 30 days, with its marker at
+`<cache-dir>/.cleaned`. A missing marker starts the period without full cleanup.
+Cleanup failures warn without undoing the successful install. The existing
+installer recovery and ownership checks remain the boundary for removal,
+including cleanup after a partially successful operation.
 
 Planning reads only requested roots, every installed recipe, and their current
 dependency closures in one short index transaction. Including installed recipes
@@ -227,7 +252,7 @@ outside it. The block prepends the managed command directory and the default
 prefix's `bin` and `sbin`, so gobrew precedes Homebrew for same-named commands.
 Files are replaced atomically; symlinked dotfiles update their target, while
 damaged markers, foreign owners and hard links are refused with manual
-instructions. `self install` and successful `install`/`migrate` call it, the
+instructions. `self install` and successful `install`/`import-homebrew` call it, the
 latter only for the default prefix and only when the running shell lacks a
 directory, so configured no-ops do no file access. `self uninstall` removes the
 block. `GOBREW_NO_MODIFY_PATH` disables it. The engine never touches shell

@@ -183,6 +183,12 @@ func TestDryRunDoesNotAutoUpdate(t *testing.T) {
 			if code != 0 || !json.Valid(stdout.Bytes()) || requests.calls != 0 {
 				t.Fatalf("dry-run: exit=%d requests=%d output=%s stderr=%s", code, requests.calls, &stdout, a.stderr)
 			}
+			var result struct {
+				Data model.Plan `json:"data"`
+			}
+			if err := json.Unmarshal(stdout.Bytes(), &result); err != nil || result.Data.Request.Action != action || len(result.Data.Unchanged) != 1 || result.Data.Unchanged[0] != "demo" {
+				t.Fatalf("dry-run did not return the requested plan: %s (%v)", &stdout, err)
+			}
 			after, _ := os.Stat(current)
 			installed, _ := a.engine.Installed()
 			if !after.ModTime().Equal(before.ModTime()) || installed.Generation != snapshot.Generation {

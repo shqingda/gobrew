@@ -2,23 +2,32 @@
 
 更新日期：2026-10-28（Asia/Taipei）
 
-接手工具：Claude Code  
+原交接接手工具：Claude Code
+
 工作目录：`/Users/shqingda/Projects/gobrew`
 
 ## 最新范围决定：2026-10-28
 
-后续开发遵循 [Homebrew 功能取舍](decisions/0001-homebrew-feature-scope.md)，不再以全量复制 Homebrew 为目标。该记录优先于下文历史计划中的范围要求；本次仅更新文档，没有变更实现。
+后续开发遵循 [Homebrew 功能取舍](decisions/0001-homebrew-feature-scope.md)，不再以全量复制 Homebrew 为目标。该记录优先于下文历史计划中的范围要求；范围决定本身不等于功能实现，随后执行进展见下一节。
 
 用户随后选择本轮只做现有功能与性能收尾，暂不新增命令。执行顺序以仓库内的 [新计划](../tasks/plan.md) 为准，状态见 [当前待办](../tasks/todo.md)，过程见 [工作日志](../tasks/work-log.md)。
 
 - 不做 Formula 开发工具、源码构建／`--HEAD`、Homebrew Git 管理入口、`--ignore-dependencies`，不追求全部参数、环境变量及提示语逐字兼容。
 - 辅助查询入口低优先级；完整 Bundle 暂不做，Homebrew JSON 格式兼容按需评估；tap、services、Cask、漏洞查询延后。
 - 下文 P0 第 8 项中“仅因依赖方版本过时而自动升级”的部分不再是当前必做项，对应开关也不单独要求实现。保障依赖方可运行所必需的检查与处理仍属正确性要求。
-- 真实端到端验证、no-op 基准重测、README 同步及 nanobrew 对比仍待完成。
+- 本轮安排真实端到端验证、no-op 基准重测、README 同步及 nanobrew 对比；完成状态以当前待办及实际证据为准。
 
-## 0. 2026-10-27 进展更新（Claude Code）
+## 当前执行进展：2026-10-28
 
-本节记录交接后的进展，优先于下文中标为“尚未实现”的旧描述：
+- `89d480c` 修复 install/upgrade dry-run 触发自动更新的问题，命令入口回归测试已通过。dry-run 不再自动更新目录或替换 CLI；规划缺少目录时仍可下载并缓存元数据，不等于离线模式。
+- `695300f` 补齐安装后清理编排和兼容依赖方保留的回归。清理失败仍保留成功安装；部分安装成功后的清理保留 needs-postinstall 包及修复所需文件。未添加“所有过时依赖方自动升级”。
+- 新增 `scripts/smoke-version.sh`，已在隔离短 prefix、HOME 和缓存中实测 uv `0.13.5` → unpin → `0.13.6` 升级、自动清理及后续 no-op。证据整理见 [工作日志](../tasks/work-log.md)；这个结果不能代替其余实瓶或性能门禁。
+- README 已按当前代码同步自动更新范围、pin/held 非零退出、环境变量默认值及清理周期位置。周期标记为 `<cache-dir>/.cleaned`。
+- 本节只记录以上已验证进展；最终全量检查、当前二进制性能结论、nanobrew 对比和交付状态继续跟踪 [当前待办](../tasks/todo.md)。
+
+## 0. 历史：2026-10-27 进展更新（Claude Code）
+
+> 以下是当时记录，保留用于追溯。自动刷新等后续变化见第 0.1 节及上方当前进展；不得把下文“尚未实现”“当前”等字样直接当作今日状态。
 
 - **第 3 节首次使用必须手动 init：已解决。** curl 安装器和第一次 `install`/`migrate` 自动初始化；默认 `/opt/gobrew` 需要权限时，CLI 通过 `/usr/bin/sudo` 运行自身 `init` 一次，其余步骤以普通用户运行。用户已在本机实测 `install uv`（创建 `/opt/gobrew`、安装 uv、PATH 生效）。
 - **第 4 节 Homebrew 共存：已实现。** 新增 `internal/shellconfig`：在 shell 启动文件末尾写入带标记的 PATH 配置段，gobrew 优先（用户选择）；`install` 提示与 Homebrew 同名的命令，`doctor` 以 warning 报告同名命令与 PATH 顺序。
@@ -27,17 +36,19 @@
 - **仍未开始：第 5 节 nanobrew 同机对照与基于测量的性能优化。** 下一位接手者从这里继续。
 - 已知后续项：`install`/`upgrade` 不会像 Homebrew 那样在目录过旧时自动刷新；Cask 仍未支持。
 
-## 0.1 Homebrew 对齐进度（P0，未发版）
+## 0.1 历史：Homebrew 对齐进度（截至 `66f0e9f`，当时未发版）
 
-计划全文：`~/.claude/plans/p0-homebrew-glimmering-hartmanis.md`。环境变量统一用 `GOBREW_` 加 Homebrew 同名后缀。
+历史计划位置：`~/.claude/plans/p0-homebrew-glimmering-hartmanis.md`，仅保留出处；本轮执行使用仓库内的新计划，不读取或修改该文件。当时选择环境变量统一用 `GOBREW_` 加 Homebrew 同名后缀。
 
 已完成：删除 `install x@ver` 简写（只留 `version-install`）；install 升级过时包、pin 时报错（照 Homebrew install/check.rb）；自动更新（install/upgrade/outdated，24h，用 catalog `CURRENT` mtime）；安装后清理与 30 天全量清理、`cleanup [formula] --prune -n -s`；命令别名（ls/rm/remove/ln/dr/abv/up/instal/uninstal/post_install、`-S`）；search 名字/`--desc`/正则与分列输出；`list --installed-on-request`；删除 `version` 子命令（用 `--version`）；`migrate` 改名 `import-homebrew`；PATH 遮蔽检查进 Caveats；错误前缀改为 `Error:`。
 
-未完成：P0 第 8 项“安装后升级过时依赖方”（`GOBREW_NO_INSTALLED_DEPENDENTS_CHECK`）；no-op 基准重测（快路径现会读本地目录索引）；README 未全面补写新环境变量；未做真实端到端验证（version-install 旧版 → install 升级 → 自动清理）。P1/P2 见计划文件。
+当时未完成：P0 第 8 项“安装后升级过时依赖方”（`GOBREW_NO_INSTALLED_DEPENDENTS_CHECK`）；no-op 基准重测（快路径现会读本地目录索引）；README 未全面补写新环境变量；未做真实端到端验证（version-install 旧版 → install 升级 → 自动清理）。其中范围调整和后续完成项以上方最新记录为准，不再按历史 P1/P2 清单自动扩展本轮范围。
 
 ## 1. 先看这里（交接时的原始状态）
 
-项目已经实现并发布到 **v0.2.0**，不是空项目。当前用户要求暂停开发、交接，原因是额度不足。
+> 本节及第 3–10 节保留初次交接时的状态、建议与证据；实际执行以本文开头的新计划链接为准。历史“暂停开发”不是本轮暂停指令。
+
+交接当时项目已经实现并发布到 **v0.2.0**，不是空项目。当时用户要求暂停开发、交接，原因是额度不足。
 
 **接下来最优先修复首次使用必须手动 init 的问题，然后进行与 nanobrew 的公平实测和性能优化，并完善 Homebrew 共存体验。上述三项尚未实现。** 不要把先前讨论的方案误认为已经落地。（init 与共存已在第 0 节所述提交中完成。）
 
@@ -67,8 +78,8 @@ v0.2.0 发布流水线：<https://github.com/shqingda/gobrew/actions/runs/404374
 2. `CONSTRAINTS.md`：不可降低的正确性、安全、性能测量和验证标准。
 3. `docs/CLAUDE-HANDOFF.md`：本次交接的完整上下文、用户最新要求、已完成和未完成的边界。
 4. `docs/architecture.md`：模块依赖方向、Plan/Prepare/Apply、状态所有权、锁顺序、持久化恢复和 CLI 自身生命周期。任何安装行为改动前必须读完。
-5. `README.md`：当前公开给用户的安装、初始化、命令、恢复和支持范围说明。注意其中手动初始化步骤是当前待修复体验，不是用户要求保留的设计。
-6. `docs/releases/v0.2.0.md`：当前已发布版本的能力与升级方式，避免把新需求误当作已有功能。
+5. `README.md`：当前公开给用户的安装、初始化、命令、恢复和支持范围说明；它已包含自动初始化、自动更新与 dry-run 的当前边界。
+6. `tasks/plan.md`、`tasks/todo.md`：本轮执行顺序及待验证项；`docs/releases/` 中的旧版本说明仅用于历史参考。
 
 ### 第二轮：按正在处理的任务阅读
 
@@ -84,9 +95,9 @@ v0.2.0 发布流水线：<https://github.com/shqingda/gobrew/actions/runs/404374
 
 - `docs/benchmarks/2026-10-27-m3-pro.json`：本地五轮正式基准原始数据，判断优化前基线与测量口径时阅读。
 - `docs/benchmarks/2026-10-27-m3-pro-140eb76.json`：此前有效对照，保留用于追溯，不与其他报告混合挑选样本。
-- v0.2.0 Release 附件 `benchmark.json`：当前发布二进制的 CI 实测证据；链接见本文第 6 节。
+- v0.2.0 Release 附件 `benchmark.json`：v0.2.0 发布二进制的历史 CI 实测证据；链接见本文第 6 节。
 - `docs/releases/v0.1.0.md`：首版发布历史，仅在核对兼容或迁移差异时阅读，不要改写旧版说明。
-- `tasks/plan.md`、`tasks/todo.md`：首轮实现记录。其完成状态**不代表本次自动初始化、共存和 nanobrew 优化已经完成**；新任务需要另行记录。
+- `tasks/plan.md`、`tasks/todo.md`：顶部为当前收尾任务，底部保留首轮已完成记录；历史勾选不代表新版本验证通过。
 - `docs/go-tutorial.md`：给用户的独立 Go 教程，当前已完成。除非改动涉及教程内容或 Go 语言说明，否则无需为此次修复通读或改写。
 - `THIRD_PARTY_NOTICES.md`、`LICENSE`、`internal/catalog/HOMEBREW-LICENSE.txt`：涉及引入、复制、分发第三方代码或修改发布包时阅读。
 
@@ -109,7 +120,7 @@ nanobrew 的外部资料也应按顺序检查：**固定版本的 README → BEN
 
 开始改安装行为前必须读取：`AGENTS.md`、`CONSTRAINTS.md`、`docs/architecture.md`。
 
-## 3. 当前用户遇到的实际问题
+## 3. 历史：初次交接时的初始化问题（已解决）
 
 用户执行：
 
@@ -164,7 +175,7 @@ gobrew: create prefix: mkdir /opt/gobrew: permission denied; for the default loc
 
 旧版临时绕过方法只是 `sudo "$HOME/.local/bin/gobrew" init` 再普通用户 `gobrew init`，但用户已经明确表示不接受把这当最终产品体验。
 
-## 4. Homebrew 共存：需要解释并产品化
+## 4. 历史：Homebrew 共存需求（已实现并继续调整）
 
 用户不清楚两边安装同一个软件会发生什么。
 
@@ -189,7 +200,7 @@ command -v uv
 
 现有 `migrate --from-homebrew ...` 只读 Homebrew 安装清单，通过正常 gobrew 管线重新安装，不接管原目录。
 
-## 5. nanobrew 对照与优化任务
+## 5. 历史需求：nanobrew 对照与优化
 
 用户明确要求：**同机、同软件包、同安装流程** 对比 nanobrew，继续优化，尽量达到或超过它，但不得牺牲安装正确性。
 
@@ -220,7 +231,7 @@ command -v uv
 
 现有基准入口：`scripts/benchmark.sh`、`scripts/benchmark/{main,gate,telemetry}.go`。目前是 gobrew/Homebrew 双方，尚未支持 nanobrew，不应硬塞不同语义让现有门槛失真。
 
-## 6. 已有性能证据
+## 6. 历史性能证据（不代表当前二进制）
 
 ### 本地 M3 Pro 对 Homebrew（正式记录已在仓库）
 
@@ -249,7 +260,9 @@ command -v uv
 
 现有 Homebrew 基线固定 commit `c6069d2a943b71b0a90d91fc1ac93cb9c1634dcc`（7.0.11），使用独立 prefix/cache/temp、正式 --force-bottle，没有修改其代码。更长的独立 prefix、网络及页缓存都会影响结果；已在文档披露限制。
 
-## 7. 当前架构与实现重点
+## 7. 历史架构快照与实现重点
+
+> 本节描述初次交接时的实现，尤其是 install/no-op 语义已变化；当前契约见 `docs/architecture.md`。
 
 不是要重写。保持 `Plan → Prepare → Apply`、不可变准备材料、明确归属及持久化恢复。
 
@@ -278,7 +291,7 @@ command -v uv
 - prepared cache schema 当前 8；改变准备/重定位语义要评估升级，防止复用旧材料。
 - Mach-O 导入、现代 OCI runtime metadata、Java CAFEBABE 识别、相对链接、证书/Node/Python 初始化等均已有专项处理，避免无意回退。
 
-## 8. v0.2.0 自身生命周期已完成
+## 8. 历史：v0.2.0 自身生命周期已完成
 
 ```sh
 curl -fsSL https://github.com/shqingda/gobrew/releases/latest/download/install.sh | sh
@@ -299,7 +312,7 @@ gob self uninstall
 - Bash/Zsh/Fish/PowerShell 均注册两个命令的共享补全；Bash/Zsh 已实际加载验证。
 - 压缩包和校验清单同属 GitHub 信任域，不是独立签名/公证方案。
 
-## 9. 已完成验证与发布流程
+## 9. 历史：v0.2.0 已完成验证与发布流程
 
 v0.2.0 全部通过：
 
@@ -326,7 +339,9 @@ v0.2.0 全部通过：
 
 旧标签和 Release 不要重写。新修复完成后按变更范围选新版本，并重新通过发布门槛。
 
-## 10. 给接手者的执行顺序
+## 10. 历史：初次交接时建议的执行顺序
+
+> 本顺序已由 `tasks/plan.md` 取代，不应重复实现已完成的自动初始化与共存功能，也不自动触发新版本发布。
 
 1. 阅读本文件、约束和架构，核对 git 状态；不要重做已经完成的项目搭建。
 2. 先实现自动初始化与一次性授权流程，补必要隔离测试，实测普通用户首次 `install uv` 的流程；不修改真实 Homebrew。
