@@ -74,3 +74,7 @@
 按用户反馈参考 Homebrew 的卸载／自动清理提示，普通文本改为 `Uninstalled NAME`，自动移除的依赖另列 `Autoremoved N unused dependency/dependencies` 标题；仅成功后显示，JSON 数组协议不变，不额外扫描磁盘或改变卸载行为。按低影响文案变更处理，未添加只断言字符串的单元测试。
 
 本地 `make check` 全部通过；临时 prefix/HOME/cache 的 jq 实瓶复测确认显式卸载、自动依赖清理和 requested 保留的文本正确，JSON uninstall 仍返回名称数组。自审确认错误输出与终端文本清洗保留。未运行 Actions、未正式发版，继续由用户安装测试。参考：https://docs.brew.sh/rubydoc/Homebrew/Cleanup.html 。本地日志：`/tmp/gobrew-uninstall-output-check.log`、`/tmp/gobrew-uninstall-output-smoke.log`。
+
+## 2026-10-29：发布 v0.4.0
+
+用户明确要求发版，授权本次使用 GitHub Actions。相对 v0.3.0 包含指定版本安装及安装／更新／清理行为调整，采用次版本 v0.4.0；新增面向用户的发布说明，特别注明自动卸载依赖和 dev 测试版升级方法。发布前本地 `make check` 全部通过，日志 `/tmp/gobrew-v0.4.0-check.log`。代码沿用已审查和验证的 main；保留原有代码检查、macOS 15/26 实瓶及五轮性能发布门槛，发布状态待远端运行确认。
