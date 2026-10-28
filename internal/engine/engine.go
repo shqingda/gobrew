@@ -256,7 +256,14 @@ func (e *Engine) Plan(ctx context.Context, req model.Request) (model.Plan, error
 	for name := range snap.Records {
 		names = append(names, name)
 	}
-	cat, err := client.LoadForPlan(names)
+	var cat catalog.Snapshot
+	if len(req.Versions) > 0 {
+		// A historical recipe can need dependencies absent from today's closure.
+		// Load one complete generation before replacing its private recipe copy.
+		cat, err = client.Load()
+	} else {
+		cat, err = client.LoadForPlan(names)
+	}
 	if errors.Is(err, os.ErrNotExist) || errors.Is(err, model.ErrNotFound) {
 		cat, err = client.Update(ctx)
 	}

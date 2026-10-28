@@ -138,6 +138,10 @@ versions under the usual minimum-version checks. Reverse dependents follow the
 normal compatibility rules. A downgrade leaves the newer keg behind; installing
 that version again may replace it only when its ownership marker is gobrew's and
 no record references it, the same proof cleanup requires.
+Even with matching ABI hints, a downgrade cannot violate a retained consumer's
+recorded minimum runtime version or revision. Explicit version plans load one
+complete catalog generation so dependencies unique to the historical recipe are
+available; ordinary plans retain the indexed closure path.
 
 Keep installed runtime dependency facts. Version ordering includes version_scheme
 and revision; compatibility_version is an ABI hint, not a replacement for runtime
