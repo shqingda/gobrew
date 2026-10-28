@@ -1,5 +1,7 @@
 /bin/
+/benchmark
 /dist/
 /coverage.out
+__pycache__/
 *.prof
 .DS_Store

@@ -77,3 +77,43 @@ func TestLoadForPlanFallsBackForAliasesAndMissingKeys(t *testing.T) {
 		})
 	}
 }
+
+func TestSearchMatchesNamesAliasesDescriptionsAndRegexLikeBrew(t *testing.T) {
+	s := Snapshot{Formulae: map[string]model.Formula{
+		"uv":          {Name: "uv", Aliases: []string{"astral-uv"}, Description: "Extremely fast Python package installer"},
+		"ruff":        {Name: "ruff", Description: "Extremely fast Python linter"},
+		"python@3.13": {Name: "python@3.13", Description: "Interpreted language"},
+		"linux-only":  {Name: "linux-only", UnsupportedReason: "requires Linux"},
+	}}
+	names := func(query string, desc bool) string {
+		t.Helper()
+		result, err := s.Search(query, desc)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var out []string
+		for _, f := range result {
+			out = append(out, f.Name)
+		}
+		return strings.Join(out, ",")
+	}
+	for _, tc := range []struct {
+		query string
+		desc  bool
+		want  string
+	}{
+		{"UV", false, "uv"},                // case-insensitive name
+		{"astral_uv", false, "uv"},         // aliases, punctuation simplified away
+		{"python", false, "python@3.13"},   // names only: not uv's description
+		{"python", true, "ruff,uv"},        // --desc searches descriptions
+		{"/^p.*@3/", false, "python@3.13"}, // regex
+		{"linux", false, ""},               // other platforms omitted
+	} {
+		if got := names(tc.query, tc.desc); got != tc.want {
+			t.Fatalf("Search(%q, %v) = %q, want %q", tc.query, tc.desc, got, tc.want)
+		}
+	}
+	if _, err := s.Search("/(/", false); err == nil {
+		t.Fatal("invalid regex accepted")
+	}
+}

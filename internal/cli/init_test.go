@@ -169,3 +169,14 @@ func TestPrefixEnvironmentMatchesShellenv(t *testing.T) {
 		t.Fatal("GOBREW_PREFIX was ignored")
 	}
 }
+
+func TestVersionInstallRequiresAVersion(t *testing.T) {
+	prefix := filepath.Join(t.TempDir(), "prefix")
+	f := newFakeApp(t, prefix, true, func() error { t.Error("elevated"); return nil })
+	if code, out := f.run(t, "version-install", "uv"); code != 2 || !strings.Contains(out, "version-install uv <version>") {
+		t.Fatalf("exit = %d: %s", code, out)
+	}
+	if _, err := os.Lstat(prefix); !errors.Is(err, os.ErrNotExist) {
+		t.Fatal("usage error initialized the prefix")
+	}
+}

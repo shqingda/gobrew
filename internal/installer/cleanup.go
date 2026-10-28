@@ -15,13 +15,34 @@ import (
 	"github.com/shqingda/gobrew/internal/state"
 )
 
+// CleanupOptions narrows Cleanup the way brew cleanup's arguments do.
+type CleanupOptions struct {
+	// Formulae limits keg removal to these racks and skips the private
+	// staging roots; empty means every formula.
+	Formulae []string
+	// Skip lists racks never cleaned. Pinned formulae are always skipped.
+	Skip   []string
+	DryRun bool
+}
+
 // Cleanup removes only marked, unreferenced kegs. Shared etc/var are never
 // candidates. Runtime receipt facts and actual Mach-O imports protect old kegs.
 func (i Installer) Cleanup(ctx context.Context) ([]string, error) {
-	removed := []string{}
+	removed, err := i.CleanupWith(ctx, CleanupOptions{})
+	paths := make([]string, len(removed))
+	for n, r := range removed {
+		paths[n] = r.Path
+	}
+	return paths, err
+}
+
+func (i Installer) CleanupWith(ctx context.Context, opts CleanupOptions) ([]model.Removed, error) {
+	removed := []model.Removed{}
 	err := (state.Store{Prefix: i.Prefix}).WithLock(ctx, func(tx *state.Session) error {
-		if err := i.recover(tx); err != nil {
-			return err
+		if !opts.DryRun {
+			if err := i.recover(tx); err != nil {
+				return err
+			}
 		}
 		snap, err := tx.Load()
 		if err != nil {
@@ -107,8 +128,15 @@ func (i Installer) Cleanup(ctx context.Context) ([]string, error) {
 			return err
 		}
 		j := &state.Journal{ID: newID(), Phase: "switching", Before: snap, After: snap}
+		skip := map[string]bool{}
+		for _, name := range opts.Skip {
+			skip[name] = true
+		}
+		for name, rec := range snap.Records {
+			skip[name] = skip[name] || rec.Pinned
+		}
 		for _, rack := range racks {
-			if !rack.IsDir() {
+			if !rack.IsDir() || skip[rack.Name()] || len(opts.Formulae) > 0 && !slices.Contains(opts.Formulae, rack.Name()) {
 				continue
 			}
 			versions, err := os.ReadDir(filepath.Join(cellar, rack.Name()))
@@ -141,6 +169,16 @@ func (i Installer) Cleanup(ctx context.Context) ([]string, error) {
 			}
 		}
 		slices.SortFunc(j.Moves, func(a, b state.Move) int { return strings.Compare(a.From, b.From) })
+		sizes := make(map[string]model.Removed, len(j.Moves))
+		for _, m := range j.Moves {
+			sizes[m.From] = measure(m.From)
+		}
+		if opts.DryRun {
+			for _, m := range j.Moves {
+				removed = append(removed, sizes[m.From])
+			}
+			return nil
+		}
 		if len(j.Moves) > 0 {
 			if err = tx.WriteJournal(j); err != nil {
 				return err
@@ -158,8 +196,11 @@ func (i Installer) Cleanup(ctx context.Context) ([]string, error) {
 				if err = i.removeOwned(m.To, m.Owner); err != nil {
 					return err
 				}
-				removed = append(removed, m.From)
+				removed = append(removed, sizes[m.From])
 			}
+		}
+		if len(opts.Formulae) > 0 {
+			return nil
 		}
 		// These roots contain only previously owned staging/backup trees. Leave any
 		// unmarked content alone; a crash can leave a partially written staging tree.
@@ -192,10 +233,11 @@ func (i Installer) Cleanup(ctx context.Context) ([]string, error) {
 				if len(parts) != 2 || !validOwner(data, parts[1]) {
 					return nil
 				}
+				size := measure(path)
 				if err = i.removeOwned(path, data); err != nil {
 					return err
 				}
-				removed = append(removed, path)
+				removed = append(removed, size)
 				return filepath.SkipDir
 			})
 			if err != nil {
@@ -206,6 +248,21 @@ func (i Installer) Cleanup(ctx context.Context) ([]string, error) {
 	})
 	return removed, err
 }
+
+// measure counts regular files and their bytes, like Homebrew's abv.
+func measure(path string) model.Removed {
+	r := model.Removed{Path: path}
+	_ = filepath.WalkDir(path, func(_ string, d fs.DirEntry, err error) error {
+		if err == nil && d.Type().IsRegular() {
+			if info, err := d.Info(); err == nil {
+				r.Files, r.Bytes = r.Files+1, r.Bytes+info.Size()
+			}
+		}
+		return nil
+	})
+	return r
+}
+
 func validOwner(owner, name string) bool {
 	parts := strings.Split(owner, ":")
 	if len(parts) != 2 || len(parts[0]) != 32 || parts[1] != name {

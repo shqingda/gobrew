@@ -48,6 +48,10 @@ func Build(req model.Request, generation string, formulae map[string]model.Formu
 		return "", fmt.Errorf("%w: formula %s", model.ErrNotFound, name)
 	}
 	requested := map[string]bool{}
+	exact := map[string]bool{}
+	for _, name := range req.Exact {
+		exact[name] = true
+	}
 	roots := []string{}
 	if len(req.Names) == 0 {
 		if req.Action != "upgrade" {
@@ -79,6 +83,8 @@ func Build(req model.Request, generation string, formulae map[string]model.Formu
 	selected := map[string]model.Package{}
 	unchanged := map[string]bool{}
 	runtimeChecks := map[string]bool{}
+	held := map[string]bool{}
+	upgrading := map[string]string{}
 	rootNames := make(map[string]bool, len(roots))
 	for _, name := range roots {
 		rootNames[name] = true
@@ -100,10 +106,26 @@ func Build(req model.Request, generation string, formulae map[string]model.Formu
 		if installed && record.Status != model.Ready {
 			return fmt.Errorf("%w: %s has status %s", model.ErrNeedsRepair, name, record.Status)
 		}
-		if installed && !force {
-			if (req.Action == "install" && requested[name]) || Compare(record.Formula, f) >= 0 {
+		if installed && !force && exact[name] {
+			// An explicit version replaces any other installed version.
+			if Compare(record.Formula, f) == 0 {
 				unchanged[name] = true
 				return nil
+			}
+		} else if installed && !force {
+			if Compare(record.Formula, f) >= 0 {
+				unchanged[name] = true
+				return nil
+			}
+			// Like brew install, an outdated requested formula is upgraded unless
+			// it is pinned or HOMEBREW_NO_INSTALL_UPGRADE's equivalent is set.
+			if req.Action == "install" && requested[name] {
+				if record.Pinned || req.NoInstallUpgrade {
+					unchanged[name] = true
+					held[name] = true
+					return nil
+				}
+				upgrading[name] = record.Formula.PkgVersion()
 			}
 			oldABI, newABI := record.Formula.CompatibilityVersion, f.CompatibilityVersion
 			if !rootNames[name] && oldABI != nil && newABI != nil && *oldABI == *newABI && record.Formula.VersionScheme == f.VersionScheme {
@@ -114,10 +136,13 @@ func Build(req model.Request, generation string, formulae map[string]model.Formu
 				return nil
 			}
 		}
+		if installed && record.Pinned && exact[name] && Compare(record.Formula, f) != 0 {
+			return fmt.Errorf("%w: %s is pinned at %s; run gobrew unpin %s first", model.ErrConflict, name, record.Formula.PkgVersion(), name)
+		}
 		if installed && record.Pinned && (Compare(record.Formula, f) != 0 || req.Action == "upgrade") {
 			return fmt.Errorf("%w: %s is pinned; unpin it before changing this dependency closure", model.ErrConflict, name)
 		}
-		if installed && Compare(record.Formula, f) > 0 {
+		if installed && Compare(record.Formula, f) > 0 && !exact[name] {
 			return fmt.Errorf("%w: refusing to downgrade %s", model.ErrConflict, name)
 		}
 		bottle, err := SelectBottle(f, host, prefix)
@@ -199,6 +224,25 @@ func Build(req model.Request, generation string, formulae map[string]model.Formu
 			changed = true
 		}
 	}
+	// Only consumers retained after reverse expansion constrain a replacement.
+	// An unchanged ABI hint cannot waive their recorded runtime minimum when an
+	// explicit version request downgrades a dependency.
+	for name, record := range state.Records {
+		if _, replaced := selected[name]; replaced {
+			continue
+		}
+		for _, dep := range record.Dependencies {
+			depName := strings.TrimPrefix(dep.Name, "homebrew/core/")
+			target, changed := selected[depName]
+			if !changed || dep.Version == "" {
+				continue
+			}
+			comparison := CompareVersions(target.Formula.Version, dep.Version)
+			if comparison < 0 || comparison == 0 && target.Formula.Revision < dep.Revision {
+				return plan, fmt.Errorf("%w: retained %s requires %s >= %s_%d; plan provides %s", model.ErrConflict, name, depName, dep.Version, dep.Revision, target.Formula.PkgVersion())
+			}
+		}
+	}
 	for name, pkg := range selected {
 		for _, conflict := range pkg.Formula.Conflicts {
 			conflict = strings.TrimPrefix(conflict, "homebrew/core/")
@@ -272,6 +316,19 @@ func Build(req model.Request, generation string, formulae map[string]model.Formu
 			plan.RuntimeChecks = append(plan.RuntimeChecks, name)
 		}
 	}
+	for name := range held {
+		if _, changed := selected[name]; !changed {
+			plan.Held = append(plan.Held, name)
+		}
+	}
+	for name, version := range upgrading {
+		if _, changed := selected[name]; changed {
+			if plan.Upgrading == nil {
+				plan.Upgrading = map[string]string{}
+			}
+			plan.Upgrading[name] = version
+		}
+	}
 	for name := range requested {
 		if rec, ok := state.Records[name]; ok && !rec.Requested {
 			if _, changed := selected[name]; !changed {
@@ -282,6 +339,7 @@ func Build(req model.Request, generation string, formulae map[string]model.Formu
 	sort.Strings(plan.Promote)
 	sort.Strings(plan.Unchanged)
 	sort.Strings(plan.RuntimeChecks)
+	sort.Strings(plan.Held)
 	encoded, err := json.Marshal(plan)
 	if err != nil {
 		return plan, err

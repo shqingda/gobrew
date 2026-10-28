@@ -1,0 +1,52 @@
+name: Nanobrew comparison
+
+on:
+  workflow_dispatch:
+    inputs:
+      preflight_only:
+        description: Only verify one equivalent candidate installation before the full comparison
+        type: boolean
+        default: false
+  pull_request:
+    paths:
+      - 'scripts/benchmark-nanobrew*'
+      - '.github/workflows/nanobrew.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  compare:
+    # v0.1.212 selects arm64_tahoe bottles regardless of the host version.
+    # Use Tahoe so both managers select and can execute the same bottle.
+    runs-on: macos-26
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
+      - name: Build gobrew without CGO
+        run: go build -trimpath -o bin/gobrew ./cmd/gobrew
+        env:
+          CGO_ENABLED: '0'
+      - name: Verify comparison safeguards and sample resets
+        run: python3 scripts/benchmark-nanobrew-test.py
+      - name: Compare on this disposable runner
+        env:
+          PREFLIGHT_ONLY: ${{ inputs.preflight_only }}
+        run: |
+          args=()
+          if [[ "$PREFLIGHT_ONLY" == true ]]; then
+            args+=(--preflight-only)
+          fi
+          python3 scripts/benchmark-nanobrew.py --gobrew "$PWD/bin/gobrew" --output "$PWD/nanobrew-evidence" "${args[@]}"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: nanobrew-comparison
+          path: nanobrew-evidence
+          if-no-files-found: error

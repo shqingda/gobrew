@@ -35,7 +35,7 @@ gob install uv
 
 默认目录 `/opt/gobrew` 位于 root 拥有的 `/opt` 下，首次创建时程序会说明原因，并通过 `sudo` 在终端里请求一次管理员密码。提权进程只创建 `/opt`（若不存在）和这个新目录，并把新目录交给当前用户；它不联网、不运行软件包代码、不修改已有目录的所有权，也不会触碰 `/opt/homebrew`。随后的数据库初始化、下载和安装都以普通用户身份进行，之后的安装、升级、卸载不再需要 `sudo`。
 
-没有可交互终端（CI、`--json`、无控制终端的脚本）时不会请求密码，而是失败并打印一条使用绝对路径的命令，例如 `sudo '/Users/you/.local/bin/gobrew' init`；在终端执行一次后重试原命令即可。拒绝授权或按 Ctrl-C 取消时不会留下半成品目录。`install --dry-run`、`list`、`doctor` 等只读命令不会创建目录或请求权限。
+没有可交互终端（CI、`--json`、无控制终端的脚本）时不会请求密码，而是失败并打印一条使用绝对路径的命令，例如 `sudo '/Users/you/.local/bin/gobrew' init`；在终端执行一次后重试原命令即可。拒绝授权或按 Ctrl-C 取消时不会留下半成品目录。`install --dry-run`、`list`、`doctor` 等只读操作不会初始化 Formula 目录或请求权限；规划缺少目录元数据时仍可能下载并写入目录缓存。
 
 `gobrew init` 仍然保留，用于预先初始化或修复：它是幂等的，可补全中断留下的空目录结构，但拒绝接管含有其他内容或属于其他用户的目录。
 
@@ -57,10 +57,10 @@ gob install uv
 
 Homebrew 安装在 `/opt/homebrew`，gobrew 安装在 `/opt/gobrew`，各自管理自己的 keg、依赖和链接，互不覆盖。同一个命令两边都安装时，终端运行 `PATH` 中靠前的那个；gobrew 的配置写在启动文件末尾并放在最前，因此新终端默认运行 gobrew 的版本，Homebrew 的版本仍可通过完整路径使用，例如 `/opt/homebrew/bin/uv`。
 
-- `gob install` 发现 Homebrew 也提供同名命令时会提示，并给出 `brew uninstall` 命令供你决定是否只保留一份；gobrew 不会卸载或修改 Homebrew 的任何内容。
+- `gob install` 和 `gob info` 在 Caveats 中提示被当前 `PATH` 中其他同名命令遮蔽的可执行文件；来源可以是 Homebrew 或其他目录。gobrew 的 `bin` 尚未加入当前 `PATH` 时，由 PATH 配置提示引导。gobrew 不会卸载或修改 Homebrew 的任何内容。
 - `gob doctor` 列出与 Homebrew 同名的命令和当前终端实际运行的路径，并在 gobrew 不在 `PATH` 或排在 Homebrew 之后时提醒。这些是警告，不影响 doctor 的退出码。
 - 两个版本可能共用软件自己在用户目录中的配置和缓存（例如 `~/.cache/uv`），这是软件本身的行为；动态库和编译工具的选择还受 pkg-config 等设置影响，不只取决于 `PATH`。
-- 想把 Homebrew 中的软件整体迁移过来，见下文“恢复与迁移”中的 `migrate`。
+- 想把 Homebrew 中的软件整体迁移过来，见下文“恢复与迁移”中的 `import-homebrew`。
 
 排查当前终端会运行哪个版本：
 
@@ -72,7 +72,7 @@ type -a uv
 
 ```sh
 go build -trimpath -o bin/gobrew ./cmd/gobrew
-./bin/gobrew version
+./bin/gobrew --version
 ```
 
 手工下载的 v0.2.0 及之后的发布程序可通过下面的命令加入托管安装，获得 `gob` 链接及自身更新、卸载能力：
@@ -124,11 +124,53 @@ gobrew cleanup
 gobrew doctor
 ```
 
-命令语义与 Homebrew 一致：`update` 先更新 gobrew 自身，再刷新并校验 Formula 目录，最后列出可升级的软件；`upgrade` 升级已安装软件及必要依赖，不带名称时升级全部未 pin 的软件。源码构建或未托管的程序会跳过自身更新并说明原因，目录仍会刷新；自身更新失败时目录照常刷新，命令以非零状态退出。`uninstall NAME` 卸载指定 Formula，`self uninstall` 卸载命令行。首次需要目录时会下载官方签名快照；后续操作使用本地快照。`install` 保留已安装版本，显式请求原先作为依赖安装的软件时会将它保留为用户请求。所有根包均已安装时不访问网络。
+`update` 先更新 gobrew 自身，再刷新并校验 Formula 目录，最后列出可升级的软件；`upgrade` 升级已安装软件及必要依赖，不带名称时升级全部未 pin 的软件。源码构建或未托管的程序会跳过自身更新并说明原因，目录仍会刷新；自身更新失败时目录照常刷新，显式 `update` 命令以非零状态退出。`uninstall NAME` 卸载指定 Formula，`self uninstall` 卸载命令行。
+
+`install` 会升级本地目录中已知过时的已安装请求项；未发现更高版本时可返回 no-op，不再准备或安装软件。请求项已知过时但被 pin，或设置了 `GOBREW_NO_INSTALL_UPGRADE` 时，保持原版本并以非零状态退出，给出 unpin／upgrade 指引。显式请求原先作为依赖安装的软件，会将它保留为用户请求。
+
+`install`、`upgrade`、`outdated` 在目录超过默认 24 小时或没有刷新记录时，先尝试自身更新和目录刷新；`reinstall`、`version-install`、`import-homebrew` 不触发此自动更新。自动更新失败时，普通文本模式给出警告，原命令继续尝试使用已有目录；新安装等需要目录的后续操作仍可能失败。首次规划需要目录时会下载官方签名快照。
+
+如果所有请求项及其依赖均已健康安装，且本地目录没有已知的更高版本，安装规划可直接返回本地 no-op。本地目录缺失或不再列出该 Formula 时也保留这一后备行为：自动更新被禁用或失败后，可保持已安装版本，不必为 no-op 再下载目录，但不能据此确认它是最新版本。自动更新仍可能先访问网络，因此“已安装”并不保证整次命令永不联网。
+
+成功安装后默认清理本次涉及软件的无引用旧 keg；被 pin 的软件和仍被依赖引用的版本保留。默认每 30 天另做一次全量清理，首次没有周期记录时只开始计时。周期标记是缓存目录中的 `.cleaned`，不是 Formula prefix 中的文件。`cleanup [formula...] --dry-run` 可预览；不指定软件时还会按缓存预算和默认 120 天年龄清理缓存，`--prune=天数|all` 可覆盖年龄条件，`-s` 清理所有未被租约保护的缓存。自动清理失败时，普通文本模式提示警告，已成功安装的软件仍保留。
 
 `deps` 查询传递依赖，`uses` 查询直接反向依赖；`uses --installed` 使用本机安装记录。keg-only 默认只提供 `opt` 路径；`link --force` 可显式公开其命令，但不会覆盖别人的文件。`pin` 约束升级，不是绕过依赖检查。
 
-Formula 安装类命令支持 `--dry-run`。配置入口是全局参数；`gobrew --help` 列出 prefix、cache、并发与缓存容量选项。
+Formula 安装类命令支持 `--dry-run`：只规划，不自动更新目录或替换 CLI，不初始化、提权、安装、清理或修改 shell 配置。如果本地没有规划所需的目录快照，仍会获取它并写入目录缓存，因此 dry-run 不等于离线模式。`gobrew --help` 列出 prefix、cache、并发与缓存容量选项。
+
+### 环境变量
+
+下表列出当前实现的 `GOBREW_` 配置。布尔 `NO_` 开关（不含 Formula 排除列表）默认未设置，设为任何非空值都会启用，包括 `0`；关闭开关应取消设置或设为空。秒数／天数接受非负整数，无法解析或为负数时使用默认值。
+
+| 变量 | 默认值 | 作用 |
+| --- | --- | --- |
+| `GOBREW_PREFIX` | `/opt/gobrew` | Formula 安装目录；显式 `--prefix` 优先。 |
+| `GOBREW_VERSION` | 最新稳定版 | 仅 curl 安装器使用，固定下载版本，格式为 `vX.Y.Z`。 |
+| `GOBREW_BIN_DIR` | `$HOME/.local/bin` | 仅 curl 安装器使用，指定命令安装目录；直接 `self install` 使用 `--bin-dir`。 |
+| `GOBREW_NO_AUTO_UPDATE` | 未设置 | 禁用命令前的自动更新，不禁用显式 `update` 或首次获取缺失的目录。 |
+| `GOBREW_AUTO_UPDATE_SECS` | `86400` | 自动更新间隔，按目录 `catalog/CURRENT` 的修改时间判断；`0` 表示每次符合条件的命令都尝试更新。 |
+| `GOBREW_NO_INSTALL_UPGRADE` | 未设置 | 普通 install 保持已安装的过时请求项，返回非零并提示显式 upgrade。 |
+| `GOBREW_NO_INSTALL_CLEANUP` | 未设置 | 禁用安装后的旧 keg 与周期清理；显式 `cleanup` 仍可执行。 |
+| `GOBREW_NO_CLEANUP_FORMULAE` | 空 | 安装后清理排除的 Formula 名，逗号分隔；适用于本次和周期清理，不影响显式 `cleanup`。 |
+| `GOBREW_CLEANUP_PERIODIC_FULL_DAYS` | `30` | 安装后全量清理的周期；`0` 表示已有周期标记后，每次成功安装均可触发。 |
+| `GOBREW_CLEANUP_MAX_AGE_DAYS` | `120` | 全量清理的缓存年龄条件；`0` 禁用按年龄淘汰，但缓存预算仍适用。 |
+| `GOBREW_NO_MODIFY_PATH` | 未设置 | 禁用自动添加 PATH 配置，改为给出手动配置指引。 |
+| `GOBREW_NO_PATH_SHADOW_CHECK` | 未设置 | 禁用 install/info 的 PATH 遮蔽 Caveats，不禁用 doctor 的共存诊断。 |
+| `GOBREW_NO_ENV_HINTS` | 未设置 | 隐藏自动更新、清理和 PATH 遮蔽提示中的环境变量说明。 |
+| `GOBREW_NO_EMOJI` | 未设置 | 交互式 search 以 `(installed)` 替代已安装项的勾选标记。 |
+
+### 安装指定版本
+
+```sh
+gob version-install uv 0.13.5
+gob version-install uv@0.13.5
+```
+
+`version-install` 与 Homebrew 的 `brew version-install formula[@version] [version]` 写法一致。与 Homebrew 一样，`install uv@0.13.5` 不会被当作指定版本，会报找不到该 Formula。Homebrew 会把该版本提取到个人 tap（默认 `user/versions`）再安装，gobrew 不使用 tap 或 Ruby，而是直接安装该版本的官方 bottle。
+
+`install` 中的 `python@3.13` 始终是 Formula 名。当前目录中的版本直接使用签名元数据。较旧的版本不在 Homebrew 签名元数据范围内，gobrew 从 GHCR 取该版本的 bottle，并要求 homebrew-core 历史中“update bottle”提交记录的校验值与之完全一致；两者不一致、或该版本定义了 Ruby post-install 等未知安装步骤时拒绝安装。依赖使用当前目录版本并照常检查最低版本要求。
+
+指定的旧版本安装后会被 pin，无参数 `upgrade` 跳过它，显式请求改变被 pin 的版本会被拒绝；输出中也会说明它不在签名元数据范围内。`gob unpin uv` 后即可正常升级。已 pin 在其他版本时需先 unpin。查询提交历史使用 GitHub API，匿名请求每小时有次数限制；可设置 `HOMEBREW_GITHUB_API_TOKEN` 或 `GITHUB_TOKEN`，前者优先。
 
 可证明 ABI 兼容的旧依赖可以复用，准备阶段仍须验证实际 bottle 的最低版本。缺少证据或 pin 导致版本不足时，操作会在切换前拒绝并要求重新规划。
 
@@ -146,8 +188,8 @@ gobrew postinstall NAME
 迁移只读取现有 Homebrew receipt，重新下载并安装所选根包，不接管原 Cellar：
 
 ```sh
-gobrew migrate --from-homebrew /opt/homebrew --dry-run
-gobrew migrate --from-homebrew /opt/homebrew
+gobrew import-homebrew --from-homebrew /opt/homebrew --dry-run
+gobrew import-homebrew --from-homebrew /opt/homebrew
 ```
 
 ## 脚本与客户端接口
@@ -162,6 +204,8 @@ gobrew completion zsh
 核心使用 `Plan → Prepare → Apply`，通过 `context.Context` 取消，以类型化事件提供进度。没有 daemon、HTTP 服务或 GUI 依赖。参考 [系统架构](docs/architecture.md)。
 
 ## 支持边界
+
+功能范围以[Homebrew 功能取舍](docs/decisions/0001-homebrew-feature-scope.md)为准：优先兼容日常安装管理习惯，不承诺完整复刻 Homebrew 的所有命令、参数及输出。
 
 - 官方 core bottles、版本化 Formula、平台与依赖解析、keg-only、pin、恢复和配置保留。
 - 官方声明式安装步骤使用明确支持集；未知步骤、需要提权的步骤及旧 Ruby hook 会被拒绝，不会静默略过。
@@ -180,13 +224,14 @@ go run golang.org/x/vuln/cmd/govulncheck@v1.9.0 ./...
 CGO_ENABLED=0 go build -trimpath -o bin/gobrew ./cmd/gobrew
 scripts/test-bootstrap.sh "$PWD/bin/gobrew"
 scripts/smoke.sh "$PWD/bin/gobrew"
+scripts/smoke-version.sh "$PWD/bin/gobrew"
 ```
 
-测试集中于签名、归档安全、依赖、缓存隔离、状态恢复、链接归属和真实运行。没有覆盖率配额。实瓶 smoke 使用自己的临时目录，不操作现有 Homebrew。
+测试集中于签名、归档安全、依赖、缓存隔离、状态恢复、链接归属和真实运行。没有覆盖率配额。实瓶 smoke 使用自己的临时目录，不操作现有 Homebrew。`smoke-version.sh` 另外验证历史 uv 安装、pin、解除 pin、升级、自动清理和 no-op，结束时打印保留的证据目录；第二个参数可指定一个尚不存在的证据目录。
 
 `benchmark` 工作流分别记录冷安装、热重装和已安装 no-op；Homebrew 对照必须使用空的独立安装，禁止传入日常使用的 `/opt/homebrew` 或 `/usr/local`。环境、轮数、版本及逐轮数据随结果保留，不将 no-op 当作重装。
 
-M3 Pro 上的五轮实测中，`hello`、`jq`、证书集合的冷安装中位数为 9.58 秒，热缓存重新安装为 6.99 秒；对照 Homebrew 为 12.81 秒和 10.86 秒。具体方法、限制与原始数据见[性能验证记录](docs/performance.md)。
+2026-10-27 的 M3 Pro 历史五轮实测中，`hello`、`jq`、证书集合的冷安装中位数为 9.58 秒，热缓存重新安装为 6.99 秒；对照 Homebrew 为 12.81 秒和 10.86 秒。这组数据绑定当时的提交，不能代表后续改动的性能；各次测量版本、方法、限制与原始数据见[性能验证记录](docs/performance.md)。
 
 GitHub Actions 在 PR 运行检查，包括临时目录内的 curl 引导安装、别名和自身卸载验证。版本 tag 必须通过检查、真实安装及五轮性能门禁，才发布已测量的 ARM64 二进制、`gob` 链接、安装脚本、校验文件和基准原始数据。不会自动创建版本 tag。
 

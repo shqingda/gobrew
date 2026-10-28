@@ -707,3 +707,99 @@ func TestPostInstallCancellationPreservesCauseAndRepairState(t *testing.T) {
 		})
 	}
 }
+
+// An explicit downgrade leaves the newer keg behind. Installing that version
+// again may reuse the path only when gobrew's marker proves ownership.
+func TestLeftoverOwnedKegIsReplacedButForeignKegIsNot(t *testing.T) {
+	for _, foreign := range []bool{false, true} {
+		prefix := t.TempDir()
+		if err := (state.Store{Prefix: prefix}).Initialize(); err != nil {
+			t.Fatal(err)
+		}
+		keg := filepath.Join(prefix, "Cellar", "demo", "2")
+		if err := os.MkdirAll(keg, 0755); err != nil {
+			t.Fatal(err)
+		}
+		marker := strings.Repeat("b", 32) + ":demo"
+		if foreign {
+			marker = "someone else"
+		}
+		if err := os.WriteFile(filepath.Join(keg, ownerFile), []byte(marker), 0600); err != nil {
+			t.Fatal(err)
+		}
+		tree := t.TempDir()
+		if err := os.WriteFile(filepath.Join(tree, "new"), []byte("x"), 0644); err != nil {
+			t.Fatal(err)
+		}
+		p := model.Prepared{Plan: model.Plan{Prefix: prefix}, Packages: []model.PreparedPackage{{Package: model.Package{Formula: model.Formula{Name: "demo", Version: "2"}}, Tree: tree}}}
+		_, err := (Installer{Prefix: prefix}).Apply(context.Background(), p, nil)
+		if foreign {
+			if !errors.Is(err, model.ErrConflict) {
+				t.Fatalf("foreign keg replaced: %v", err)
+			}
+			if data, _ := os.ReadFile(filepath.Join(keg, ownerFile)); string(data) != "someone else" {
+				t.Fatal("foreign keg modified")
+			}
+			continue
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := os.Stat(filepath.Join(keg, "new")); err != nil {
+			t.Fatalf("leftover keg not replaced: %v", err)
+		}
+	}
+}
+
+func TestCleanupWithLimitsDryRunAndPinsLikeBrew(t *testing.T) {
+	prefix := t.TempDir()
+	s := state.Store{Prefix: prefix}
+	if err := s.Initialize(); err != nil {
+		t.Fatal(err)
+	}
+	keg := func(name, version string) string {
+		t.Helper()
+		path := filepath.Join(prefix, "Cellar", name, version)
+		if err := os.MkdirAll(filepath.Join(path, "bin"), 0755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(path, "bin", name), []byte("12345"), 0755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(path, ownerFile), []byte(strings.Repeat("a", 32)+":"+name), 0600); err != nil {
+			t.Fatal(err)
+		}
+		return path
+	}
+	records := map[string]model.Record{}
+	for _, name := range []string{"uv", "jq", "node"} {
+		current := keg(name, "2")
+		records[name] = model.Record{Formula: model.Formula{Name: name, Version: "2"}, Keg: current, Owner: strings.Repeat("a", 32) + ":" + name, Status: model.Ready, Pinned: name == "node"}
+	}
+	oldUV, oldJQ, oldNode := keg("uv", "1"), keg("jq", "1"), keg("node", "1")
+	if err := s.WithLock(context.Background(), func(tx *state.Session) error { return tx.Save(model.Snapshot{Records: records}) }); err != nil {
+		t.Fatal(err)
+	}
+	in := Installer{Prefix: prefix}
+	removed, err := in.CleanupWith(context.Background(), CleanupOptions{Formulae: []string{"uv"}, DryRun: true})
+	if err != nil || len(removed) != 1 || removed[0].Path != oldUV || removed[0].Files != 2 {
+		t.Fatalf("dry run = %+v, %v", removed, err)
+	}
+	if _, err := os.Stat(oldUV); err != nil {
+		t.Fatal("dry run removed a keg")
+	}
+	if removed, err = in.CleanupWith(context.Background(), CleanupOptions{Formulae: []string{"uv"}}); err != nil || len(removed) != 1 {
+		t.Fatalf("formula cleanup = %+v, %v", removed, err)
+	}
+	if _, err := os.Stat(oldJQ); err != nil {
+		t.Fatal("formula cleanup touched another formula")
+	}
+	if removed, err = in.CleanupWith(context.Background(), CleanupOptions{Skip: []string{"jq"}}); err != nil {
+		t.Fatal(err)
+	}
+	for path, want := range map[string]bool{oldUV: false, oldJQ: true, oldNode: true, records["uv"].Keg: true} {
+		if _, err := os.Stat(path); (err == nil) != want {
+			t.Fatalf("%s exists = %v, want %v (removed %+v)", path, err == nil, want, removed)
+		}
+	}
+}

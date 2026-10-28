@@ -20,7 +20,7 @@ func TestOfflineCommandsDoNotCreateState(t *testing.T) {
 	}{
 		{"help", []string{"--help"}, "Usage:"},
 		{"help-json", []string{"--help", "--json"}, `"schema_version":1`},
-		{"version", []string{"version", "--json"}, `"version":"test"`},
+		{"version", []string{"-v", "--json"}, `"version":"test"`},
 		{"version-flag", []string{"--version", "--json"}, `"command":"version"`},
 		{"list", []string{"list", "--json"}, `"data":[]`},
 		{"completion", []string{"completion", "zsh"}, "#compdef gobrew"},

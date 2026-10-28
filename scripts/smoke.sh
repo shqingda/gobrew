@@ -16,6 +16,8 @@ prefix=$(mktemp -d /tmp/gb.XXXX)
 cache=$(mktemp -d "${TMPDIR:-/tmp}/gobrew-smoke-cache.XXXXXX")
 trap 'rm -rf -- "$prefix" "$cache"' EXIT
 gb=("$binary" --prefix "$prefix" --cache-dir "$cache")
+# Keep the run deterministic, as the benchmark does.
+export GOBREW_NO_AUTO_UPDATE=1
 
 "${gb[@]}" init
 "${gb[@]}" update

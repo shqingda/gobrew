@@ -1,13 +1,17 @@
 package engine
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
+	"time"
 
+	"github.com/shqingda/gobrew/internal/model"
 	"github.com/shqingda/gobrew/internal/resolver"
 )
 
@@ -190,4 +194,47 @@ func (e *Engine) Uses(ctx context.Context, name string, installed bool) ([]strin
 	}
 	slices.Sort(names)
 	return names, nil
+}
+
+// Available reads the named formulae from the local catalog without
+// networking. Formulae absent from the catalog are omitted.
+func (e *Engine) Available(names []string) (map[string]model.Formula, error) {
+	client, err := e.client()
+	if err != nil {
+		return nil, err
+	}
+	cat, err := client.LoadForPlan(names)
+	if err != nil {
+		return nil, err
+	}
+	return cat.Formulae, nil
+}
+
+// CatalogFetched reports when the local catalog was last refreshed.
+func (e *Engine) CatalogFetched() (time.Time, error) {
+	client, err := e.client()
+	if err != nil {
+		return time.Time{}, err
+	}
+	return client.Fetched()
+}
+
+// Search runs brew search over the local catalog (fetching it if missing) and
+// orders results like Homebrew: by base name, unversioned formulae first, then
+// versioned ones such as python@3.13 by version.
+func (e *Engine) Search(ctx context.Context, query string, descriptions bool) ([]model.Formula, error) {
+	cat, err := e.Catalog(ctx)
+	if err != nil {
+		return nil, err
+	}
+	result, err := cat.Search(query, descriptions)
+	slices.SortStableFunc(result, func(a, b model.Formula) int {
+		baseA, versionA, _ := strings.Cut(a.Name, "@")
+		baseB, versionB, _ := strings.Cut(b.Name, "@")
+		if c := strings.Compare(baseA, baseB); c != 0 {
+			return c
+		}
+		return resolver.CompareVersions(cmp.Or(versionA, "0"), cmp.Or(versionB, "0"))
+	})
+	return result, err
 }

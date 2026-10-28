@@ -1,0 +1,14 @@
+started_utc=2026-10-28T12:17:58Z
+source_commit=0e608cd3cc12d54751133c705cc72cc2347732fc
+binary=/Users/shqingda/Projects/gobrew/bin/gobrew
+prefix=/tmp/gv.GX8f
+work=/tmp/gobrew-version-work.BDcSxi
+fixture=uv 0.13.5
+os=27.0.1
+architecture=arm64
+binary_sha256=48fadc51180c4961a596fc7f28986373927d78cd59e0c35a38c4eff9507353d3
+auto_update=disabled
+auto_cleanup=enabled
+path_modification=disabled
+catalog_version=0.13.6
+catalog_revision=0

@@ -62,6 +62,26 @@ func TestVersionOrdering(t *testing.T) {
 	}
 }
 
+func TestCompatibleOutdatedDependentIsNotUpgradedIncidentally(t *testing.T) {
+	abi := 1
+	oldLib, newLib := formula("lib", "1"), formula("lib", "2")
+	oldLib.CompatibilityVersion, newLib.CompatibilityVersion = &abi, &abi
+	oldApp, newApp := formula("app", "1", "lib"), formula("app", "2", "lib")
+	snapshot := model.Snapshot{Records: map[string]model.Record{
+		"lib": {Formula: oldLib, Status: model.Ready},
+		"app": {Formula: oldApp, Status: model.Ready, Dependencies: []model.RuntimeDependency{{Name: "lib", Version: "1"}}},
+	}}
+	for _, action := range []string{"install", "upgrade"} {
+		plan, err := Build(model.Request{Action: action, Names: []string{"lib"}}, "snapshot", map[string]model.Formula{"lib": newLib, "app": newApp}, snapshot, host, "/opt/gobrew")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(plan.Packages) != 1 || plan.Packages[0].Formula.Name != "lib" {
+			t.Fatalf("%s also upgraded a compatible dependent: %+v", action, plan.Packages)
+		}
+	}
+}
+
 func TestBottleNeverFallsForwardOrAcrossArchitecture(t *testing.T) {
 	f := formula("a", "1")
 	f.Bottles = map[string]model.Bottle{"arm64_tahoe": {Tag: "arm64_tahoe"}, "sequoia": {Tag: "sequoia"}}
@@ -81,15 +101,31 @@ func TestRuntimeMinimumIsNotBypassedByCompatibilityVersion(t *testing.T) {
 	}
 }
 
-func TestInstallExistingPackageIsNoOp(t *testing.T) {
+func TestInstallUpgradesOutdatedUnlessHeldLikeHomebrew(t *testing.T) {
 	old, current := formula("demo", "1"), formula("demo", "2")
-	state := model.Snapshot{Records: map[string]model.Record{"demo": {Formula: old, Status: model.Ready}}}
-	plan, err := Build(model.Request{Action: "install", Names: []string{"demo"}}, "snapshot", map[string]model.Formula{"demo": current}, state, host, "/opt/gobrew")
-	if err != nil {
-		t.Fatal(err)
+	catalog := map[string]model.Formula{"demo": current}
+	build := func(record model.Record, noUpgrade bool) model.Plan {
+		t.Helper()
+		state := model.Snapshot{Records: map[string]model.Record{"demo": record}}
+		plan, err := Build(model.Request{Action: "install", Names: []string{"demo"}, NoInstallUpgrade: noUpgrade}, "snapshot", catalog, state, host, "/opt/gobrew")
+		if err != nil {
+			t.Fatal(err)
+		}
+		return plan
 	}
-	if len(plan.Packages) != 0 || len(plan.Unchanged) != 1 {
-		t.Fatalf("existing install changed: %+v", plan)
+	plan := build(model.Record{Formula: old, Status: model.Ready}, false)
+	if len(plan.Packages) != 1 || plan.Upgrading["demo"] != "1" || len(plan.Held) != 0 {
+		t.Fatalf("outdated install was not upgraded: %+v", plan)
+	}
+	for name, record := range map[string]model.Record{"pinned": {Formula: old, Status: model.Ready, Pinned: true}, "no-upgrade": {Formula: old, Status: model.Ready}} {
+		plan = build(record, name == "no-upgrade")
+		if len(plan.Packages) != 0 || len(plan.Held) != 1 || len(plan.Upgrading) != 0 {
+			t.Fatalf("%s: outdated install was not held: %+v", name, plan)
+		}
+	}
+	plan = build(model.Record{Formula: current, Status: model.Ready}, false)
+	if len(plan.Packages) != 0 || len(plan.Unchanged) != 1 || len(plan.Held) != 0 {
+		t.Fatalf("up-to-date install changed: %+v", plan)
 	}
 }
 
@@ -192,5 +228,86 @@ func TestCompatibleReuseNeverBypassesExplicitRootsOrVersionEpochs(t *testing.T) 
 				t.Fatalf("explicit root or epoch change reused the old dependency: %+v", plan)
 			}
 		})
+	}
+}
+
+func TestExactVersionMayReplaceButNotOverrideAPin(t *testing.T) {
+	older, current := formula("demo", "1"), formula("demo", "2")
+	state := model.Snapshot{Records: map[string]model.Record{"demo": {Formula: current, Status: model.Ready}}}
+	catalog := map[string]model.Formula{"demo": older}
+	if _, err := Build(model.Request{Action: "install", Names: []string{"demo"}}, "s", catalog, state, host, "/opt/gobrew"); err != nil {
+		t.Fatal(err) // an implicit request keeps the newer installed version
+	}
+	exact := model.Request{Action: "install", Names: []string{"demo"}, Exact: []string{"demo"}}
+	plan, err := Build(exact, "s", catalog, state, host, "/opt/gobrew")
+	if err != nil || len(plan.Packages) != 1 || plan.Packages[0].Formula.Version != "1" {
+		t.Fatalf("explicit downgrade = %+v, %v", plan.Packages, err)
+	}
+	record := state.Records["demo"]
+	record.Pinned = true
+	state.Records["demo"] = record
+	if _, err := Build(exact, "s", catalog, state, host, "/opt/gobrew"); !errors.Is(err, model.ErrConflict) || !strings.Contains(err.Error(), "unpin") {
+		t.Fatalf("pinned version replaced: %v", err)
+	}
+	state.Records["demo"] = model.Record{Formula: older, Status: model.Ready, Pinned: true}
+	if plan, err := Build(exact, "s", catalog, state, host, "/opt/gobrew"); err != nil || len(plan.Unchanged) != 1 {
+		t.Fatalf("same pinned version = %+v, %v", plan, err)
+	}
+}
+
+func TestExactDowngradePreservesInstalledReverseRuntimeMinimum(t *testing.T) {
+	for _, tc := range []struct {
+		name                                             string
+		current, target, minimum                         string
+		currentRevision, targetRevision, minimumRevision int
+		wantConflict                                     bool
+		replaceConsumer                                  bool
+	}{
+		{name: "version below minimum", current: "2", target: "1", minimum: "2", wantConflict: true},
+		{name: "revision below minimum", current: "1", target: "1", minimum: "1", currentRevision: 1, minimumRevision: 1, wantConflict: true},
+		{name: "minimum still satisfied", current: "3", target: "2", minimum: "2"},
+		{name: "consumer also replaced", current: "2", target: "1", minimum: "2", replaceConsumer: true},
+	} {
+		for _, pinned := range []bool{false, true} {
+			if pinned && tc.replaceConsumer {
+				continue
+			}
+			t.Run(tc.name+map[bool]string{false: "/unpinned", true: "/pinned"}[pinned], func(t *testing.T) {
+				abi := 1
+				current, target := formula("lib", tc.current), formula("lib", tc.target)
+				current.Revision, target.Revision = tc.currentRevision, tc.targetRevision
+				current.CompatibilityVersion, target.CompatibilityVersion = &abi, &abi
+				app := formula("app", "1", "lib")
+				snapshot := model.Snapshot{Records: map[string]model.Record{
+					"lib": {Formula: current, Status: model.Ready},
+					"app": {Formula: app, Status: model.Ready, Pinned: pinned, Dependencies: []model.RuntimeDependency{{Name: "homebrew/core/lib", Version: tc.minimum, Revision: tc.minimumRevision}}},
+				}}
+				req := model.Request{Action: "install", Names: []string{"lib"}, Exact: []string{"lib"}}
+				wantPackages := 1
+				if tc.replaceConsumer {
+					req.Names = append(req.Names, "app")
+					app.Version = "2"
+					wantPackages = 2
+				}
+				plan, err := Build(req, "snapshot", map[string]model.Formula{"lib": target, "app": app}, snapshot, host, "/opt/gobrew")
+				if err == nil {
+					var prepared []model.PreparedPackage
+					for _, pkg := range plan.Packages {
+						prepared = append(prepared, model.PreparedPackage{Package: pkg})
+					}
+					err = ValidateRuntime(plan, prepared, snapshot)
+				}
+				if tc.wantConflict {
+					if !errors.Is(err, model.ErrConflict) {
+						t.Fatalf("downgrade violates installed app's runtime minimum but was accepted: %v", err)
+					}
+					if !strings.Contains(err.Error(), "retained app requires lib >= ") {
+						t.Fatalf("error does not identify the dependent's minimum: %v", err)
+					}
+				} else if err != nil || len(plan.Packages) != wantPackages || plan.Packages[0].Formula.Name != "lib" {
+					t.Fatalf("safe downgrade changed the dependent or failed: %+v, %v", plan.Packages, err)
+				}
+			})
+		}
 	}
 }

@@ -15,10 +15,11 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
-	"sort"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/shqingda/gobrew/internal/model"
 	bolt "go.etcd.io/bbolt"
@@ -66,16 +67,45 @@ func (s Snapshot) Lookup(name string) (model.Formula, error) {
 	return model.Formula{}, fmt.Errorf("%w: formula %s", model.ErrNotFound, name)
 }
 
-func (s Snapshot) Search(query string) []model.Formula {
-	query = strings.ToLower(query)
+// Search follows brew search. By default it matches formula names and
+// aliases; descriptions searches descriptions instead (--desc). A query
+// written as /regex/ is a regular expression (Go syntax), otherwise both sides
+// are simplified the way Homebrew does: lowercase, keeping only [a-z0-9@+].
+// Formulae for another platform are omitted.
+func (s Snapshot) Search(query string, descriptions bool) ([]model.Formula, error) {
+	match := func(text string) bool { return strings.Contains(simplify(text), simplify(query)) }
+	if len(query) >= 2 && strings.HasPrefix(query, "/") && strings.HasSuffix(query, "/") {
+		re, err := regexp.Compile(query[1 : len(query)-1])
+		if err != nil {
+			return nil, fmt.Errorf("%w: %s is not a valid regex", model.ErrUnsupported, query)
+		}
+		match = re.MatchString
+	}
 	result := []model.Formula{}
 	for _, f := range s.Formulae {
-		if strings.Contains(strings.ToLower(f.Name+" "+f.Description+" "+strings.Join(f.Aliases, " ")), query) {
+		if strings.HasPrefix(f.UnsupportedReason, "requires ") {
+			continue
+		}
+		found := descriptions && match(f.Description)
+		if !descriptions {
+			found = match(f.Name) || slices.ContainsFunc(f.Aliases, match)
+		}
+		if found {
 			result = append(result, f)
 		}
 	}
-	sort.Slice(result, func(i, j int) bool { return result[i].Name < result[j].Name })
-	return result
+	slices.SortFunc(result, func(a, b model.Formula) int { return strings.Compare(a.Name, b.Name) })
+	return result, nil
+}
+
+func simplify(text string) string {
+	return strings.Map(func(r rune) rune {
+		r = unicode.ToLower(r)
+		if r >= 'a' && r <= 'z' || r >= '0' && r <= '9' || r == '@' || r == '+' {
+			return r
+		}
+		return -1
+	}, text)
 }
 
 func (c Client) Update(ctx context.Context) (Snapshot, error) {
@@ -223,6 +253,17 @@ func (c Client) publish(ctx context.Context, snapshot Snapshot) error {
 		return err
 	}
 	return atomicWrite(c.Dir, "CURRENT", []byte(snapshot.Generation+"\n"))
+}
+
+// Fetched reports when the catalog was last refreshed successfully. Update
+// atomically rewrites CURRENT every time, even when the generation is
+// unchanged, so its modification time is that moment.
+func (c Client) Fetched() (time.Time, error) {
+	info, err := os.Stat(filepath.Join(c.Dir, "CURRENT"))
+	if err != nil {
+		return time.Time{}, err
+	}
+	return info.ModTime(), nil
 }
 
 func (c Client) Load() (Snapshot, error) {

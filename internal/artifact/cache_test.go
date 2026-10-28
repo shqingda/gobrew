@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/shqingda/gobrew/internal/platform"
 )
@@ -79,5 +80,40 @@ func TestCleanupRemovesOnlyUnleasedIdentifiableTemporaryArtifacts(t *testing.T) 
 	removed, err = m.Cleanup(context.Background())
 	if err != nil || len(removed) != len(activePaths) {
 		t.Fatalf("released leftovers not reclaimed: %v %v", removed, err)
+	}
+}
+
+func TestCleanupPrunesByAgeAndHonoursDryRun(t *testing.T) {
+	cache := t.TempDir()
+	m := New(Config{CacheDir: cache, BlobBudget: -1, TreeBudget: -1})
+	blobs := filepath.Join(cache, "blobs")
+	if err := os.MkdirAll(blobs, 0700); err != nil {
+		t.Fatal(err)
+	}
+	old, fresh := filepath.Join(blobs, strings.Repeat("a", 64)), filepath.Join(blobs, strings.Repeat("b", 64))
+	for _, path := range []string{old, fresh} {
+		if err := os.WriteFile(path, []byte("bottle"), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	stale := time.Now().Add(-200 * 24 * time.Hour)
+	if err := os.Chtimes(old, stale, stale); err != nil {
+		t.Fatal(err)
+	}
+	maxAge := 120 * 24 * time.Hour
+	if removed, err := m.CleanupWith(context.Background(), CleanupOptions{MaxAge: maxAge, DryRun: true}); err != nil || len(removed) != 1 || removed[0].Path != old || removed[0].Bytes != 6 {
+		t.Fatalf("dry run = %+v, %v", removed, err)
+	}
+	if _, err := os.Stat(old); err != nil {
+		t.Fatal("dry run removed an entry")
+	}
+	if removed, err := m.CleanupWith(context.Background(), CleanupOptions{MaxAge: maxAge}); err != nil || len(removed) != 1 {
+		t.Fatalf("age prune = %+v, %v", removed, err)
+	}
+	if _, err := os.Stat(fresh); err != nil {
+		t.Fatal("age prune removed a fresh entry")
+	}
+	if removed, err := m.CleanupWith(context.Background(), CleanupOptions{All: true}); err != nil || len(removed) != 1 || removed[0].Path != fresh {
+		t.Fatalf("prune all = %+v, %v", removed, err)
 	}
 }
