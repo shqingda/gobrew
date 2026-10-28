@@ -107,6 +107,9 @@ class Comparison:
 
     def setup(self):
         require_disposable_runner()
+        _, hardware = self.run("runner-hardware", ["/usr/sbin/sysctl", "-n", "machdep.cpu.brand_string", "hw.memsize", "hw.ncpu"], sandbox=False)
+        cpu, memory, cpus = hardware.decode().splitlines()
+        self.report["hardware"] = {"cpu": cpu, "memory_bytes": int(memory), "logical_cpus": int(cpus)}
         self.work = Path(tempfile.mkdtemp(prefix="nb-compare-", dir="/tmp"))
         self.gb_prefix = Path(tempfile.mkdtemp(prefix="", dir="/tmp"))
         self.gb_cache = self.work / "gobrew-cache"
