@@ -897,9 +897,10 @@ func (a *application) install(ctx context.Context, request model.Request, dryRun
 	if err != nil {
 		return err
 	}
-	// Homebrew auto-updates before install and upgrade, but not reinstall or
-	// version-install.
-	if len(request.Versions) == 0 && (action == "install" || action == "upgrade") {
+	// Planning may fetch a missing catalog, but must not run automatic updates
+	// (which also replace the managed CLI). Reinstall and version-install do not
+	// automatically update either.
+	if !dryRun && len(request.Versions) == 0 && (action == "install" || action == "upgrade") {
 		if err = a.autoUpdate(ctx, e, action == "install" || len(request.Names) > 0); err != nil {
 			return err
 		}

@@ -14,3 +14,14 @@
 | 执行 `git diff --check` 并检查新计划相关 Markdown 本地链接 | 验证文档格式与导航 | 检查通过；本次只有计划文档变更，没有运行产品测试。 |
 
 执行阶段继续追加每个单元的行动、原因、命令结果和证据路径；受阻或未运行事项不得记为通过。
+
+## 2026-10-28：执行第一阶段
+
+| 行动 | 原因 | 结果 |
+| --- | --- | --- |
+| 核对当前工作区、架构及 Git/TDD/增量实现技能，提交范围文档与计划 | 保留已确认决策，建立可追溯起点 | 文档提交 `0e608cd`；继续使用现有开发分支，无新增 worktree。 |
+| 运行 CLI/resolver/engine/installer/artifact 现有测试 | 在改动前确认基线 | 全部通过，Go 1.27.3 darwin/arm64。 |
+| 新增 dry-run 命令入口测试并先运行 | 复现自动更新副作用 | install/upgrade 两例均失败：dry-run 仍各发出一次目录刷新请求。 |
+| 在 CLI 自动更新条件中排除 dry-run，补命令触发、失败回退及取消验证 | 修复已复现行为，保留缺失目录的正常规划获取 | `go test ./internal/cli ./internal/resolver -count=1` 通过；JSON 仍是单文档。 |
+| 补安装后清理与兼容依赖方回归 | 覆盖编排缺口，不重写已有保护 | 验证禁用/排除、周期清理、清理失败、部分安装成功的修复材料保留；兼容但过时的依赖方不额外升级。 |
+| 运行相关包 race 检查及构建 | 确认本单元可交付 | `go test -race ./internal/cli ./internal/resolver ./internal/engine ./internal/installer ./internal/artifact` 和 `CGO_ENABLED=0` 构建通过。 |
