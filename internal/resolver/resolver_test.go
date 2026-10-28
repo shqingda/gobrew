@@ -62,6 +62,26 @@ func TestVersionOrdering(t *testing.T) {
 	}
 }
 
+func TestCompatibleOutdatedDependentIsNotUpgradedIncidentally(t *testing.T) {
+	abi := 1
+	oldLib, newLib := formula("lib", "1"), formula("lib", "2")
+	oldLib.CompatibilityVersion, newLib.CompatibilityVersion = &abi, &abi
+	oldApp, newApp := formula("app", "1", "lib"), formula("app", "2", "lib")
+	snapshot := model.Snapshot{Records: map[string]model.Record{
+		"lib": {Formula: oldLib, Status: model.Ready},
+		"app": {Formula: oldApp, Status: model.Ready, Dependencies: []model.RuntimeDependency{{Name: "lib", Version: "1"}}},
+	}}
+	for _, action := range []string{"install", "upgrade"} {
+		plan, err := Build(model.Request{Action: action, Names: []string{"lib"}}, "snapshot", map[string]model.Formula{"lib": newLib, "app": newApp}, snapshot, host, "/opt/gobrew")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(plan.Packages) != 1 || plan.Packages[0].Formula.Name != "lib" {
+			t.Fatalf("%s also upgraded a compatible dependent: %+v", action, plan.Packages)
+		}
+	}
+}
+
 func TestBottleNeverFallsForwardOrAcrossArchitecture(t *testing.T) {
 	f := formula("a", "1")
 	f.Bottles = map[string]model.Bottle{"arm64_tahoe": {Tag: "arm64_tahoe"}, "sequoia": {Tag: "sequoia"}}
