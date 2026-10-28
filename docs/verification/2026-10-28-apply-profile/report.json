@@ -1,0 +1,253 @@
+{
+  "started_utc": "2026-10-28T12:40:49.450840+00:00",
+  "binary": "/Users/shqingda/Projects/gobrew/bin/gobrew",
+  "binary_sha256": "afa1f2aafd5806ea8af4382b76e30a7fe8bc33a0a9bc5f97c744fe3b27fe882f",
+  "prefix": "/tmp/ga.2b34",
+  "work": "/tmp/gobrew-apply-profile-i7x52xf2",
+  "commands": [
+    {
+      "label": "build",
+      "argv": [
+        "/Users/shqingda/Projects/gobrew/bin/gobrew",
+        "--prefix",
+        "/tmp/ga.2b34",
+        "--cache-dir",
+        "/tmp/gobrew-apply-profile-i7x52xf2/cache",
+        "--json",
+        "--version"
+      ],
+      "cwd": null,
+      "exit_code": 0,
+      "wall_ms": 7.674083000000001
+    },
+    {
+      "label": "catalog",
+      "argv": [
+        "/Users/shqingda/Projects/gobrew/bin/gobrew",
+        "--prefix",
+        "/tmp/ga.2b34",
+        "--cache-dir",
+        "/tmp/gobrew-apply-profile-i7x52xf2/cache",
+        "--json",
+        "update"
+      ],
+      "cwd": null,
+      "exit_code": 0,
+      "wall_ms": 3023.302959
+    },
+    {
+      "label": "available",
+      "argv": [
+        "/Users/shqingda/Projects/gobrew/bin/gobrew",
+        "--prefix",
+        "/tmp/ga.2b34",
+        "--cache-dir",
+        "/tmp/gobrew-apply-profile-i7x52xf2/cache",
+        "--json",
+        "info",
+        "ca-certificates"
+      ],
+      "cwd": null,
+      "exit_code": 0,
+      "wall_ms": 56.359749999999934
+    },
+    {
+      "label": "install",
+      "argv": [
+        "/Users/shqingda/Projects/gobrew/bin/gobrew",
+        "--prefix",
+        "/tmp/ga.2b34",
+        "--cache-dir",
+        "/tmp/gobrew-apply-profile-i7x52xf2/cache",
+        "--json",
+        "install",
+        "ca-certificates"
+      ],
+      "cwd": null,
+      "exit_code": 0,
+      "wall_ms": 13009.994000000002
+    },
+    {
+      "label": "installed",
+      "argv": [
+        "/Users/shqingda/Projects/gobrew/bin/gobrew",
+        "--prefix",
+        "/tmp/ga.2b34",
+        "--cache-dir",
+        "/tmp/gobrew-apply-profile-i7x52xf2/cache",
+        "--json",
+        "list"
+      ],
+      "cwd": null,
+      "exit_code": 0,
+      "wall_ms": 7.312959000000063
+    },
+    {
+      "label": "initializer-1",
+      "argv": [
+        "/tmp/ga.2b34/Cellar/ca-certificates/2026-10-20/libexec/post-install",
+        "/tmp/ga.2b34/Cellar/ca-certificates/2026-10-20/share/ca-certificates/cacert.pem",
+        "/tmp/ga.2b34/etc/ca-certificates/cert.pem"
+      ],
+      "cwd": "/tmp/ga.2b34/Cellar/ca-certificates/2026-10-20",
+      "exit_code": 0,
+      "wall_ms": 6240.874999999999
+    },
+    {
+      "label": "initializer-2",
+      "argv": [
+        "/tmp/ga.2b34/Cellar/ca-certificates/2026-10-20/libexec/post-install",
+        "/tmp/ga.2b34/Cellar/ca-certificates/2026-10-20/share/ca-certificates/cacert.pem",
+        "/tmp/ga.2b34/etc/ca-certificates/cert.pem"
+      ],
+      "cwd": "/tmp/ga.2b34/Cellar/ca-certificates/2026-10-20",
+      "exit_code": 0,
+      "wall_ms": 6278.6314999999995
+    },
+    {
+      "label": "initializer-3",
+      "argv": [
+        "/tmp/ga.2b34/Cellar/ca-certificates/2026-10-20/libexec/post-install",
+        "/tmp/ga.2b34/Cellar/ca-certificates/2026-10-20/share/ca-certificates/cacert.pem",
+        "/tmp/ga.2b34/etc/ca-certificates/cert.pem"
+      ],
+      "cwd": "/tmp/ga.2b34/Cellar/ca-certificates/2026-10-20",
+      "exit_code": 0,
+      "wall_ms": 6482.645999999999
+    },
+    {
+      "label": "initializer-4",
+      "argv": [
+        "/tmp/ga.2b34/Cellar/ca-certificates/2026-10-20/libexec/post-install",
+        "/tmp/ga.2b34/Cellar/ca-certificates/2026-10-20/share/ca-certificates/cacert.pem",
+        "/tmp/ga.2b34/etc/ca-certificates/cert.pem"
+      ],
+      "cwd": "/tmp/ga.2b34/Cellar/ca-certificates/2026-10-20",
+      "exit_code": 0,
+      "wall_ms": 6709.3494169999985
+    },
+    {
+      "label": "initializer-5",
+      "argv": [
+        "/tmp/ga.2b34/Cellar/ca-certificates/2026-10-20/libexec/post-install",
+        "/tmp/ga.2b34/Cellar/ca-certificates/2026-10-20/share/ca-certificates/cacert.pem",
+        "/tmp/ga.2b34/etc/ca-certificates/cert.pem"
+      ],
+      "cwd": "/tmp/ga.2b34/Cellar/ca-certificates/2026-10-20",
+      "exit_code": 0,
+      "wall_ms": 6590.1622499999985
+    },
+    {
+      "label": "doctor",
+      "argv": [
+        "/Users/shqingda/Projects/gobrew/bin/gobrew",
+        "--prefix",
+        "/tmp/ga.2b34",
+        "--cache-dir",
+        "/tmp/gobrew-apply-profile-i7x52xf2/cache",
+        "--json",
+        "doctor"
+      ],
+      "cwd": null,
+      "exit_code": 0,
+      "wall_ms": 7.421166999996842
+    },
+    {
+      "label": "uninstall",
+      "argv": [
+        "/Users/shqingda/Projects/gobrew/bin/gobrew",
+        "--prefix",
+        "/tmp/ga.2b34",
+        "--cache-dir",
+        "/tmp/gobrew-apply-profile-i7x52xf2/cache",
+        "--json",
+        "uninstall",
+        "ca-certificates"
+      ],
+      "cwd": null,
+      "exit_code": 0,
+      "wall_ms": 41.36558299999393
+    },
+    {
+      "label": "cleanup",
+      "argv": [
+        "/Users/shqingda/Projects/gobrew/bin/gobrew",
+        "--prefix",
+        "/tmp/ga.2b34",
+        "--cache-dir",
+        "/tmp/gobrew-apply-profile-i7x52xf2/cache",
+        "--json",
+        "cleanup"
+      ],
+      "cwd": null,
+      "exit_code": 0,
+      "wall_ms": 7.453833999996107
+    }
+  ],
+  "samples": [
+    {
+      "round": 1,
+      "wall_ms": 6240.874999999999,
+      "output_bytes": 286958,
+      "certificate_count": 189,
+      "output_sha256": "56906320836d6e7a4b91d8c86f16156c81051ca81419f886c9fc3c8868e7fb5b"
+    },
+    {
+      "round": 2,
+      "wall_ms": 6278.6314999999995,
+      "output_bytes": 286958,
+      "certificate_count": 189,
+      "output_sha256": "56906320836d6e7a4b91d8c86f16156c81051ca81419f886c9fc3c8868e7fb5b"
+    },
+    {
+      "round": 3,
+      "wall_ms": 6482.645999999999,
+      "output_bytes": 286958,
+      "certificate_count": 189,
+      "output_sha256": "56906320836d6e7a4b91d8c86f16156c81051ca81419f886c9fc3c8868e7fb5b"
+    },
+    {
+      "round": 4,
+      "wall_ms": 6709.3494169999985,
+      "output_bytes": 286958,
+      "certificate_count": 189,
+      "output_sha256": "56906320836d6e7a4b91d8c86f16156c81051ca81419f886c9fc3c8868e7fb5b"
+    },
+    {
+      "round": 5,
+      "wall_ms": 6590.1622499999985,
+      "output_bytes": 286958,
+      "certificate_count": 189,
+      "output_sha256": "56906320836d6e7a4b91d8c86f16156c81051ca81419f886c9fc3c8868e7fb5b"
+    }
+  ],
+  "passed": true,
+  "build": {
+    "version": "dev",
+    "commit": "046d271dfbb1f2aedbcf312551978ffb7ce91092",
+    "date": "2026-10-28T20:25:07+08:00"
+  },
+  "catalog_generation": "2a25f31abd21f6994283fc53a9ce1c7fcf9eb1d91430ea52dec717f9dae7bf7d",
+  "install_timings_ms": {
+    "plan": 0.409333,
+    "prepare": 5522.234541,
+    "apply": 7433.961459
+  },
+  "package_version": "2026-10-20",
+  "bottle_sha256": "8589f4e61b3afcc5ea375aab11af1c891ec4c94421c699c2a5a4765078de4443",
+  "initializer_path": "/tmp/ga.2b34/Cellar/ca-certificates/2026-10-20/libexec/post-install",
+  "initializer_sha256": "da9391b40cabf30802bab7f27cfbdd4292bbc79155a4731e671526351ee24825",
+  "source_sha256": "737517c3f03de76442482d7d4fd5d81de60da1be75823d878adb08da3c0ef4fe",
+  "installed_output_sha256": "56906320836d6e7a4b91d8c86f16156c81051ca81419f886c9fc3c8868e7fb5b",
+  "command_environment": {
+    "HOME": "/tmp/gobrew-apply-profile-i7x52xf2/home",
+    "USER": "shqingda",
+    "LOGNAME": "shqingda",
+    "LANG": "C",
+    "PATH": "/tmp/ga.2b34/bin:/tmp/ga.2b34/sbin:/usr/bin:/bin:/usr/sbin:/sbin",
+    "TMPDIR": "/tmp/ga.2b34/var/gobrew/tmp"
+  },
+  "initializer_median_ms": 6482.645999999999,
+  "temporary_directories_removed": true,
+  "measurement_context": "Formal group: coordinated with the main agent to pause all other agent tests/builds during this run. OS/background processes and system caches are not controlled. The earlier possibly-overlapping run is preserved in exploration-interference/."
+}
