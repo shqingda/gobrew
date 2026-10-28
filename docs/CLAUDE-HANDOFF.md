@@ -1,8 +1,20 @@
 # gobrew 项目交接文档
 
-更新日期：2026-10-27（Asia/Taipei）  
+更新日期：2026-10-28（Asia/Taipei）
+
 接手工具：Claude Code  
 工作目录：`/Users/shqingda/Projects/gobrew`
+
+## 最新范围决定：2026-10-28
+
+后续开发遵循 [Homebrew 功能取舍](decisions/0001-homebrew-feature-scope.md)，不再以全量复制 Homebrew 为目标。该记录优先于下文历史计划中的范围要求；本次仅更新文档，没有变更实现。
+
+用户随后选择本轮只做现有功能与性能收尾，暂不新增命令。执行顺序以仓库内的 [新计划](../tasks/plan.md) 为准，状态见 [当前待办](../tasks/todo.md)，过程见 [工作日志](../tasks/work-log.md)。
+
+- 不做 Formula 开发工具、源码构建／`--HEAD`、Homebrew Git 管理入口、`--ignore-dependencies`，不追求全部参数、环境变量及提示语逐字兼容。
+- 辅助查询入口低优先级；完整 Bundle 暂不做，Homebrew JSON 格式兼容按需评估；tap、services、Cask、漏洞查询延后。
+- 下文 P0 第 8 项中“仅因依赖方版本过时而自动升级”的部分不再是当前必做项，对应开关也不单独要求实现。保障依赖方可运行所必需的检查与处理仍属正确性要求。
+- 真实端到端验证、no-op 基准重测、README 同步及 nanobrew 对比仍待完成。
 
 ## 0. 2026-10-27 进展更新（Claude Code）
 

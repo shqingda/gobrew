@@ -177,6 +177,8 @@ gobrew completion zsh
 
 ## 支持边界
 
+功能范围以[Homebrew 功能取舍](docs/decisions/0001-homebrew-feature-scope.md)为准：优先兼容日常安装管理习惯，不承诺完整复刻 Homebrew 的所有命令、参数及输出。
+
 - 官方 core bottles、版本化 Formula、平台与依赖解析、keg-only、pin、恢复和配置保留。
 - 官方声明式安装步骤使用明确支持集；未知步骤、需要提权的步骤及旧 Ruby hook 会被拒绝，不会静默略过。
 - 不支持 Cask、第三方 taps、源码构建、services、任意历史版本或 Intel 安装。
