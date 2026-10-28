@@ -556,6 +556,7 @@ func (e *Engine) Uninstall(ctx context.Context, names []string) ([]string, error
 	if err := e.checkMutation(); err != nil {
 		return nil, err
 	}
+	removed := slices.Clone(names)
 	err := e.installer().MutateRecords(ctx, func(s *model.Snapshot) error {
 		removing := make(map[string]bool)
 		for _, n := range names {
@@ -577,9 +578,14 @@ func (e *Engine) Uninstall(ctx context.Context, names []string) ([]string, error
 		for _, n := range names {
 			delete(s.Records, n)
 		}
+		unused := orphaned(*s)
+		for _, n := range unused {
+			delete(s.Records, n)
+		}
+		removed = append(removed, unused...)
 		return nil
 	})
-	return names, err
+	return removed, err
 }
 func (e *Engine) Autoremove(ctx context.Context, dryRun bool) ([]string, error) {
 	if dryRun {

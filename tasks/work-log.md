@@ -62,3 +62,9 @@
 按用户要求，日常验证改为本地 release 模式构建，交付产物／路径及安装、测试说明，由用户安装后测试；只有明确确认发版才使用 GitHub Actions。规则写入 CONSTRAINTS.md，README 与 AGENTS.md 提供入口；移除普通 push/PR 的自动 CI 及 nanobrew 比较触发，保留正式发布检查。此次只调整文档和触发条件，本地核对，不执行 Actions 验证。
 
 随后新增 `make check`／`make build` 统一入口，由 `scripts/ci-check.sh` 在本地执行原 CI 全部检查及已有比较器测试，再构建带提交信息的 dev 测试程序与 SHA-256、验证 bootstrap；发布 CI 复用该脚本。实际本地运行全部通过，工作流 YAML 与触发条件核对通过，独立审查无阻塞。已请求取消此前普通提交触发的 CI（run 40706690325），此次没有启动 Actions；正式发布的实瓶及性能门禁保持不变。
+
+## 2026-10-28：卸载后清理无用依赖
+
+用户实测卸载 jq 后 oniguruma 遗留。回归测试先复现只返回 jq 的失败，再在 Engine.Uninstall 原有单次 MutateRecords 内复用 autoremove 的可达性规则，同时卸载无用依赖；保留主动安装、pin 和其他主动安装包仍需要的依赖，仍拒绝直接卸载被依赖的包。补充 requested 含义和卸载语义文档。
+
+四组回归检查记录与真实 keg 的删除／保留，包含传递依赖；本地 `make check` 全部通过。隔离临时 prefix/HOME/cache 的真实 jq 1.8.2 + oniguruma 6.9.10 验证通过：jq 可执行、直接删除依赖被拒绝、卸载 jq 自动移除依赖、显式安装的 oniguruma 保留。未修改用户安装，也未运行 GitHub Actions。审查确认复用原有写锁、归属校验和 durable journal，无新事务框架。命令与日志见 `docs/verification/2026-10-28-uninstall/`。

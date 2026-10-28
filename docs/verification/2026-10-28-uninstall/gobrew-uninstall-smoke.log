@@ -1,0 +1,23 @@
+==> Downloading jq
+==> Downloading oniguruma
+==> Pouring jq
+==> Pouring oniguruma
+/tmp/gb.riKQ/Cellar/oniguruma/6.9.10: 14 files, 1.4MB
+/tmp/gb.riKQ/Cellar/jq/1.8.2: 19 files, 1.2MB
+FORMULA    VERSION  STATUS  FLAGS
+jq         1.8.2    ready   requested
+oniguruma  6.9.10   ready   
+Error: conflict: jq still requires oniguruma
+jq
+oniguruma
+FORMULA  VERSION  STATUS  FLAGS
+==> Using prepared jq
+==> Using prepared oniguruma
+/tmp/gb.riKQ/Cellar/oniguruma/6.9.10: 14 files, 1.4MB
+/tmp/gb.riKQ/Cellar/jq/1.8.2: 19 files, 1.2MB
+jq
+FORMULA    VERSION  STATUS  FLAGS
+oniguruma  6.9.10   ready   requested
+oniguruma
+FORMULA  VERSION  STATUS  FLAGS
+Isolated jq dependency uninstall smoke passed.

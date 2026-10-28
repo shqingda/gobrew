@@ -33,6 +33,62 @@ func ownedRecord(t *testing.T, prefix, name string) model.Record {
 	return model.Record{Formula: model.Formula{Name: name, Version: "1"}, Keg: keg, Owner: owner, Status: model.Ready}
 }
 
+func TestUninstallRemovesUnusedDependencies(t *testing.T) {
+	for _, retain := range []string{"none", "requested", "pinned", "shared"} {
+		t.Run(retain, func(t *testing.T) {
+			prefix := t.TempDir()
+			store := state.Store{Prefix: prefix}
+			if err := store.Initialize(); err != nil {
+				t.Fatal(err)
+			}
+			app, lib, leaf := ownedRecord(t, prefix, "jq"), ownedRecord(t, prefix, "oniguruma"), ownedRecord(t, prefix, "leaf")
+			app.Requested = true
+			app.Dependencies = []model.RuntimeDependency{{Name: "oniguruma"}}
+			lib.Dependencies = []model.RuntimeDependency{{Name: "leaf"}}
+			lib.Requested = retain == "requested"
+			lib.Pinned = retain == "pinned"
+			records := map[string]model.Record{"jq": app, "oniguruma": lib, "leaf": leaf}
+			if retain == "shared" {
+				other := ownedRecord(t, prefix, "other")
+				other.Requested = true
+				other.Dependencies = app.Dependencies
+				records["other"] = other
+			}
+			if err := store.WithLock(context.Background(), func(tx *state.Session) error {
+				return tx.Save(model.Snapshot{Records: records})
+			}); err != nil {
+				t.Fatal(err)
+			}
+			e := New(Config{Prefix: prefix})
+			removed, err := e.Uninstall(context.Background(), []string{"jq"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			want := "jq"
+			if retain == "none" {
+				want = "jq,leaf,oniguruma"
+			}
+			if strings.Join(removed, ",") != want {
+				t.Fatalf("removed %v, want %s", removed, want)
+			}
+			snap, err := e.Installed()
+			if err != nil {
+				t.Fatal(err)
+			}
+			for name, rec := range records {
+				wantPresent := name != "jq" && retain != "none"
+				if _, present := snap.Records[name]; present != wantPresent {
+					t.Errorf("%s record present = %v, want %v", name, present, wantPresent)
+				}
+				_, err := os.Stat(rec.Keg)
+				if wantPresent && err != nil || !wantPresent && !errors.Is(err, os.ErrNotExist) {
+					t.Errorf("%s keg: %v, want present %v", name, err, wantPresent)
+				}
+			}
+		})
+	}
+}
+
 func TestNoopRejectsUnhealthyDependencyClosure(t *testing.T) {
 	for _, damage := range []string{"missing-keg", "missing-marker", "symlink-marker", "hardlink-marker", "not-ready", "missing-record"} {
 		t.Run(damage, func(t *testing.T) {

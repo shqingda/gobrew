@@ -89,7 +89,14 @@ side effects inside retryable DB.Batch callbacks.
 
 Packages become `needs-postinstall` before external initialization, then `ready`
 only after success. Interrupted external commands are never automatically
-replayed. Repair is explicit. Configuration and mutable data are not rollbackable
+replayed. Repair is explicit.
+
+Uninstall rejects removal of dependencies still required by retained records, then
+removes orphan dependencies using the same reachability rule as autoremove:
+explicitly requested and pinned records are roots. Both removals share one
+writer lock and durable journal.
+
+Configuration and mutable data are not rollbackable
 and are retained during uninstall. Old kegs remain until safe reclamation.
 
 ```mermaid

@@ -124,7 +124,7 @@ gobrew cleanup
 gobrew doctor
 ```
 
-`update` 先更新 gobrew 自身，再刷新并校验 Formula 目录，最后列出可升级的软件；`upgrade` 升级已安装软件及必要依赖，不带名称时升级全部未 pin 的软件。源码构建或未托管的程序会跳过自身更新并说明原因，目录仍会刷新；自身更新失败时目录照常刷新，显式 `update` 命令以非零状态退出。`uninstall NAME` 卸载指定 Formula，`self uninstall` 卸载命令行。
+`update` 先更新 gobrew 自身，再刷新并校验 Formula 目录，最后列出可升级的软件；`upgrade` 升级已安装软件及必要依赖，不带名称时升级全部未 pin 的软件。源码构建或未托管的程序会跳过自身更新并说明原因，目录仍会刷新；自身更新失败时目录照常刷新，显式 `update` 命令以非零状态退出。`uninstall NAME` 卸载指定 Formula，并自动清理不再被任何主动安装或 pin 的包需要的依赖；仍被依赖的包不能直接卸载。`list` 中的 `requested` 表示主动指定安装，自动安装的依赖没有此标记；主动安装和 pin 的包不会被自动清理。`autoremove --dry-run` 可预览已有的无用依赖，`autoremove` 清理它们。`self uninstall` 卸载命令行。
 
 `install` 会升级本地目录中已知过时的已安装请求项；未发现更高版本时可返回 no-op，不再准备或安装软件。请求项已知过时但被 pin，或设置了 `GOBREW_NO_INSTALL_UPGRADE` 时，保持原版本并以非零状态退出，给出 unpin／upgrade 指引。显式请求原先作为依赖安装的软件，会将它保留为用户请求。
 
