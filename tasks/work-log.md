@@ -28,3 +28,4 @@
 | 增加并运行独立版本 smoke | 用真实 bottle 验证整个版本切换链路 | uv 0.13.5 → 0.13.6 全链路通过；证据保存在 `docs/verification/2026-10-28-version-smoke/`，包含构建时未提交状态与对应产品补丁。 |
 | 核对 nanobrew v0.1.212 的源码和发布物 | 确认隔离与比较条件 | 原版硬编码 `/opt/nanobrew`，不在开发机运行；转用一次性 GitHub hosted macOS runner 同机对比，固定 commit 和发布物 SHA。 |
 | 运行 vet、依赖校验、教程和漏洞检查 | 验证静态质量及依赖状况 | 全部通过；16 个教程示例通过，govulncheck@v1.9.0 未发现漏洞。 |
+| 在独立 HOME/XDG/TMPDIR 下运行原完整 smoke，并执行全量 race 与 bootstrap | 验证动态依赖、初始化和 CLI 生命周期 | 全部通过；原 smoke 输出压缩保存在版本验证目录，检查点 A 完成。 |

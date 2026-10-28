@@ -7,3 +7,5 @@
 二进制 SHA 见 `manifest.txt`，目录摘要见压缩包内 `catalog-generation.txt`。构建时基线为 `0e608cd`，工作区尚未提交；压缩包内 `source-status.txt` 如实保留当时状态，产品代码差异在 `source.patch`，随后以 `89d480c` 提交。新测试文件不进入产品二进制。不得将这份记录说成干净提交构建或性能基准。
 
 证据原目录 `/tmp/gobrew-version-evidence.0Tuzil`；安装 prefix 和工作目录已由脚本清理，开发者 Homebrew 与真实 shell 配置未参与。脚本副本供复现当时步骤，不作为第二个维护入口。
+
+同一产品二进制随后通过原 `scripts/smoke.sh`，完整输出在 `full-smoke.log.gz`。运行时另建临时 HOME/XDG/TMPDIR，并将 PATH 限制到系统工具，prefix `/tmp/gb.Eg6h` 在退出时清理。覆盖 hello/jq、证书初始化、Node/npm、Python/venv、重装、链接、卸载和清理。
