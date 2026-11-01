@@ -23,4 +23,10 @@
   - 没有删除测试：逐个审查后，现有用例都在保护边界或可见契约。
   - `cli/cleanup_test` 仍然通过 installer 构造已安装状态。这是最直接的真实路径；如果改走 engine，就得伪造整个 Prepare 链路。
 - [x] 阶段 7：文档整理，`docs/go-tutorial.md` 未改动。
-- [ ] 最终验证：`make check`、`scripts/smoke.sh`、`scripts/smoke-version.sh`，以及 UX 手工检查。
+- [x] 最终验证：`make check`、`scripts/smoke.sh`、`scripts/smoke-version.sh`，以及 UX 手工检查。
+  - `make check` 在 `d144722` 上全部通过。测试构建为 `bin/gobrew`，SHA-256 为 `2fdb6970…7f6`。
+  - `smoke.sh` 通过。postinstall 的计时行正常，转发的输出中没有多余内容。
+  - `smoke-version.sh` 首次运行失败：脚本仍在断言旧文案 `gob unpin uv`。已将断言改为新文案，并增加对 `held` 错误码的检查，重跑通过。
+  - UX 手工检查（隔离的短 prefix）：管道下没有转义字符；`NO_COLOR` 生效；重复安装的警告写入 stderr；`Pinned`/`Unpinned` 正常；用法错误提示指向子命令；`--json` 输出单个文档。
+  - 未运行：GitHub Actions 发布门禁，以及与 nanobrew 的重测。两者都需要用户先确认发版。
+- [ ] 后续：prefix 过长时，jq 等包直到重定位阶段才失败，报错为 `compiled prefix cannot grow in <路径>`。应像 python 那样在规划阶段就给出长度上限。

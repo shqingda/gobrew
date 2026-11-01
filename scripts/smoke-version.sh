@@ -136,7 +136,8 @@ mkdir -p "$prefix/etc" "$prefix/Cellar/uv/0.0.0"
 printf '%s\n' 'configuration sentinel' > "$prefix/etc/version-smoke.conf"
 printf '%s\n' 'foreign keg sentinel' > "$prefix/Cellar/uv/0.0.0/foreign.txt"
 gobrew 1 pinned-install install uv
-case "$(field pinned-install error.message)" in *'gob unpin uv'*) ;; *) fail 'Pinned install omitted unpin guidance' ;; esac
+case "$(field pinned-install error.message)" in *'gobrew unpin uv'*) ;; *) fail 'Pinned install omitted unpin guidance' ;; esac
+[ "$(field pinned-install error.code)" = held ] || fail 'Pinned install did not report the held code'
 record pinned-record "$old_version" true
 gobrew 0 unpin unpin uv
 export GOBREW_NO_INSTALL_UPGRADE=1
