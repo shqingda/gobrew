@@ -254,3 +254,27 @@ func TestBottlePrefixLinksAreRebasedAndCannotRedirectExtraction(t *testing.T) {
 		}
 	}
 }
+
+func TestTooLongPrefixNamesTheFileAndTheLimit(t *testing.T) {
+	tree := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(tree, "bin"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	// A NUL makes this compiled data, where paths cannot grow.
+	if err := os.WriteFile(filepath.Join(tree, "bin", "tool"), []byte("\x00/opt/homebrew/share\x00"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	prefix := "/tmp/gobrew-long"
+	_, err := relocateTreeChecked(context.Background(), tree, prefix, model.Package{})
+	if !errors.Is(err, model.ErrUnsupported) {
+		t.Fatalf("relocation succeeded or failed differently: %v", err)
+	}
+	for _, want := range []string{"bin/tool", "/opt/homebrew", "at most 13 bytes", "16"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("%q missing from %q", want, err)
+		}
+	}
+	if strings.Contains(err.Error(), tree) {
+		t.Fatalf("error exposes the staging path: %v", err)
+	}
+}

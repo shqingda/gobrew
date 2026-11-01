@@ -29,4 +29,4 @@
   - `smoke-version.sh` 首次运行失败：脚本仍在断言旧文案 `gob unpin uv`。已将断言改为新文案，并增加对 `held` 错误码的检查，重跑通过。
   - UX 手工检查（隔离的短 prefix）：管道下没有转义字符；`NO_COLOR` 生效；重复安装的警告写入 stderr；`Pinned`/`Unpinned` 正常；用法错误提示指向子命令；`--json` 输出单个文档。
   - 未运行：GitHub Actions 发布门禁，以及与 nanobrew 的重测。两者都需要用户先确认发版。
-- [ ] 后续：prefix 过长时，jq 等包直到重定位阶段才失败，报错为 `compiled prefix cannot grow in <路径>`。应像 python 那样在规划阶段就给出长度上限。
+- [x] prefix 过长时的报错：只有打开 bottle 中的文件，才知道 `:any` 类 bottle 里是否嵌着构建路径，元数据里看不出来，所以无法提前到规划阶段报错。现在 Prepare 阶段的报错会写明 keg 内的相对路径、允许的最大 prefix 字节数和当前长度，不再暴露暂存目录路径。

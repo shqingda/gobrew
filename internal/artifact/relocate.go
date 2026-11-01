@@ -125,7 +125,7 @@ func relocateTreeChecked(ctx context.Context, tree, prefix string, p model.Packa
 			if len(r.new) > len(r.old) {
 				// Unfit load-command strings are handled by install_name_tool.
 				if bytes.Contains(data, []byte(r.old)) && (!macho || len(fallback) == 0) {
-					return fmt.Errorf("%w: prefix is too long for %s", model.ErrUnsupported, path)
+					return prefixTooLong(tree, path, prefix, r)
 				}
 				continue
 			}
@@ -171,7 +171,7 @@ func relocateTreeChecked(ctx context.Context, tree, prefix string, p model.Packa
 			finalData = updated
 			for _, r := range fileReplacements {
 				if len(r.new) > len(r.old) && bytes.Contains(updated, []byte(r.old)) {
-					return fmt.Errorf("%w: compiled prefix cannot grow in %s", model.ErrUnsupported, path)
+					return prefixTooLong(tree, path, prefix, r)
 				}
 			}
 		}
@@ -214,6 +214,18 @@ func relocateTreeChecked(ctx context.Context, tree, prefix string, p model.Packa
 	}
 	sort.Strings(dependencies)
 	return dependencies, nil
+}
+
+// prefixTooLong explains a bottle whose compiled data embeds a build path
+// that cannot be rewritten to a longer prefix. Only the bottle's metadata-free
+// contents reveal this, so it surfaces while preparing rather than planning.
+func prefixTooLong(tree, path, prefix string, r replacement) error {
+	rel, err := filepath.Rel(tree, path)
+	if err != nil {
+		rel = filepath.Base(path)
+	}
+	limit := len(prefix) - (len(r.new) - len(r.old))
+	return fmt.Errorf("%w: %s embeds %s in compiled data, so the prefix must be at most %d bytes; %s has %d", model.ErrUnsupported, rel, r.old, limit, prefix, len(prefix))
 }
 
 // Bottles can name the Cellar version of a dependency used by the build farm.
