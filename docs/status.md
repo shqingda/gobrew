@@ -17,7 +17,7 @@
 
 ## 支持范围
 
-功能取舍以 [0001 决定](decisions/0001-homebrew-feature-scope.md) 为准。
+功能取舍以 [0001 决定](decisions/0001-homebrew-feature-scope.md) 为准；已有命令的参数和默认行为与 brew 一致，见 [0002 决定](decisions/0002-homebrew-command-compatibility.md)。
 
 - **支持**：
   - 官方 homebrew/core 的 ARM64 bottle，macOS 15 或更高版本。
@@ -30,13 +30,32 @@
   - 源码构建，以及 `--HEAD`。
   - Homebrew 自身的 Git 管理。
   - `--ignore-dependencies`。
-  - 参数与提示语逐字兼容。
 - **延后（按需求再排期）**：
   - 软件清单的导出与恢复。
   - `home`、`desc`、`log` 等辅助入口。
   - 依赖方仅版本过时时的自动升级。
   - Homebrew JSON 格式兼容。
   - 第三方 tap、`services`、Cask、漏洞查询。
+
+## 与 brew 的尚存差异
+
+2026-11-01 对照 [Homebrew 手册](https://docs.brew.sh/Manpage) 逐条检查后，以下差异仍然存在：
+
+- **待决定（涉及产品形态）**：
+  - Homebrew 没有的命令：`self`、`init`、`import-homebrew`、`completion`（brew 的 `completions` 管理 tap 补全链接，语义不同）。
+  - 全局参数 `--prefix DIR`、`--cache-dir` 等是 gobrew 的配置项；brew 的 `--prefix`、`--cache`、`--cellar` 是打印路径的命令。
+  - `doctor --repair` 和 `reinstall --dry-run` 是 brew 没有的参数。
+- **因正确性或安全约束有意保留**：
+  - 不支持 `uninstall --ignore-dependencies` 与 `--force`：仍被依赖的软件不能卸载。
+  - 升级依赖会破坏被 pin 的依赖方时，gobrew 在切换前拒绝；brew 会直接升级。
+  - 不支持 `link --overwrite`：从不覆盖别人的文件。
+  - `version-install` 在原名下安装指定版本；brew 会把它提取成个人 tap 中的独立 Formula（如 `uv@0.13.5`）。
+- **尚未实现的参数和输出**：
+  - `list <formula>` 的 keg 文件摘要。
+  - `info` 的 brew 文本格式，以及不带参数时的统计。
+  - `deps --tree`／`--topological`。
+  - `link`／`unlink -n`，`cleanup --prune-prefix`。
+  - brew 的 `--json=v1/v2` 结构（gobrew 的 `--json` 是自己的格式）。
 
 ## 验证方式
 

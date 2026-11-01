@@ -69,13 +69,13 @@ func (a *application) renderInstall(w io.Writer, e *engine.Engine, request model
 			lines = append(append(lines, "==> Caveats"), caveats...)
 		}
 	}
-	for _, name := range result.Pinned {
+	for _, name := range result.Historic {
 		version := ""
 		if r, ok := records[name]; ok {
 			version = " " + r.Formula.PkgVersion()
 		}
 		fmt.Fprintln(a.stderr, cleanText("Warning: "+name+version+" is not covered by Homebrew's signed metadata; its bottle was verified against GHCR and homebrew-core history.\n"+
-			"It is pinned so upgrades keep this version. To allow upgrades: gobrew unpin "+name))
+			"gobrew upgrade will replace it with the current version. To keep it: gobrew pin "+name))
 	}
 	// Homebrew warns only about the formulae the user named.
 	for _, name := range result.Unchanged {

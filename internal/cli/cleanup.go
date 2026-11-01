@@ -29,7 +29,7 @@ func (a *application) autoremoveCommand() *cobra.Command {
 		a.names(names, "No unused dependencies.")
 		return nil
 	})
-	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "List unused dependencies without removing them")
+	cmd.Flags().BoolVarP(&dryRun, "dry-run", "n", false, "List unused dependencies without removing them")
 	return cmd
 }
 
@@ -167,7 +167,7 @@ func (a *application) installCleanup(ctx context.Context, e *engine.Engine, resu
 		}
 	}
 	// An explicit older version is not the latest, so brew leaves it alone.
-	formulae := slices.DeleteFunc(slices.Clone(result.Succeeded), func(name string) bool { return slices.Contains(result.Pinned, name) })
+	formulae := slices.DeleteFunc(slices.Clone(result.Succeeded), func(name string) bool { return slices.Contains(result.Historic, name) })
 	var lines []string
 	if len(formulae) > 0 {
 		removed, err := e.Cleanup(ctx, engine.CleanupOptions{Formulae: formulae, Skip: skip})

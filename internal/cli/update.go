@@ -6,11 +6,15 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
+	"slices"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/shqingda/gobrew/internal/engine"
 	"github.com/shqingda/gobrew/internal/selfupdate"
+	"github.com/spf13/cobra"
 )
 
 // cliUpdate reports the self-update half of update.
@@ -158,7 +162,17 @@ func (a *application) updateCLI(ctx context.Context) (cliUpdate, error) {
 	return cliUpdate{Result: result}, err
 }
 
-func (a *application) outdated(ctx context.Context, _ []string) error {
+// outdatedCommand mirrors brew outdated [--verbose] [formula...].
+func (a *application) outdatedCommand() *cobra.Command {
+	var verbose bool
+	cmd := a.commandFor("outdated [formula...]", "List installed formulae with available updates", cobra.ArbitraryArgs, func(ctx context.Context, names []string) error {
+		return a.outdated(ctx, names, verbose)
+	})
+	cmd.Flags().BoolVarP(&verbose, "verbose", "v", false, "Include detailed version information")
+	return cmd
+}
+
+func (a *application) outdated(ctx context.Context, names []string, verbose bool) error {
 	e, err := a.getEngine()
 	if err != nil {
 		return err
@@ -170,16 +184,39 @@ func (a *application) outdated(ctx context.Context, _ []string) error {
 	if err != nil {
 		return err
 	}
-	a.setResult(items, func(w io.Writer) error {
-		rows := make([][]string, 0, len(items))
-		for _, item := range items {
-			pinned := ""
-			if item.Pinned {
-				pinned = "pinned"
-			}
-			rows = append(rows, []string{item.Name, item.Installed, item.Available, pinned})
+	if len(names) > 0 {
+		snapshot, err := e.Installed()
+		if err != nil {
+			return err
 		}
-		return table(w, []string{"FORMULA", "INSTALLED", "AVAILABLE", "PIN"}, rows)
+		for i, name := range names {
+			names[i] = strings.TrimPrefix(name, "homebrew/core/")
+			if _, ok := snapshot.Records[names[i]]; !ok {
+				return notFound("No such keg: " + filepath.Join(e.Prefix(), "Cellar", names[i]))
+			}
+		}
+		items = slices.DeleteFunc(items, func(item engine.Outdated) bool { return !slices.Contains(names, item.Name) })
+	}
+	// Like brew: versions on a terminal or with --verbose, names otherwise
+	// (and always with --quiet).
+	a.setResult(items, func(w io.Writer) error {
+		verbose := (verbose || newProgress(w).tty) && !a.quiet
+		for _, item := range items {
+			line := item.Name
+			if verbose {
+				line += " (" + item.Installed + ") < " + item.Available
+				if item.Pinned {
+					line += " [pinned at " + item.Installed + "]"
+				}
+			}
+			if _, err := fmt.Fprintln(w, cleanText(line)); err != nil {
+				return err
+			}
+		}
+		return nil
 	})
+	if len(names) > 0 && len(items) > 0 && !a.json {
+		return errOutdated
+	}
 	return nil
 }

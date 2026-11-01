@@ -119,8 +119,8 @@ func (e *Engine) Execute(ctx context.Context, req model.Request, events chan<- m
 	timings.Apply = float64(time.Since(start)) / float64(time.Millisecond)
 	result.Held = plan.Held
 	for _, pkg := range plan.Packages {
-		if pkg.Pin && slices.Contains(result.Succeeded, pkg.Formula.Name) {
-			result.Pinned = append(result.Pinned, pkg.Formula.Name)
+		if pkg.Historic && slices.Contains(result.Succeeded, pkg.Formula.Name) {
+			result.Historic = append(result.Historic, pkg.Formula.Name)
 		}
 	}
 	return result, err

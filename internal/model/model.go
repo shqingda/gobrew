@@ -127,8 +127,9 @@ type Package struct {
 	Formula   Formula `json:"formula"`
 	Bottle    Bottle  `json:"bottle"`
 	Requested bool    `json:"requested"`
-	// Pin keeps an explicitly requested older version out of upgrades.
-	Pin bool `json:"pin,omitempty"`
+	// Historic marks an explicitly requested older version whose bottle was
+	// verified against GHCR and homebrew-core instead of signed metadata.
+	Historic bool `json:"historic,omitempty"`
 }
 
 type Plan struct {
@@ -146,7 +147,8 @@ type Plan struct {
 	// will upgrade to their installed version, for Homebrew's notice.
 	Upgrading map[string]string `json:"upgrading,omitempty"`
 	// Held lists requested, outdated formulae that install left alone because
-	// they are pinned or NoInstallUpgrade is set. Homebrew reports these as errors.
+	// they are pinned or NoInstallUpgrade is set, and pinned outdated formulae
+	// that upgrade skipped. Homebrew reports named ones as errors.
 	Held []string `json:"held,omitempty"`
 }
 
@@ -171,9 +173,9 @@ type Result struct {
 	NotExecuted []string `json:"not_executed,omitempty"`
 	Timings     *Timings `json:"timings_ms,omitempty"`
 
-	// Pinned lists explicit older versions installed outside the signed
-	// catalog and pinned by this operation.
-	Pinned []string `json:"pinned,omitempty"`
+	// Historic lists explicit older versions installed outside the signed
+	// catalog by this operation.
+	Historic []string `json:"historic,omitempty"`
 	// Held copies Plan.Held so clients can report them after the operation.
 	Held []string `json:"held,omitempty"`
 }

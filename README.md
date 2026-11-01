@@ -126,10 +126,10 @@ gobrew unlink sqlite
 gobrew autoremove --dry-run
 gobrew cleanup
 gobrew doctor
-eval "$(gobrew shellenv)"
+eval "$(gobrew shellenv zsh)"
 ```
 
-`update` 先更新 gobrew 自身，再刷新并校验 Formula 目录，最后列出可升级的软件；`upgrade` 升级已安装软件及必要依赖，不带名称时升级全部未 pin 的软件。源码构建或未托管的程序会跳过自身更新并说明原因，目录仍会刷新；自身更新失败时目录照常刷新，显式 `update` 命令以非零状态退出。`uninstall NAME` 卸载指定 Formula，并自动清理不再被任何主动安装或 pin 的包需要的依赖；仍被依赖的包不能直接卸载。`list` 中的 `requested` 表示主动指定安装，自动安装的依赖没有此标记；主动安装和 pin 的包不会被自动清理。`autoremove --dry-run` 可预览已有的无用依赖，`autoremove` 清理它们。`self uninstall` 卸载命令行。
+`update` 先更新 gobrew 自身，再刷新并校验 Formula 目录，最后列出可升级的软件；`upgrade` 升级已安装软件及必要依赖，不带名称时升级全部未 pin 的软件。与 brew 一样，被 pin 的软件会被跳过，并提示 `Not upgrading N pinned package(s)`；只有显式点名被 pin 的软件时才以退出码 1 结束（`--json` 错误码为 `held`），其余软件照常升级。源码构建或未托管的程序会跳过自身更新并说明原因，目录仍会刷新；自身更新失败时目录照常刷新，显式 `update` 命令以非零状态退出。`uninstall NAME` 卸载指定 Formula，并自动清理不再被任何主动安装或 pin 的包需要的依赖；仍被依赖的包不能直接卸载。`list` 与 brew 一样只列名称，`--versions` 附带版本，`--installed-on-request`／`--pinned` 可筛选；主动安装和 pin 的包不会被自动清理。`outdated` 在终端显示 `name (旧版本) < 新版本`，管道中只列名称。`autoremove --dry-run` 可预览已有的无用依赖，`autoremove` 清理它们。`self uninstall` 卸载命令行。
 
 `install` 会升级本地目录中已知过时的已安装请求项；未发现更高版本时可返回 no-op，不再准备或安装软件。请求项已知过时但被 pin，或设置了 `GOBREW_NO_INSTALL_UPGRADE` 时，保持原版本并以退出码 1 结束（与 brew 一致），给出 unpin／upgrade 指引；`--json` 的错误码为 `held`，可与真正的失败区分。显式请求原先作为依赖安装的软件，会将它保留为用户请求。
 
@@ -139,7 +139,7 @@ eval "$(gobrew shellenv)"
 
 成功安装后默认清理本次涉及软件的无引用旧 keg；被 pin 的软件和仍被依赖引用的版本保留。默认每 30 天另做一次全量清理，首次没有周期记录时只开始计时。周期标记是缓存目录中的 `.cleaned`，不是 Formula prefix 中的文件。`cleanup [formula...] --dry-run` 可预览；不指定软件时还会按缓存预算和默认 120 天年龄清理缓存，`--prune=天数|all` 可覆盖年龄条件，`-s` 清理所有未被租约保护的缓存。自动清理失败时，普通文本模式提示警告，已成功安装的软件仍保留。
 
-`deps` 查询传递依赖，`uses` 查询直接反向依赖；`uses --installed` 使用本机安装记录。keg-only 默认只提供 `opt` 路径；`link --force` 可显式公开其命令，但不会覆盖别人的文件。`pin` 约束升级，不是绕过依赖检查。
+`deps` 查询传递依赖，多个 Formula 时取交集（`--union` 取并集），`-1` 只看直接依赖，`--installed` 只列已安装的；`uses` 查询直接反向依赖，`--recursive` 递归，`--installed` 使用本机安装记录。keg-only 默认只提供 `opt` 路径；`link --force` 可显式公开其命令，但不会覆盖别人的文件。`pin` 约束升级，不是绕过依赖检查。
 
 Formula 安装类命令支持 `--dry-run`：只规划，不自动更新目录或替换 CLI，不初始化、提权、安装、清理或修改 shell 配置。如果本地没有规划所需的目录快照，仍会获取它并写入目录缓存，因此 dry-run 不等于离线模式。`gobrew --help` 列出 prefix、cache、并发与缓存容量选项。
 
@@ -175,7 +175,7 @@ gob version-install uv@0.13.5
 
 `install` 中的 `python@3.13` 始终是 Formula 名。当前目录中的版本直接使用签名元数据。较旧的版本不在 Homebrew 签名元数据范围内，gobrew 从 GHCR 取该版本的 bottle，并要求 homebrew-core 历史中“update bottle”提交记录的校验值与之完全一致；两者不一致、或该版本定义了 Ruby post-install 等未知安装步骤时拒绝安装。依赖使用当前目录版本并照常检查最低版本要求。
 
-指定的旧版本安装后会被 pin，无参数 `upgrade` 跳过它，显式请求改变被 pin 的版本会被拒绝；输出中也会说明它不在签名元数据范围内。`gob unpin uv` 后即可正常升级。已 pin 在其他版本时需先 unpin。查询提交历史使用 GitHub API，匿名请求每小时有次数限制；可设置 `HOMEBREW_GITHUB_API_TOKEN` 或 `GITHUB_TOKEN`，前者优先。
+与 brew 一样，指定版本安装后不会自动 pin，之后 `upgrade` 会把它升级到当前版本；想保留时执行 `gob pin uv`。输出中会说明该版本不在签名元数据范围内。已 pin 在其他版本时需先 unpin。查询提交历史使用 GitHub API，匿名请求每小时有次数限制；可设置 `HOMEBREW_GITHUB_API_TOKEN` 或 `GITHUB_TOKEN`，前者优先。
 
 可证明 ABI 兼容的旧依赖可以复用，准备阶段仍须验证实际 bottle 的最低版本。缺少证据或 pin 导致版本不足时，操作会在切换前拒绝并要求重新规划。
 

@@ -57,10 +57,8 @@ func Build(req model.Request, generation string, formulae map[string]model.Formu
 		if req.Action != "upgrade" {
 			return plan, fmt.Errorf("%w: specify at least one formula", model.ErrNotFound)
 		}
-		for name, record := range state.Records {
-			if !record.Pinned {
-				roots = append(roots, name)
-			}
+		for name := range state.Records {
+			roots = append(roots, name)
 		}
 		sort.Strings(roots)
 	} else {
@@ -166,7 +164,15 @@ func Build(req model.Request, generation string, formulae map[string]model.Formu
 		return nil
 	}
 	for _, name := range roots {
-		if _, ok := formulae[name]; !ok {
+		f, ok := formulae[name]
+		// Like brew upgrade, pinned roots are skipped and reported, not fatal.
+		if record := state.Records[name]; req.Action == "upgrade" && record.Pinned {
+			if ok && Compare(record.Formula, f) < 0 {
+				held[name] = true
+			}
+			continue
+		}
+		if !ok {
 			return plan, fmt.Errorf("%w: installed formula %s is absent from the catalog", model.ErrNotFound, name)
 		}
 		if err := visit(name, req.Action == "reinstall"); err != nil {

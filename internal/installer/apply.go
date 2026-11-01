@@ -154,10 +154,10 @@ func (i Installer) stagePackage(ctx context.Context, j *state.Journal, staging s
 	if err != nil {
 		return err
 	}
-	rec := model.Record{Formula: f, Bottle: pkg.Bottle, Keg: keg, Owner: owner, Dependencies: slices.Clone(prepared.RuntimeDependencies), Requested: pkg.Requested, Pinned: pkg.Pin, Status: model.NeedsPostInstall, Linked: !f.KegOnly, InstalledAt: time.Now().UTC()}
+	rec := model.Record{Formula: f, Bottle: pkg.Bottle, Keg: keg, Owner: owner, Dependencies: slices.Clone(prepared.RuntimeDependencies), Requested: pkg.Requested, Status: model.NeedsPostInstall, Linked: !f.KegOnly, InstalledAt: time.Now().UTC()}
 	if old, ok := before.Records[f.Name]; ok {
 		rec.Requested = rec.Requested || old.Requested
-		rec.Pinned = old.Pinned || pkg.Pin
+		rec.Pinned = old.Pinned
 		rec.Linked = old.Linked
 	}
 	for n := range rec.Dependencies {

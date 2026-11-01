@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -119,51 +120,79 @@ func (e *Engine) Migration(prefix string) (Migration, error) {
 	return result, nil
 }
 
-func (e *Engine) Deps(ctx context.Context, name string) ([]string, error) {
+// DepsOptions mirrors brew deps --direct, --union and --installed.
+type DepsOptions struct {
+	Direct, Union, Installed bool
+}
+
+// Deps lists the dependencies of each named formula like brew deps: the
+// intersection for several names unless Union is set. Installed keeps only
+// installed dependencies.
+func (e *Engine) Deps(ctx context.Context, names []string, opts DepsOptions) ([]string, error) {
 	cat, err := e.Catalog(ctx)
 	if err != nil {
 		return nil, err
 	}
-	first, err := cat.Lookup(name)
-	if err != nil {
-		return nil, err
-	}
-	seen, visiting := map[string]bool{}, map[string]bool{}
-	var visit func(string) error
-	visit = func(n string) error {
-		f, err := cat.Lookup(n)
+	var installed map[string]model.Record
+	if opts.Installed {
+		snap, err := e.Installed()
 		if err != nil {
-			return err
+			return nil, err
 		}
-		if visiting[f.Name] {
-			return fmt.Errorf("dependency cycle at %s", f.Name)
+		installed = snap.Records
+	}
+	var result []string
+	for i, name := range names {
+		first, err := cat.Lookup(name)
+		if err != nil {
+			return nil, err
 		}
-		if seen[f.Name] {
-			return nil
-		}
-		visiting[f.Name] = true
-		for _, dep := range f.Dependencies {
-			if err = visit(dep); err != nil {
+		seen, visiting := map[string]bool{}, map[string]bool{}
+		var visit func(string, int) error
+		visit = func(n string, depth int) error {
+			f, err := cat.Lookup(n)
+			if err != nil {
 				return err
 			}
+			if visiting[f.Name] {
+				return fmt.Errorf("dependency cycle at %s", f.Name)
+			}
+			if seen[f.Name] {
+				return nil
+			}
+			visiting[f.Name] = true
+			if !opts.Direct || depth == 0 {
+				for _, dep := range f.Dependencies {
+					if err = visit(dep, depth+1); err != nil {
+						return err
+					}
+				}
+			}
+			delete(visiting, f.Name)
+			seen[f.Name] = true
+			return nil
 		}
-		delete(visiting, f.Name)
-		seen[f.Name] = true
-		return nil
+		if err = visit(first.Name, 0); err != nil {
+			return nil, err
+		}
+		delete(seen, first.Name)
+		deps := make([]string, 0, len(seen))
+		for n := range seen {
+			if _, ok := installed[n]; ok || !opts.Installed {
+				deps = append(deps, n)
+			}
+		}
+		slices.Sort(deps)
+		result = combine(result, deps, i == 0, opts.Union)
 	}
-	if err = visit(first.Name); err != nil {
-		return nil, err
-	}
-	delete(seen, first.Name)
-	names := make([]string, 0, len(seen))
-	for n := range seen {
-		names = append(names, n)
-	}
-	slices.Sort(names)
-	return names, nil
+	return result, nil
 }
-func (e *Engine) Uses(ctx context.Context, name string, installed bool) ([]string, error) {
-	names := make([]string, 0)
+
+// Uses lists formulae that depend on every named formula, like brew uses.
+// Installed reads installed receipts instead of the catalog; Recursive also
+// follows dependents of dependents.
+func (e *Engine) Uses(ctx context.Context, names []string, installed, recursive bool) ([]string, error) {
+	edges := map[string][]string{}
 	if installed {
 		snap, err := e.Installed()
 		if err != nil {
@@ -171,10 +200,7 @@ func (e *Engine) Uses(ctx context.Context, name string, installed bool) ([]strin
 		}
 		for n, r := range snap.Records {
 			for _, dep := range r.Dependencies {
-				if dep.Name == name {
-					names = append(names, n)
-					break
-				}
+				edges[strings.TrimPrefix(dep.Name, "homebrew/core/")] = append(edges[strings.TrimPrefix(dep.Name, "homebrew/core/")], n)
 			}
 		}
 	} else {
@@ -182,18 +208,54 @@ func (e *Engine) Uses(ctx context.Context, name string, installed bool) ([]strin
 		if err != nil {
 			return nil, err
 		}
-		f, err := cat.Lookup(name)
-		if err != nil {
-			return nil, err
+		for i, name := range names {
+			f, err := cat.Lookup(name)
+			if err != nil {
+				return nil, err
+			}
+			names[i] = f.Name
 		}
 		for n, item := range cat.Formulae {
-			if slices.Contains(item.Dependencies, f.Name) {
-				names = append(names, n)
+			for _, dep := range item.Dependencies {
+				edges[dep] = append(edges[dep], n)
 			}
 		}
 	}
-	slices.Sort(names)
-	return names, nil
+	var result []string
+	for i, name := range names {
+		seen := map[string]bool{}
+		queue := slices.Clone(edges[name])
+		for len(queue) > 0 {
+			n := queue[0]
+			queue = queue[1:]
+			if seen[n] {
+				continue
+			}
+			seen[n] = true
+			if recursive {
+				queue = append(queue, edges[n]...)
+			}
+		}
+		delete(seen, name)
+		uses := slices.Sorted(maps.Keys(seen))
+		result = combine(result, uses, i == 0, false)
+	}
+	if result == nil {
+		result = []string{}
+	}
+	return result, nil
+}
+
+// combine folds one sorted name list into the running result.
+func combine(result, names []string, first, union bool) []string {
+	switch {
+	case first:
+		return names
+	case union:
+		return slices.Compact(slices.Sorted(slices.Values(append(result, names...))))
+	default:
+		return slices.DeleteFunc(result, func(n string) bool { return !slices.Contains(names, n) })
+	}
 }
 
 // Available reads the named formulae from the local catalog without

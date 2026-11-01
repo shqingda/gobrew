@@ -25,7 +25,11 @@ func (a *application) installCommand(action string) *cobra.Command {
 	cmd := a.commandFor(use, strings.ToUpper(action[:1])+action[1:]+" official core bottles and their dependencies", args, func(ctx context.Context, names []string) error {
 		return a.install(ctx, model.Request{Action: action, Names: names}, dryRun)
 	})
-	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Resolve and show the exact plan without installing")
+	cmd.Flags().BoolVarP(&dryRun, "dry-run", "n", false, "Resolve and show the exact plan without installing")
+	if action != "reinstall" {
+		// gobrew never asks for confirmation; accepted for brew scripts.
+		cmd.Flags().BoolP("no-ask", "y", false, "Do not ask for confirmation (gobrew never asks)")
+	}
 	cmd.Example = map[string]string{
 		"install":   "  gobrew install jq\n  gobrew install --dry-run node",
 		"reinstall": "  gobrew reinstall jq",
@@ -40,7 +44,7 @@ func (a *application) installCommand(action string) *cobra.Command {
 // like brew install, plain install never splits names at "@".
 func (a *application) versionInstallCommand() *cobra.Command {
 	var dryRun bool
-	cmd := a.commandFor("version-install <formula[@version]> [version]", "Install a specific version of a formula and pin it", cobra.RangeArgs(1, 2), func(ctx context.Context, args []string) error {
+	cmd := a.commandFor("version-install <formula[@version]> [version]", "Install a specific version of a formula", cobra.RangeArgs(1, 2), func(ctx context.Context, args []string) error {
 		name, version := args[0], ""
 		if len(args) == 2 {
 			version = args[1]
@@ -53,7 +57,7 @@ func (a *application) versionInstallCommand() *cobra.Command {
 		}
 		return a.install(ctx, model.Request{Action: "install", Names: []string{name}, Versions: map[string]string{name: version}}, dryRun)
 	})
-	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Resolve and show the exact plan without installing")
+	cmd.Flags().BoolVarP(&dryRun, "dry-run", "n", false, "Resolve and show the exact plan without installing")
 	cmd.Example = "  gobrew version-install uv 0.13.5\n  gobrew version-install uv@0.13.5"
 	return cmd
 }
@@ -96,7 +100,36 @@ func (a *application) install(ctx context.Context, request model.Request, dryRun
 	})
 	notes := a.afterInstall(ctx, e, result, err)
 	a.setResult(result, func(w io.Writer) error { return a.renderInstall(w, e, request, result, notes) })
+	if action == "upgrade" {
+		return errors.Join(err, a.pinnedUpgrade(e, result.Held, len(request.Names) > 0))
+	}
 	return errors.Join(err, heldError(e, result.Held))
+}
+
+// pinnedUpgrade reports, like brew upgrade, outdated pinned formulae that were
+// skipped. Only formulae named explicitly make the command fail.
+func (a *application) pinnedUpgrade(e *engine.Engine, held []string, named bool) error {
+	if len(held) == 0 {
+		return nil
+	}
+	snapshot, err := e.Installed()
+	if err != nil {
+		return err
+	}
+	versions := make([]string, 0, len(held))
+	for _, name := range held {
+		versions = append(versions, name+" "+snapshot.Records[name].Formula.PkgVersion())
+	}
+	noun := "package"
+	if len(held) > 1 {
+		noun = "packages"
+	}
+	message := fmt.Sprintf("Not upgrading %d pinned %s:\n%s", len(held), noun, strings.Join(versions, ", "))
+	if named {
+		return heldUpgrade(message)
+	}
+	fmt.Fprintln(a.stderr, "Warning: "+message)
+	return nil
 }
 
 func (a *application) uninstall(ctx context.Context, names []string) error {

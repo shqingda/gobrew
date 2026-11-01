@@ -30,6 +30,24 @@ func TestPlanDependencyOrderAliasAndCycle(t *testing.T) {
 	}
 }
 
+func TestUpgradeSkipsPinnedRootsLikeBrew(t *testing.T) {
+	catalog := map[string]model.Formula{"uv": formula("uv", "2"), "jq": formula("jq", "2"), "fd": formula("fd", "1")}
+	state := model.Snapshot{Records: map[string]model.Record{
+		"uv": {Formula: formula("uv", "1"), Pinned: true, Status: model.Ready},
+		"jq": {Formula: formula("jq", "1"), Status: model.Ready},
+		"fd": {Formula: formula("fd", "1"), Pinned: true, Status: model.Ready},
+	}}
+	for _, names := range [][]string{nil, {"uv", "jq", "fd"}} {
+		plan, err := Build(model.Request{Action: "upgrade", Names: names}, "snapshot", catalog, state, host, "/opt/gobrew")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(plan.Packages) != 1 || plan.Packages[0].Formula.Name != "jq" || len(plan.Held) != 1 || plan.Held[0] != "uv" {
+			t.Fatalf("names %v: pinned roots were not skipped and reported: %+v", names, plan)
+		}
+	}
+}
+
 func TestUpgradePinnedReverseDependencyBlocksBeforeChanges(t *testing.T) {
 	lib, app := formula("lib", "2"), formula("app", "2", "lib")
 	state := model.Snapshot{Records: map[string]model.Record{"lib": {Formula: formula("lib", "1"), Status: model.Ready}, "app": {Formula: formula("app", "1", "lib"), Pinned: true, Status: model.Ready, Dependencies: []model.RuntimeDependency{{Name: "lib", Version: "1"}}}}}

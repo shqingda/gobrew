@@ -83,7 +83,7 @@ func (a *application) root() *cobra.Command {
 	root.AddCommand(a.completeCatalog(a.installCommand("install")), a.installCommand("reinstall"), a.installCommand("upgrade"))
 	root.AddCommand(a.completeCatalog(a.versionInstallCommand()))
 	root.AddCommand(a.commandFor("uninstall <formula>...", "Remove packages while retaining configuration and data", cobra.MinimumNArgs(1), a.uninstall))
-	root.AddCommand(a.commandFor("outdated", "List installed formulae with available updates", cobra.NoArgs, a.outdated))
+	root.AddCommand(a.outdatedCommand())
 	for _, pin := range []bool{true, false} {
 		name, description := "pin", "Prevent upgrades of installed formulae"
 		if !pin {
@@ -115,10 +115,14 @@ func (a *application) root() *cobra.Command {
 	root.AddCommand(a.linkCommand(true), a.linkCommand(false), a.autoremoveCommand(), a.doctorCommand())
 	root.AddCommand(a.cleanupCommand())
 	root.AddCommand(a.commandFor("postinstall <formula>...", "Explicitly retry supported post-install initialization", cobra.MinimumNArgs(1), a.postinstall))
-	root.AddCommand(a.completeCatalog(a.commandFor("deps <formula>", "List transitive dependencies", cobra.ExactArgs(1), a.deps)), a.completeCatalog(a.usesCommand()))
+	root.AddCommand(a.completeCatalog(a.depsCommand()), a.completeCatalog(a.usesCommand()))
 	root.AddCommand(a.importHomebrewCommand(), a.shellenvCommand(), a.completionCommand(), a.selfCommand())
 	for _, command := range root.Commands() {
 		command.Aliases = brewAliases[command.Name()]
+		// gobrew has only formulae, so brew's --formula changes nothing.
+		if brewFormulaFlag[command.Name()] && command.Flags().Lookup("formula") == nil {
+			command.Flags().Bool("formula", false, "Treat all named arguments as formulae (gobrew has only formulae)")
+		}
 	}
 	return root
 }

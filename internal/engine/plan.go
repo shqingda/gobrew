@@ -72,7 +72,7 @@ func (e *Engine) Plan(ctx context.Context, req model.Request) (model.Plan, error
 		return plan, err
 	}
 	for i := range plan.Packages {
-		plan.Packages[i].Pin = historic[plan.Packages[i].Formula.Name]
+		plan.Packages[i].Historic = historic[plan.Packages[i].Formula.Name]
 	}
 	for _, pkg := range plan.Packages {
 		if err = postinstall.Validate(pkg.Formula.Steps); err != nil {

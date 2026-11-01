@@ -9,6 +9,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/shqingda/gobrew/internal/engine"
 	"github.com/shqingda/gobrew/internal/model"
 	"github.com/shqingda/gobrew/internal/shellconfig"
 	"github.com/spf13/cobra"
@@ -17,7 +18,7 @@ import (
 // searchCommand mirrors brew search [--formula] [--desc] text|/regex/.
 func (a *application) searchCommand() *cobra.Command {
 	var descriptions, formulaOnly bool
-	cmd := a.commandFor("search <text|/regex/>...", "Search formula names, or descriptions with --desc", cobra.MinimumNArgs(1), func(ctx context.Context, args []string) error {
+	cmd := a.commandFor("search [text|/regex/]", "Search formula names, or descriptions with --desc; list all without text", cobra.ArbitraryArgs, func(ctx context.Context, args []string) error {
 		e, err := a.getEngine()
 		if err != nil {
 			return err
@@ -213,7 +214,7 @@ func infoLines(f model.Formula, prefix string, r model.Record, installed bool) [
 }
 
 func (a *application) listCommand() *cobra.Command {
-	var pinned, onRequest, notOnRequest bool
+	var pinned, onRequest, notOnRequest, versions, onePerLine bool
 	cmd := a.commandFor("list", "List installed formulae without network access", cobra.NoArgs, func(_ context.Context, _ []string) error {
 		e, err := a.getEngine()
 		if err != nil {
@@ -231,66 +232,91 @@ func (a *application) listCommand() *cobra.Command {
 			records = append(records, record)
 		}
 		slices.SortFunc(records, func(a, b model.Record) int { return strings.Compare(a.Formula.Name, b.Formula.Name) })
+		// Like brew list: names in columns on a terminal, one per line otherwise,
+		// and "name version" lines with --versions.
 		a.setResult(records, func(w io.Writer) error {
-			rows := make([][]string, 0, len(records))
-			for _, r := range records {
-				flags := []string{}
-				if r.Requested {
-					flags = append(flags, "requested")
+			names := make([]string, len(records))
+			widths := make([]int, len(records))
+			for i, r := range records {
+				names[i] = cleanText(r.Formula.Name)
+				if versions {
+					names[i] += " " + cleanText(r.Formula.PkgVersion())
 				}
-				if r.Pinned {
-					flags = append(flags, "pinned")
-				}
-				if !r.Linked {
-					flags = append(flags, "unlinked")
-				}
-				rows = append(rows, []string{r.Formula.Name, r.Formula.PkgVersion(), r.Status, strings.Join(flags, ",")})
+				widths[i] = len(names[i])
 			}
-			return table(w, []string{"FORMULA", "VERSION", "STATUS", "FLAGS"}, rows)
+			p := newProgress(w)
+			if versions || onePerLine || !p.tty {
+				for _, name := range names {
+					if _, err := fmt.Fprintln(w, name); err != nil {
+						return err
+					}
+				}
+				return nil
+			}
+			_, err := io.WriteString(w, columns(names, widths, p.width))
+			return err
 		})
 		return nil
 	})
 	cmd.Flags().BoolVar(&pinned, "pinned", false, "Only show pinned formulae")
 	cmd.Flags().BoolVar(&onRequest, "installed-on-request", false, "Only show formulae installed on request")
 	cmd.Flags().BoolVar(&notOnRequest, "no-installed-on-request", false, "Only show formulae installed as dependencies")
+	cmd.Flags().BoolVar(&versions, "versions", false, "Show the version number of installed formulae")
+	cmd.Flags().BoolVarP(&onePerLine, "1", "1", false, "Force output to be one entry per line")
 	cmd.MarkFlagsMutuallyExclusive("installed-on-request", "no-installed-on-request")
 	return cmd
 }
 
-func (a *application) deps(ctx context.Context, names []string) error {
-	e, err := a.getEngine()
-	if err != nil {
-		return err
-	}
-	deps, err := e.Deps(ctx, names[0])
-	if err != nil {
-		return err
-	}
-	a.names(deps, "No dependencies.")
-	return nil
-}
-
-func (a *application) usesCommand() *cobra.Command {
-	var installed bool
-	cmd := a.commandFor("uses <formula>", "List formulae with a direct dependency on a formula", cobra.ExactArgs(1), func(ctx context.Context, names []string) error {
+// depsCommand mirrors brew deps [--direct] [--union] [--installed] formula...
+func (a *application) depsCommand() *cobra.Command {
+	var opts engine.DepsOptions
+	cmd := a.commandFor("deps <formula>...", "Show dependencies of formulae (their intersection for several)", cobra.MinimumNArgs(1), func(ctx context.Context, names []string) error {
 		e, err := a.getEngine()
 		if err != nil {
 			return err
 		}
-		uses, err := e.Uses(ctx, names[0], installed)
+		deps, err := e.Deps(ctx, names, opts)
 		if err != nil {
 			return err
 		}
-		a.names(uses, "No dependent formulae.")
+		a.names(deps, "")
 		return nil
 	})
-	cmd.Flags().BoolVar(&installed, "installed", false, "Only inspect installed formulae, without network access")
+	cmd.Flags().BoolVarP(&opts.Direct, "direct", "1", false, "Show only direct dependencies")
+	cmd.Flags().BoolVar(&opts.Union, "union", false, "Show the union of dependencies for several formulae")
+	cmd.Flags().BoolVar(&opts.Installed, "installed", false, "Show only installed dependencies")
+	return cmd
+}
+
+// usesCommand mirrors brew uses [--installed] [--recursive] formula...
+func (a *application) usesCommand() *cobra.Command {
+	var installed, recursive bool
+	cmd := a.commandFor("uses <formula>...", "Show formulae that depend on formulae (their intersection for several)", cobra.MinimumNArgs(1), func(ctx context.Context, names []string) error {
+		e, err := a.getEngine()
+		if err != nil {
+			return err
+		}
+		uses, err := e.Uses(ctx, names, installed, recursive)
+		if err != nil {
+			return err
+		}
+		a.names(uses, "")
+		return nil
+	})
+	cmd.Flags().BoolVar(&installed, "installed", false, "Only list installed formulae, without network access")
+	cmd.Flags().BoolVar(&recursive, "recursive", false, "Resolve more than one level of dependencies")
 	return cmd
 }
 
 func (a *application) shellenvCommand() *cobra.Command {
 	var shell string
-	cmd := a.commandFor("shellenv", "Print shell commands that put gobrew tools on PATH", cobra.NoArgs, func(_ context.Context, _ []string) error {
+	cmd := a.commandFor("shellenv [shell]", "Print shell commands that put gobrew tools on PATH", cobra.MaximumNArgs(1), func(_ context.Context, args []string) error {
+		// Like brew, an explicit shell wins and $SHELL is only a fallback.
+		if len(args) == 1 {
+			shell = args[0]
+		} else if shell == "" {
+			shell = filepath.Base(os.Getenv("SHELL"))
+		}
 		e, err := a.getEngine()
 		if err != nil {
 			return err
@@ -304,6 +330,9 @@ func (a *application) shellenvCommand() *cobra.Command {
 		a.setResult(map[string]string{"shell": shell, "script": script}, func(w io.Writer) error { _, err := io.WriteString(w, script); return err })
 		return nil
 	})
-	cmd.Flags().StringVar(&shell, "shell", "zsh", "Shell syntax: zsh, bash, sh, or fish")
+	// --shell predates the positional form that brew shellenv uses.
+	cmd.Flags().StringVar(&shell, "shell", "", "Shell syntax")
+	_ = cmd.Flags().MarkHidden("shell")
+	cmd.Example = "  eval \"$(gobrew shellenv zsh)\""
 	return cmd
 }

@@ -123,8 +123,8 @@ printf 'catalog_version=%s\ncatalog_revision=%s\n' "$current_version" "$current_
 
 gobrew 0 historical version-install uv "$old_version"
 [[ -f "$prefix/.gobrew/state.db" ]] || fail 'First version-install did not initialize state'
-equal uv "$(field historical data.pinned.0)" 'historical result pin'
-record historical-record "$old_version" true
+equal uv "$(field historical data.historic.0)" 'historical result marker'
+record historical-record "$old_version" false
 old_keg=$(field historical-record data.0.keg)
 run 0 historical-executable "$prefix/bin/uv" --version
 case "$(cat "$evidence/historical-executable.stdout")" in
@@ -135,9 +135,14 @@ esac
 mkdir -p "$prefix/etc" "$prefix/Cellar/uv/0.0.0"
 printf '%s\n' 'configuration sentinel' > "$prefix/etc/version-smoke.conf"
 printf '%s\n' 'foreign keg sentinel' > "$prefix/Cellar/uv/0.0.0/foreign.txt"
+gobrew 0 pin pin uv
 gobrew 1 pinned-install install uv
 case "$(field pinned-install error.message)" in *'gobrew unpin uv'*) ;; *) fail 'Pinned install omitted unpin guidance' ;; esac
 [ "$(field pinned-install error.code)" = held ] || fail 'Pinned install did not report the held code'
+gobrew 1 pinned-upgrade upgrade uv
+case "$(field pinned-upgrade error.message)" in 'Not upgrading 1 pinned package:'*) ;; *) fail 'Named pinned upgrade omitted the brew notice' ;; esac
+[ "$(field pinned-upgrade error.code)" = held ] || fail 'Named pinned upgrade did not report the held code'
+gobrew 0 pinned-upgrade-all upgrade
 record pinned-record "$old_version" true
 gobrew 0 unpin unpin uv
 export GOBREW_NO_INSTALL_UPGRADE=1

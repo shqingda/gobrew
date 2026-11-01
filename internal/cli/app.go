@@ -48,6 +48,10 @@ type heldUpgrade string
 
 func (e heldUpgrade) Error() string { return string(e) }
 
+// errOutdated is brew outdated's silent exit status 1 when named formulae are
+// outdated; the listing itself is the message.
+var errOutdated = errors.New("")
+
 func (e notFound) Error() string { return string(e) }
 func (notFound) Unwrap() error   { return model.ErrNotFound }
 
@@ -63,6 +67,12 @@ var brewAliases = map[string][]string{
 	"postinstall": {"post_install"},
 	"info":        {"abv"},
 	"doctor":      {"dr"},
+}
+
+// brewFormulaFlag lists the commands whose brew counterparts accept --formula.
+var brewFormulaFlag = map[string]bool{
+	"deps": true, "info": true, "install": true, "link": true, "list": true, "outdated": true, "pin": true,
+	"reinstall": true, "search": true, "uninstall": true, "unlink": true, "unpin": true, "upgrade": true, "uses": true,
 }
 
 type application struct {
@@ -155,7 +165,7 @@ func (a *application) run(ctx context.Context, args []string, stdout io.Writer, 
 			return 1
 		}
 	}
-	if err != nil {
+	if err != nil && err.Error() != "" {
 		// Homebrew's error prefix; usage errors keep the --help pointer below.
 		fmt.Fprintf(stderr, "Error: %s\n", cleanText(err.Error()))
 		if code == 2 {
@@ -257,7 +267,7 @@ func (a *application) names(names []string, empty string) {
 		names = []string{}
 	}
 	a.setResult(names, func(w io.Writer) error {
-		if len(names) == 0 {
+		if len(names) == 0 && empty != "" {
 			_, err := fmt.Fprintln(w, empty)
 			return err
 		}

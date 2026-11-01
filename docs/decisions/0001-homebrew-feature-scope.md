@@ -18,7 +18,7 @@ gobrew 面向官方 Homebrew core 预编译软件的快速安装和可靠管理�
 | 源码构建、编译选项、`--HEAD` | 编译环境、补丁与构建差异的维护成本高，偏离预编译安装定位；维持不执行 Ruby、不回退 Homebrew 的约束。 |
 | Homebrew 自身 Git 仓库管理，如 `update-reset`、`--repository` | gobrew 使用自己的目录与程序更新机制，无须复制 Homebrew 的内部结构。 |
 | `--ignore-dependencies` | 会允许缺依赖的安装，增加运行故障和排查负担。 |
-| 全套环境变量、所有参数及提示语逐字兼容 | 保持日常操作习惯，按实际需求增加兼容项，不承担完整复刻的持续维护成本。 |
+| ~~全套环境变量、所有参数及提示语逐字兼容~~ | 已被 [0002](0002-homebrew-command-compatibility.md) 取代：已有命令的参数和默认行为与 brew 一致。 |
 
 ## 低优先级或按需实现
 

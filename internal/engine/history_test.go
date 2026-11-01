@@ -105,7 +105,7 @@ func TestHistoricalPlanLoadsDependenciesAbsentFromCurrentClosure(t *testing.T) {
 	if err != nil {
 		t.Fatalf("historical dependency exists in the signed index but could not be planned: %v", err)
 	}
-	if len(plan.Packages) != 3 || plan.Packages[0].Formula.Name != "leaf" || plan.Packages[1].Formula.Name != "oldlib" || plan.Packages[2].Formula.Version != "1" || !plan.Packages[2].Pin {
+	if len(plan.Packages) != 3 || plan.Packages[0].Formula.Name != "leaf" || plan.Packages[1].Formula.Name != "oldlib" || plan.Packages[2].Formula.Version != "1" || !plan.Packages[2].Historic {
 		t.Fatalf("historical dependency closure was not planned: %+v", plan.Packages)
 	}
 	current, err := (catalog.Client{Dir: dir, Platform: host}).LoadForPlan([]string{"demo"})

@@ -183,7 +183,8 @@ closure; directly declared and actually imported libraries remain authoritative.
 
 Install upgrades outdated requested formulae unless pinned or held by
 `GOBREW_NO_INSTALL_UPGRADE`; held outdated requests keep their version and the
-CLI exits nonzero with upgrade guidance. When all requested installations and
+CLI exits nonzero with upgrade guidance. Upgrade skips pinned roots like brew:
+outdated ones are reported, and the command fails only when they were named. When all requested installations and
 their dependencies are healthy and the local catalog shows no newer version,
 install needs no Prepare or Apply. It attempts a local catalog lookup; a missing
 catalog or a formula absent from it also permits this offline fallback, without
@@ -249,9 +250,10 @@ bottle block records the same digest for the chosen host tag. Disagreement, a
 Ruby `post_install` or `pour_bottle?`, or a revision, rebuild or version that
 does not match rejects the request before planning. Only the dual-verified host
 bottle enters the plan's private catalog copy; Prepare re-verifies its manifest
-and tab as for any modern bottle. Installed results are pinned and reported as
-outside the signed metadata. A request for the catalog's current version keeps
-the signed metadata and is not pinned. `HOMEBREW_GITHUB_API_TOKEN` or
+and tab as for any modern bottle. Installed results are reported as outside the
+signed metadata but, like brew, are not pinned, so upgrade replaces them with the
+catalog version. A request for the catalog's current version keeps the signed
+metadata. `HOMEBREW_GITHUB_API_TOKEN` or
 `GITHUB_TOKEN` raises GitHub's anonymous API limit for the commit query.
 
 ## Validation and distribution

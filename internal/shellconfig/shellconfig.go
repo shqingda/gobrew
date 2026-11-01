@@ -26,10 +26,44 @@ type Env struct {
 	Prefix string   // Formula prefix for GOBREW_PREFIX, MANPATH and INFOPATH; optional
 }
 
+// Script prints export statements for shell. Like brew shellenv, unknown
+// shells get POSIX exports.
 func (e Env) Script(shell string) (string, error) {
 	var b strings.Builder
 	switch shell {
-	case "bash", "zsh", "sh":
+	case "csh", "tcsh":
+		if e.Prefix != "" {
+			b.WriteString("setenv GOBREW_PREFIX " + quote(e.Prefix) + ";\n")
+		}
+		if len(e.Paths) > 0 {
+			parts := make([]string, len(e.Paths))
+			for i, p := range e.Paths {
+				parts[i] = quote(p)
+			}
+			b.WriteString("setenv PATH " + strings.Join(parts, ":") + ":\"$PATH\";\n")
+		}
+		if e.Prefix != "" {
+			b.WriteString("test ${?MANPATH} -eq 1 || setenv MANPATH \"\";\n")
+			b.WriteString("setenv MANPATH " + quote(filepath.Join(e.Prefix, "share/man")) + ":\"$MANPATH\";\n")
+			b.WriteString("test ${?INFOPATH} -eq 1 || setenv INFOPATH \"\";\n")
+			b.WriteString("setenv INFOPATH " + quote(filepath.Join(e.Prefix, "share/info")) + ":\"$INFOPATH\";\n")
+		}
+	case "pwsh", "pwsh-preview":
+		pwshQuote := func(s string) string { return "'" + strings.ReplaceAll(s, "'", "''") + "'" }
+		set := func(name, value string) {
+			b.WriteString("[System.Environment]::SetEnvironmentVariable(" + pwshQuote(name) + "," + value + ",[System.EnvironmentVariableTarget]::Process)\n")
+		}
+		if e.Prefix != "" {
+			set("GOBREW_PREFIX", pwshQuote(e.Prefix))
+		}
+		if len(e.Paths) > 0 {
+			set("PATH", "$("+pwshQuote(strings.Join(e.Paths, ":")+":")+"+$ENV:PATH)")
+		}
+		if e.Prefix != "" {
+			set("MANPATH", "$("+pwshQuote(filepath.Join(e.Prefix, "share/man")+":")+"+$ENV:MANPATH)")
+			set("INFOPATH", "$("+pwshQuote(filepath.Join(e.Prefix, "share/info")+":")+"+$ENV:INFOPATH)")
+		}
+	default:
 		if e.Prefix != "" {
 			b.WriteString("export GOBREW_PREFIX=" + quote(e.Prefix) + "\n")
 		}
@@ -62,8 +96,6 @@ func (e Env) Script(shell string) (string, error) {
 			b.WriteString("set -gx MANPATH " + fishQuote(filepath.Join(e.Prefix, "share/man")) + " $MANPATH\n")
 			b.WriteString("set -gx INFOPATH " + fishQuote(filepath.Join(e.Prefix, "share/info")) + " $INFOPATH\n")
 		}
-	default:
-		return "", fmt.Errorf("unsupported shell %q; choose bash, zsh, sh, or fish", shell)
 	}
 	return b.String(), nil
 }
