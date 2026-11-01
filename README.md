@@ -119,14 +119,19 @@ gobrew pin node
 gobrew unpin node
 gobrew reinstall jq
 gobrew uninstall jq
+gobrew deps jq
+gobrew uses oniguruma --installed
+gobrew link --force sqlite
+gobrew unlink sqlite
 gobrew autoremove --dry-run
 gobrew cleanup
 gobrew doctor
+eval "$(gobrew shellenv)"
 ```
 
 `update` 先更新 gobrew 自身，再刷新并校验 Formula 目录，最后列出可升级的软件；`upgrade` 升级已安装软件及必要依赖，不带名称时升级全部未 pin 的软件。源码构建或未托管的程序会跳过自身更新并说明原因，目录仍会刷新；自身更新失败时目录照常刷新，显式 `update` 命令以非零状态退出。`uninstall NAME` 卸载指定 Formula，并自动清理不再被任何主动安装或 pin 的包需要的依赖；仍被依赖的包不能直接卸载。`list` 中的 `requested` 表示主动指定安装，自动安装的依赖没有此标记；主动安装和 pin 的包不会被自动清理。`autoremove --dry-run` 可预览已有的无用依赖，`autoremove` 清理它们。`self uninstall` 卸载命令行。
 
-`install` 会升级本地目录中已知过时的已安装请求项；未发现更高版本时可返回 no-op，不再准备或安装软件。请求项已知过时但被 pin，或设置了 `GOBREW_NO_INSTALL_UPGRADE` 时，保持原版本并以非零状态退出，给出 unpin／upgrade 指引。显式请求原先作为依赖安装的软件，会将它保留为用户请求。
+`install` 会升级本地目录中已知过时的已安装请求项；未发现更高版本时可返回 no-op，不再准备或安装软件。请求项已知过时但被 pin，或设置了 `GOBREW_NO_INSTALL_UPGRADE` 时，保持原版本并以退出码 1 结束（与 brew 一致），给出 unpin／upgrade 指引；`--json` 的错误码为 `held`，可与真正的失败区分。显式请求原先作为依赖安装的软件，会将它保留为用户请求。
 
 `install`、`upgrade`、`outdated` 在目录超过默认 24 小时或没有刷新记录时，先尝试自身更新和目录刷新；`reinstall`、`version-install`、`import-homebrew` 不触发此自动更新。自动更新失败时，普通文本模式给出警告，原命令继续尝试使用已有目录；新安装等需要目录的后续操作仍可能失败。首次规划需要目录时会下载官方签名快照。
 
@@ -194,7 +199,7 @@ gobrew import-homebrew --from-homebrew /opt/homebrew
 
 ## 脚本与客户端接口
 
-`--json` 输出单个带 `schema_version`、`command`、`data`、`error` 的 JSON 文档。进度不混入标准输出。安装结果的 `timings_ms` 给出计划、准备与提交耗时。退出码：0 成功，1 操作失败，2 参数错误，3 不支持，4 冲突/过期计划/忙，5 需要修复，130 取消。
+`--json` 输出单个带 `schema_version`、`command`、`data`、`error` 的 JSON 文档。进度不混入标准输出。安装结果的 `timings_ms` 给出计划、准备与提交耗时。退出码：0 成功，1 操作失败，2 参数错误，3 不支持，4 冲突/过期计划/忙，5 需要修复，130 取消。`error.code` 进一步区分 `not_found`、`privilege_required`、`timeout`、`held` 等原因。文本模式下进度、警告和 post-install 输出写入标准错误。
 
 ```sh
 gobrew --json list
@@ -233,7 +238,7 @@ scripts/smoke-version.sh "$PWD/bin/gobrew"
 
 `benchmark` 工作流分别记录冷安装、热重装和已安装 no-op；Homebrew 对照必须使用空的独立安装，禁止传入日常使用的 `/opt/homebrew` 或 `/usr/local`。环境、轮数、版本及逐轮数据随结果保留，不将 no-op 当作重装。
 
-2026-10-27 的 M3 Pro 历史五轮实测中，`hello`、`jq`、证书集合的冷安装中位数为 9.58 秒，热缓存重新安装为 6.99 秒；对照 Homebrew 为 12.81 秒和 10.86 秒。这组数据绑定当时的提交，不能代表后续改动的性能；各次测量版本、方法、限制与原始数据见[性能验证记录](docs/performance.md)。
+各次测量的版本、方法、限制与原始数据见[性能验证记录](docs/performance.md)；每组数字只绑定当时的提交。
 
 确认发版后，版本 tag 必须通过检查、真实安装及五轮性能门禁，才发布已测量的 ARM64 二进制、`gob` 链接、安装脚本、校验文件和基准原始数据。不会自动创建版本 tag。
 
@@ -241,8 +246,11 @@ scripts/smoke-version.sh "$PWD/bin/gobrew"
 
 - [Go 1.27.3 入门教程](docs/go-tutorial.md)：独立中文单页文档，面向熟悉 JS/TS 的开发者。
 - [系统与代码架构](docs/architecture.md)
+- [当前状态与范围](docs/status.md)
+- [Homebrew 功能取舍](docs/decisions/0001-homebrew-feature-scope.md)
 - [实机兼容性记录](docs/compatibility.md)
 - [性能验证与原始数据](docs/performance.md)
+- [与 nanobrew 的对比](docs/nanobrew-comparison.md)
 - [工程约束](CONSTRAINTS.md)
 - [第三方声明](THIRD_PARTY_NOTICES.md)
 

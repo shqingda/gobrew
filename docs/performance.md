@@ -1,5 +1,24 @@
 # 性能验证记录
 
+## 2026-11-01：Prepare 网络往返与包内并行评估
+
+环境：Apple M3 Pro、macOS 27.2、Go 1.27.3，本机网络。只测 gobrew，不含 Homebrew 对照；包集合为 hello、jq（不含证书初始化，便于观察 Prepare）。每组五轮，隔离临时 prefix、缓存与 HOME，测量期间不构建、不跑测试。被测程序为本地 `CGO_ENABLED=0 -trimpath` 构建，版本串为 dev，源码提交在文件名中注明。
+
+| 源码 | 冷安装中位数 | 冷安装 Prepare 中位数 | 热重装中位数 | no-op 中位数 |
+| --- | ---: | ---: | ---: | ---: |
+| `4d424f9`（改动前） | 2529 毫秒 | 2333 毫秒 | 206 毫秒 | 14.7 毫秒 |
+| `83871ed`（GHCR 匿名凭据） | 2068 毫秒 | 1854 毫秒 | 213 毫秒 | 13.8 毫秒 |
+
+原因：GHCR 对未带凭据的 blob 请求返回 401，此前每个 bottle 都要先失败一次，再取 token 并重试。Homebrew 下载时使用匿名凭据 `Bearer QQ==`，homebrew/core 的公开 blob 直接返回跳转。现在 bottle 下载和 OCI 元数据都先使用该凭据，被拒时仍回退到按仓库申请 pull token；签名目录与 SHA-256 校验不变。[改动前](benchmarks/2026-11-01-m3-pro-hello-jq-4d424f9.json)、[改动后](benchmarks/2026-11-01-m3-pro-hello-jq-83871ed.json)的逐轮 JSON 均保留。
+
+评估后未保留的候选：
+
+- 逐文件 fsync 与 codesign 批次并行：对 `python@3.13` 从已缓存 bottle 重建准备树，交替两组、每版六次，Prepare 中位数约 3631 毫秒（原实现）对 3659 毫秒（并行），差异在波动内，已回退。
+- 跳过刚下载 blob 的二次 SHA-256：数 MB 的 bottle 计算不足 1 毫秒，却会去掉发布前的重新校验，不做。
+- post-install 与其他包重叠：Apply 中除证书脚本外的工作约 40 毫秒，没有可重叠的长任务，不做。
+- 合并两次缓存清理、`logicalSize` 并入其他遍历：只读目录项与清单，开销可忽略，不做。
+- 边下载边解压、去掉 `msync`、合并 `finishPackage` 提交、hardlink 改 clonefile：会解析未校验字节或改变持久化边界，按约束只记录，不实施。
+
 ## 2026-10-28：最终产品版本的五轮对照
 
 全部产品修复后的源码为 `384b44d26e52485924ad4415c4099a914a9c911a`，本地二进制 SHA-256 为 `851e4c324529eb9703371ac5a0b63364a0adbfd6010b0e08308c2b2797a89dbd`。环境仍为 Apple M3 Pro、18 GiB、macOS 27.0.1、Go 1.27.3；Homebrew 固定提交 `c6069d2a943b71b0a90d91fc1ac93cb9c1634dcc`。后续仅比较器/文档提交不改变产品代码。

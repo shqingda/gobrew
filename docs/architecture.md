@@ -16,6 +16,14 @@ CLI distribution has a separate path: `cli → selfupdate → platform`. It does
 not enter the Formula engine or change its Plan/Prepare/Apply contract. Shell
 PATH setup is likewise outside the engine: `cli → shellconfig → platform`.
 
+Large packages are split into files named by role rather than into more
+packages: `cli` has `app.go` (run, errors, JSON envelope), `root.go`,
+`init.go`, `query.go`, `install.go`, `update.go`, `cleanup.go` and `render.go`;
+`engine` has `plan.go`, `operation.go`, `mutate.go`, `maintenance.go` and
+`init.go`; `installer` has `apply.go`, `links.go`, `journal.go`, `records.go`
+and `postinstall.go`. Shared durable writes (`WriteFileAtomic`) and the
+owned-directory bootstrap (`CreateOwnedDir`) live in `platform`.
+
 The `model` package contains shared values, errors and bounded progress events.
 The resolver is pure: no network, database, terminal or macOS calls. Interfaces
 belong at real I/O boundaries, not around every concrete implementation.

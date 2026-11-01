@@ -1,4 +1,6 @@
 #!/bin/bash
+# Archived evidence of the 2026-10-28 uninstall check, kept as it was run.
+# Not a reusable script: the binary path below is the original machine's.
 set -euo pipefail
 binary=/Users/shqingda/Projects/gobrew/bin/gobrew
 prefix=$(mktemp -d /tmp/gb.XXXX)
