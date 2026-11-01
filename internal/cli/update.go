@@ -60,7 +60,7 @@ func outdatedLines(outdated []engine.Outdated) []string {
 	if len(outdated) == 1 {
 		noun = "formula"
 	}
-	return append(lines, fmt.Sprintf("You have %d outdated %s installed. Upgrade with: gob upgrade", len(outdated), noun))
+	return append(lines, fmt.Sprintf("You have %d outdated %s installed. Upgrade with: gobrew upgrade", len(outdated), noun))
 }
 
 func (a *application) update(ctx context.Context, _ []string) error {
@@ -119,7 +119,7 @@ func (a *application) autoUpdate(ctx context.Context, e *engine.Engine, listOutd
 		_ = newProgress(a.stderr).title("Auto-updating gobrew...")
 		if os.Getenv("GOBREW_NO_ENV_HINTS") == "" && os.Getenv("GOBREW_AUTO_UPDATE_SECS") == "" {
 			fmt.Fprintln(a.stderr, "Adjust how often this is run with `$GOBREW_AUTO_UPDATE_SECS` or disable with")
-			fmt.Fprintln(a.stderr, "`$GOBREW_NO_AUTO_UPDATE=1`. Hide these hints with `$GOBREW_NO_ENV_HINTS=1` (see `gob help`).")
+			fmt.Fprintln(a.stderr, "`$GOBREW_NO_AUTO_UPDATE=1`. Hide these hints with `$GOBREW_NO_ENV_HINTS=1` (see `gobrew help`).")
 		}
 	}
 	report, cliErr, err := a.runUpdate(ctx, e)

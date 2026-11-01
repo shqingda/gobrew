@@ -238,3 +238,13 @@ func (e *Engine) Search(ctx context.Context, query string, descriptions bool) ([
 	})
 	return result, err
 }
+
+// FormulaNames lists catalog names starting with prefix for shell completion.
+// It reads only the local catalog and never touches the network.
+func (e *Engine) FormulaNames(prefix string) ([]string, error) {
+	c, err := e.client()
+	if err != nil {
+		return nil, err
+	}
+	return c.Names(prefix, 500)
+}

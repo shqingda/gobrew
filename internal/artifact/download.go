@@ -69,7 +69,7 @@ func (m *Manager) downloadLocked(ctx context.Context, p model.Package, events ch
 	}
 	defer response.Body.Close()
 	if response.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("download returned HTTP %d", response.StatusCode)
+		return "", downloadStatusError(response.StatusCode)
 	}
 	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
 		return "", err
@@ -188,4 +188,15 @@ func (w *progressWriter) Write(b []byte) (int, error) {
 		model.Emit(w.events, w.event)
 	}
 	return len(b), nil
+}
+
+// downloadStatusError explains the HTTP failures a user can act on.
+func downloadStatusError(status int) error {
+	switch status {
+	case http.StatusNotFound:
+		return fmt.Errorf("download returned HTTP %d; the bottle is gone upstream, so update the formula catalog and retry", status)
+	case http.StatusTooManyRequests, http.StatusForbidden:
+		return fmt.Errorf("download returned HTTP %d; the registry is limiting requests, retry later", status)
+	}
+	return fmt.Errorf("download returned HTTP %d", status)
 }

@@ -41,6 +41,13 @@ type usageError struct{ error }
 // notFound carries Homebrew's exact message while keeping the not_found code.
 type notFound string
 
+// heldUpgrade reports installed requests that a pin or
+// GOBREW_NO_INSTALL_UPGRADE kept at their version. It exits 1 like brew
+// install, with its own JSON code so scripts can tell it from a failure.
+type heldUpgrade string
+
+func (e heldUpgrade) Error() string { return string(e) }
+
 func (e notFound) Error() string { return string(e) }
 func (notFound) Unwrap() error   { return model.ErrNotFound }
 
@@ -137,14 +144,14 @@ func (a *application) run(ctx context.Context, args []string, stdout io.Writer, 
 		encoder := json.NewEncoder(stdout)
 		encoder.SetEscapeHTML(false)
 		if writeErr := encoder.Encode(value); writeErr != nil {
-			fmt.Fprintf(stderr, "gobrew: write output: %v\n", writeErr)
+			fmt.Fprintf(stderr, "Error: write output: %v\n", writeErr)
 			return 1
 		}
 		return code
 	}
 	if a.hasResult && a.render != nil {
 		if writeErr := a.render(stdout); writeErr != nil {
-			fmt.Fprintf(stderr, "gobrew: write output: %v\n", writeErr)
+			fmt.Fprintf(stderr, "Error: write output: %v\n", writeErr)
 			return 1
 		}
 	}
@@ -152,7 +159,11 @@ func (a *application) run(ctx context.Context, args []string, stdout io.Writer, 
 		// Homebrew's error prefix; usage errors keep the --help pointer below.
 		fmt.Fprintf(stderr, "Error: %s\n", cleanText(err.Error()))
 		if code == 2 {
-			fmt.Fprintln(stderr, "Run 'gobrew --help' for usage.")
+			path := "gobrew"
+			if cmd != nil && cmd.HasParent() {
+				path = "gobrew " + strings.TrimPrefix(cmd.CommandPath(), cmd.Root().Name()+" ")
+			}
+			fmt.Fprintf(stderr, "Run '%s --help' for usage.\n", path)
 		}
 	}
 	return code
@@ -163,6 +174,7 @@ func classify(err error) (int, string) {
 		return 0, ""
 	}
 	var usage usageError
+	var held heldUpgrade
 	switch {
 	case errors.Is(err, context.Canceled):
 		return 130, "canceled"
@@ -174,6 +186,9 @@ func classify(err error) (int, string) {
 		return 4, "conflict"
 	case errors.Is(err, model.ErrNeedsRepair):
 		return 5, "needs_repair"
+	// Only when nothing else failed: a joined real failure keeps its own code.
+	case errors.As(err, &held) && err.Error() == held.Error():
+		return 1, "held"
 	case errors.Is(err, model.ErrPrivilegeRequired):
 		return 1, "privilege_required"
 	case errors.Is(err, model.ErrNotFound), errors.Is(err, os.ErrNotExist):
@@ -218,7 +233,7 @@ func (a *application) getEngine() (*engine.Engine, error) {
 		return nil, usageError{errors.New("--downloads and --jobs must be positive")}
 	}
 	if a.config.BlobBudget < 1 || a.config.TreeBudget < 1 {
-		return nil, usageError{errors.New("cache byte limits must be positive")}
+		return nil, usageError{errors.New("--download-cache-bytes and --prepared-cache-bytes must be positive")}
 	}
 	a.config.Prefix = filepath.Clean(a.config.Prefix)
 	a.config.CacheDir = filepath.Clean(a.config.CacheDir)

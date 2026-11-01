@@ -44,6 +44,7 @@ func (a *application) searchCommand() *cobra.Command {
 	})
 	cmd.Flags().BoolVar(&descriptions, "desc", false, "Search descriptions instead of names")
 	cmd.Flags().BoolVar(&formulaOnly, "formula", false, "Search only formulae (gobrew has no casks)")
+	cmd.Example = "  gobrew search jq\n  gobrew search --desc json\n  gobrew search '/^python@/'"
 	return cmd
 }
 
@@ -71,7 +72,11 @@ func renderSearch(w io.Writer, formulae []model.Formula, installed map[string]bo
 			if os.Getenv("GOBREW_NO_EMOJI") != "" {
 				mark = " (installed)"
 			}
-			names[i] = "\033[1m" + names[i] + "\033[32m" + mark + "\033[0m"
+			if p.color {
+				names[i] = "\033[1m" + names[i] + "\033[32m" + mark + "\033[0m"
+			} else {
+				names[i] += mark
+			}
 			widths[i] += len([]rune(mark))
 		}
 	}

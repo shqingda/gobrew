@@ -1,6 +1,7 @@
 package installer
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -88,7 +89,7 @@ func (i Installer) finishPackage(ctx context.Context, tx *state.Session, snap *m
 		if err := i.mergeShared(rec.Keg); err != nil {
 			return fail(err)
 		}
-		if err := postinstall.Run(ctx, rec.Formula.Steps, postinstall.Env{Prefix: i.Prefix, Keg: rec.Keg, Name: name, Version: rec.Formula.Version, Output: io.Discard}); err != nil {
+		if err := postinstall.Run(ctx, rec.Formula.Steps, postinstall.Env{Prefix: i.Prefix, Keg: rec.Keg, Name: name, Version: rec.Formula.Version, Output: &outputEvents{events: events, name: name}}); err != nil {
 			return fail(err)
 		}
 		if len(rec.Formula.Steps) > 0 {
@@ -237,4 +238,35 @@ func copyConfig(src io.Reader, dst string, mode fs.FileMode) error {
 		return err
 	}
 	return platform.SyncDir(filepath.Dir(dst))
+}
+
+// outputEvents forwards post-install warnings and command output as "output"
+// events, one per line. Like all progress, delivery is best effort and a
+// caller without an event channel discards it.
+type outputEvents struct {
+	events  chan<- model.Event
+	name    string
+	pending []byte
+}
+
+func (o *outputEvents) Write(b []byte) (int, error) {
+	if o.events == nil {
+		return len(b), nil
+	}
+	o.pending = append(o.pending, b...)
+	for {
+		line, rest, found := bytes.Cut(o.pending, []byte("\n"))
+		if !found {
+			break
+		}
+		if len(line) > 0 {
+			model.Emit(o.events, model.Event{Phase: "output", Package: o.name, Message: string(line)})
+		}
+		o.pending = rest
+	}
+	if len(o.pending) > 4096 { // Bound a newline-free stream.
+		model.Emit(o.events, model.Event{Phase: "output", Package: o.name, Message: string(o.pending)})
+		o.pending = nil
+	}
+	return len(b), nil
 }

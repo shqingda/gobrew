@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/shqingda/gobrew/internal/engine"
 	"github.com/shqingda/gobrew/internal/model"
@@ -25,6 +26,11 @@ func (a *application) installCommand(action string) *cobra.Command {
 		return a.install(ctx, model.Request{Action: action, Names: names}, dryRun)
 	})
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Resolve and show the exact plan without installing")
+	cmd.Example = map[string]string{
+		"install":   "  gobrew install jq\n  gobrew install --dry-run node",
+		"reinstall": "  gobrew reinstall jq",
+		"upgrade":   "  gobrew upgrade\n  gobrew upgrade jq --dry-run",
+	}[action]
 	return cmd
 }
 
@@ -48,6 +54,7 @@ func (a *application) versionInstallCommand() *cobra.Command {
 		return a.install(ctx, model.Request{Action: "install", Names: []string{name}, Versions: map[string]string{name: version}}, dryRun)
 	})
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Resolve and show the exact plan without installing")
+	cmd.Example = "  gobrew version-install uv 0.13.5\n  gobrew version-install uv@0.13.5"
 	return cmd
 }
 
@@ -240,9 +247,18 @@ func (a *application) withEvents(run func(chan<- model.Event) error) error {
 	go func() {
 		p := newProgress(a.stderr)
 		var writeErr error
-		for event := range events {
-			if writeErr == nil {
-				writeErr = p.event(event)
+		ticker := time.NewTicker(time.Second)
+		defer ticker.Stop()
+		for open := true; open; {
+			select {
+			case event, ok := <-events:
+				if open = ok; ok && writeErr == nil {
+					writeErr = p.event(event)
+				}
+			case <-ticker.C:
+				if writeErr == nil {
+					writeErr = p.tick()
+				}
 			}
 		}
 		done <- errors.Join(writeErr, p.clear())
@@ -287,9 +303,9 @@ func heldError(e *engine.Engine, held []string) error {
 		r := snapshot.Records[name]
 		unpin := ""
 		if r.Pinned {
-			unpin = "gob unpin " + name + " && "
+			unpin = "gobrew unpin " + name + " && "
 		}
-		messages = append(messages, fmt.Sprintf("%s %s is already installed.\nTo upgrade to %s, run:\n  %sgob upgrade %s", name, r.Formula.PkgVersion(), available[name].PkgVersion(), unpin, name))
+		messages = append(messages, fmt.Sprintf("%s %s is already installed.\nTo upgrade to %s, run:\n  %sgobrew upgrade %s", name, r.Formula.PkgVersion(), available[name].PkgVersion(), unpin, name))
 	}
-	return errors.New(strings.Join(messages, "\n"))
+	return heldUpgrade(strings.Join(messages, "\n"))
 }

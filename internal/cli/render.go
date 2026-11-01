@@ -74,8 +74,8 @@ func (a *application) renderInstall(w io.Writer, e *engine.Engine, request model
 		if r, ok := records[name]; ok {
 			version = " " + r.Formula.PkgVersion()
 		}
-		lines = append(lines, "Warning: "+name+version+" is not covered by Homebrew's signed metadata; its bottle was verified against GHCR and homebrew-core history.",
-			"It is pinned so upgrades keep this version. To allow upgrades: gob unpin "+name)
+		fmt.Fprintln(a.stderr, cleanText("Warning: "+name+version+" is not covered by Homebrew's signed metadata; its bottle was verified against GHCR and homebrew-core history.\n"+
+			"It is pinned so upgrades keep this version. To allow upgrades: gobrew unpin "+name))
 	}
 	// Homebrew warns only about the formulae the user named.
 	for _, name := range result.Unchanged {
@@ -84,7 +84,7 @@ func (a *application) renderInstall(w io.Writer, e *engine.Engine, request model
 			continue
 		}
 		version := r.Formula.PkgVersion()
-		fmt.Fprintf(a.stderr, "Warning: %s %s is already installed.\nTo reinstall %s, run:\n  gob reinstall %s\n", name, version, version, name)
+		fmt.Fprintf(a.stderr, "Warning: %s %s is already installed.\nTo reinstall %s, run:\n  gobrew reinstall %s\n", name, version, version, name)
 	}
 	for _, group := range []struct {
 		label string

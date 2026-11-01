@@ -280,17 +280,46 @@ func (c Client) LoadForPlan(names []string) (Snapshot, error) {
 	return c.load(names, true)
 }
 
-func (c Client) load(names []string, selective bool) (Snapshot, error) {
+// open opens the current generation's index read-only.
+func (c Client) open() (*bolt.DB, string, error) {
 	current, err := os.ReadFile(filepath.Join(c.Dir, "CURRENT"))
 	if err != nil {
-		return Snapshot{}, fmt.Errorf("load catalog (run gobrew update): %w", err)
+		return nil, "", fmt.Errorf("load catalog (run gobrew update): %w", err)
 	}
 	generation := strings.TrimSpace(string(current))
 	decoded, err := hex.DecodeString(generation)
 	if err != nil || len(decoded) != sha256.Size {
-		return Snapshot{}, errors.New("invalid catalog generation")
+		return nil, "", errors.New("invalid catalog generation")
 	}
 	db, err := bolt.Open(filepath.Join(c.Dir, "snapshots", generation+".db"), 0400, &bolt.Options{ReadOnly: true, Timeout: time.Second})
+	return db, generation, err
+}
+
+// Names lists up to limit formula names starting with prefix, in order,
+// reading only index keys. It never fetches a missing catalog.
+func (c Client) Names(prefix string, limit int) ([]string, error) {
+	db, _, err := c.open()
+	if err != nil {
+		return nil, err
+	}
+	defer db.Close()
+	var names []string
+	err = db.View(func(tx *bolt.Tx) error {
+		formulas := tx.Bucket([]byte("formulae"))
+		if formulas == nil {
+			return errors.New("catalog index is incomplete")
+		}
+		cursor := formulas.Cursor()
+		for k, _ := cursor.Seek([]byte(prefix)); k != nil && strings.HasPrefix(string(k), prefix) && len(names) < limit; k, _ = cursor.Next() {
+			names = append(names, string(k))
+		}
+		return nil
+	})
+	return names, err
+}
+
+func (c Client) load(names []string, selective bool) (Snapshot, error) {
+	db, generation, err := c.open()
 	if err != nil {
 		return Snapshot{}, err
 	}

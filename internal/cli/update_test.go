@@ -110,7 +110,7 @@ func TestInstalledNoopDoesNotClaimLatestWithoutCatalog(t *testing.T) {
 	if code != 0 || requests.calls != 0 {
 		t.Fatalf("offline no-op: exit=%d requests=%d stdout=%s stderr=%s", code, requests.calls, &stdout, output)
 	}
-	if strings.Contains(output, "up-to-date") || !strings.Contains(output, "demo 1 is already installed") || !strings.Contains(output, "gob reinstall demo") {
+	if strings.Contains(output, "up-to-date") || !strings.Contains(output, "demo 1 is already installed") || !strings.Contains(output, "gobrew reinstall demo") {
 		t.Fatalf("no-op must report the installed version without claiming it is latest: %s", output)
 	}
 }
@@ -118,6 +118,12 @@ func TestInstalledNoopDoesNotClaimLatestWithoutCatalog(t *testing.T) {
 // A local catalog fixture lets commands continue after a failed refresh without
 // making tests depend on a live Homebrew snapshot or weakening verification.
 func updateApp(t *testing.T) (*application, *updateFailure, string) {
+	t.Helper()
+	return updateAppWithCatalog(t, "1")
+}
+
+// updateAppWithCatalog installs demo 1 while the local catalog offers version.
+func updateAppWithCatalog(t *testing.T, version string) (*application, *updateFailure, string) {
 	t.Helper()
 	prefix, cache := t.TempDir(), t.TempDir()
 	store := state.Store{Prefix: prefix}
@@ -168,7 +174,9 @@ func updateApp(t *testing.T) (*application, *updateFailure, string) {
 		if err != nil {
 			return err
 		}
-		data, _ := json.Marshal(f)
+		offered := f
+		offered.Version = version
+		data, _ := json.Marshal(offered)
 		return formulae.Put([]byte("demo"), data)
 	})
 	if err := errors.Join(err, db.Close()); err != nil {
@@ -215,5 +223,34 @@ func TestDryRunDoesNotAutoUpdate(t *testing.T) {
 				t.Fatal("dry-run started a cleanup period")
 			}
 		})
+	}
+}
+
+func TestHeldUpgradeExitsOneWithItsOwnJSONCode(t *testing.T) {
+	t.Setenv("GOBREW_NO_INSTALL_UPGRADE", "1")
+	a, requests, _ := updateAppWithCatalog(t, "2")
+	var stdout bytes.Buffer
+	code := a.run(context.Background(), []string{"install", "demo", "--json"}, &stdout, BuildInfo{})
+	if code != 1 || requests.calls != 0 || !strings.Contains(stdout.String(), `"code":"held"`) || !strings.Contains(stdout.String(), "gobrew upgrade demo") {
+		t.Fatalf("held install: exit=%d requests=%d stdout=%s", code, requests.calls, &stdout)
+	}
+}
+
+func TestUsageErrorsPointToTheCommandHelp(t *testing.T) {
+	a, _, _ := updateApp(t)
+	code := a.run(context.Background(), []string{"install"}, &bytes.Buffer{}, BuildInfo{})
+	if output := a.stderr.(*bytes.Buffer).String(); code != 2 || !strings.Contains(output, "Run 'gobrew install --help' for usage.") {
+		t.Fatalf("exit=%d stderr=%s", code, output)
+	}
+}
+
+func TestInstallCompletionUsesTheLocalCatalogOffline(t *testing.T) {
+	a, requests, _ := updateApp(t)
+	names, err := a.engine.FormulaNames("de")
+	if err != nil || strings.Join(names, ",") != "demo" || requests.calls != 0 {
+		t.Fatalf("names=%v err=%v requests=%d", names, err, requests.calls)
+	}
+	if names, err := a.engine.FormulaNames("x"); err != nil || len(names) != 0 {
+		t.Fatalf("unexpected names %v: %v", names, err)
 	}
 }

@@ -183,7 +183,7 @@ func (a *application) installCleanup(ctx context.Context, e *engine.Engine, resu
 		days = value
 	}
 	if due, err := e.PeriodicCleanupDue(time.Duration(days) * 24 * time.Hour); err == nil && due {
-		lines = append(lines, fmt.Sprintf("==> `gob cleanup` has not been run in the last %d days, running now...", days))
+		lines = append(lines, fmt.Sprintf("==> `gobrew cleanup` has not been run in the last %d days, running now...", days))
 		removed, err := e.Cleanup(ctx, engine.CleanupOptions{Skip: skip, MaxAge: cleanupMaxAge()})
 		if err == nil {
 			err = e.MarkCleaned()
@@ -194,7 +194,7 @@ func (a *application) installCleanup(ctx context.Context, e *engine.Engine, resu
 		lines = append(lines, removedLines(removed, false)...)
 	}
 	if len(lines) > 0 && os.Getenv("GOBREW_NO_ENV_HINTS") == "" {
-		lines = append(lines, "Disable this behaviour by setting `GOBREW_NO_INSTALL_CLEANUP=1`.", "Hide these hints with `GOBREW_NO_ENV_HINTS=1` (see `gob help`).")
+		lines = append(lines, "Disable this behaviour by setting `GOBREW_NO_INSTALL_CLEANUP=1`.", "Hide these hints with `GOBREW_NO_ENV_HINTS=1` (see `gobrew help`).")
 	}
 	return lines
 }

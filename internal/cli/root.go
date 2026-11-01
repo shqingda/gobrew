@@ -78,12 +78,10 @@ func (a *application) root() *cobra.Command {
 	root.CompletionOptions.DisableDefaultCmd = true
 	root.AddCommand(a.commandFor("init", "Initialize an empty, user-owned installation prefix", cobra.NoArgs, a.init))
 	root.AddCommand(a.searchCommand())
-	root.AddCommand(a.infoCommand(), a.listCommand())
+	root.AddCommand(a.completeCatalog(a.infoCommand()), a.listCommand())
 	root.AddCommand(a.commandFor("update", "Update gobrew itself and refresh the verified formula catalog", cobra.NoArgs, a.update))
-	for _, action := range []string{"install", "reinstall", "upgrade"} {
-		root.AddCommand(a.installCommand(action))
-	}
-	root.AddCommand(a.versionInstallCommand())
+	root.AddCommand(a.completeCatalog(a.installCommand("install")), a.installCommand("reinstall"), a.installCommand("upgrade"))
+	root.AddCommand(a.completeCatalog(a.versionInstallCommand()))
 	root.AddCommand(a.commandFor("uninstall <formula>...", "Remove packages while retaining configuration and data", cobra.MinimumNArgs(1), a.uninstall))
 	root.AddCommand(a.commandFor("outdated", "List installed formulae with available updates", cobra.NoArgs, a.outdated))
 	for _, pin := range []bool{true, false} {
@@ -99,19 +97,44 @@ func (a *application) root() *cobra.Command {
 			if err := e.Pin(ctx, names, pin); err != nil {
 				return err
 			}
-			a.names(names, "")
+			verb := "Pinned "
+			if !pin {
+				verb = "Unpinned "
+			}
+			a.setResult(names, func(w io.Writer) error {
+				for _, name := range names {
+					if _, err := fmt.Fprintln(w, cleanText(verb+name)); err != nil {
+						return err
+					}
+				}
+				return nil
+			})
 			return nil
 		}))
 	}
 	root.AddCommand(a.linkCommand(true), a.linkCommand(false), a.autoremoveCommand(), a.doctorCommand())
 	root.AddCommand(a.cleanupCommand())
 	root.AddCommand(a.commandFor("postinstall <formula>...", "Explicitly retry supported post-install initialization", cobra.MinimumNArgs(1), a.postinstall))
-	root.AddCommand(a.commandFor("deps <formula>", "List transitive dependencies", cobra.ExactArgs(1), a.deps), a.usesCommand())
+	root.AddCommand(a.completeCatalog(a.commandFor("deps <formula>", "List transitive dependencies", cobra.ExactArgs(1), a.deps)), a.completeCatalog(a.usesCommand()))
 	root.AddCommand(a.importHomebrewCommand(), a.shellenvCommand(), a.completionCommand(), a.selfCommand())
 	for _, command := range root.Commands() {
 		command.Aliases = brewAliases[command.Name()]
 	}
 	return root
+}
+
+// completeCatalog suggests formula names from the local catalog for commands
+// that accept formulae which need not be installed yet.
+func (a *application) completeCatalog(cmd *cobra.Command) *cobra.Command {
+	cmd.ValidArgsFunction = func(_ *cobra.Command, _ []string, prefix string) ([]string, cobra.ShellCompDirective) {
+		e, err := a.getEngine()
+		if err != nil {
+			return nil, cobra.ShellCompDirectiveNoFileComp
+		}
+		names, _ := e.FormulaNames(prefix)
+		return names, cobra.ShellCompDirectiveNoFileComp
+	}
+	return cmd
 }
 
 func (a *application) commandFor(use, description string, args cobra.PositionalArgs, run func(context.Context, []string) error) *cobra.Command {

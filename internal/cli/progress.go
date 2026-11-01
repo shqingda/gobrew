@@ -25,6 +25,9 @@ type progress struct {
 	finished map[string]bool
 	shown    bool
 	drawn    time.Time
+	// running is the package whose post-install step started at since.
+	running string
+	since   time.Time
 }
 
 func newProgress(w io.Writer) *progress {
@@ -66,8 +69,27 @@ func (p *progress) event(event model.Event) error {
 		p.finished[name] = true
 		return p.title("Pouring " + name)
 	case "postinstall":
+		p.running, p.since = name, time.Now()
 		return p.title("Running post-install for " + name)
-	case "relocate", "installed":
+	case "installed":
+		if p.running != name {
+			return nil
+		}
+		elapsed := time.Since(p.since)
+		p.running = ""
+		if p.tty || elapsed < time.Second {
+			return p.clear()
+		}
+		// Logs have no live timer, so record how long the step took.
+		_, err := fmt.Fprintf(p.w, "Post-install for %s finished in %.1fs\n", name, elapsed.Seconds())
+		return err
+	case "output":
+		if err := p.clear(); err != nil {
+			return err
+		}
+		_, err := fmt.Fprintln(p.w, cleanText(event.Message))
+		return err
+	case "relocate":
 		return nil
 	}
 	line := event.Phase + " " + name
@@ -99,6 +121,22 @@ func (p *progress) clear() error {
 	}
 	p.shown = false
 	_, err := io.WriteString(p.w, "\r\033[K")
+	return err
+}
+
+// tick shows how long a running post-install step has taken, so a slow
+// initialization such as ca-certificates does not look stalled.
+func (p *progress) tick() error {
+	if !p.tty || p.running == "" || time.Since(p.since) < time.Second {
+		return nil
+	}
+	for _, name := range p.order {
+		if !p.finished[name] {
+			return nil // The download bar owns the transient line.
+		}
+	}
+	p.shown = true
+	_, err := fmt.Fprintf(p.w, "\r\033[K%.0fs elapsed", time.Since(p.since).Seconds())
 	return err
 }
 
