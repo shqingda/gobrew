@@ -165,3 +165,21 @@ func TestCompletionRegistersBothExecutableNames(t *testing.T) {
 		})
 	}
 }
+
+func TestHomebrewCommandAliasesResolve(t *testing.T) {
+	root := (&application{}).root()
+	for canonical, aliases := range brewAliases {
+		for _, alias := range aliases {
+			cmd, _, err := root.Find([]string{alias})
+			if err != nil || cmd.Name() != canonical {
+				t.Fatalf("%s -> %v, %v; want %s", alias, cmd, err, canonical)
+			}
+		}
+	}
+	var stdout, stderr bytes.Buffer
+	// -S reaches search, which then fails offline on the empty temporary cache.
+	Run(context.Background(), []string{"-S", "--json", "--cache-dir", t.TempDir(), "--prefix", t.TempDir(), "x"}, &stdout, &stderr, BuildInfo{})
+	if !strings.Contains(stdout.String(), `"command":"search"`) {
+		t.Fatalf("-S did not run search: %s", &stdout)
+	}
+}

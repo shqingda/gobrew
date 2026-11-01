@@ -11,6 +11,7 @@ import (
 
 	"github.com/shqingda/gobrew/internal/model"
 	"github.com/shqingda/gobrew/internal/state"
+	"github.com/shqingda/gobrew/internal/testutil"
 )
 
 type noNetwork struct{ t *testing.T }
@@ -22,14 +23,7 @@ func (n noNetwork) RoundTrip(*http.Request) (*http.Response, error) {
 
 func ownedRecord(t *testing.T, prefix, name string) model.Record {
 	t.Helper()
-	keg := filepath.Join(prefix, "Cellar", name, "1")
-	if err := os.MkdirAll(keg, 0755); err != nil {
-		t.Fatal(err)
-	}
-	owner := strings.Repeat("a", 32) + ":" + name
-	if err := os.WriteFile(filepath.Join(keg, ".gobrew-owner"), []byte(owner), 0600); err != nil {
-		t.Fatal(err)
-	}
+	keg, owner := testutil.OwnedKeg(t, prefix, name, "1")
 	return model.Record{Formula: model.Formula{Name: name, Version: "1"}, Keg: keg, Owner: owner, Status: model.Ready}
 }
 

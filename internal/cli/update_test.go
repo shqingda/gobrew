@@ -15,6 +15,7 @@ import (
 	"github.com/shqingda/gobrew/internal/engine"
 	"github.com/shqingda/gobrew/internal/model"
 	"github.com/shqingda/gobrew/internal/state"
+	"github.com/shqingda/gobrew/internal/testutil"
 	bolt "go.etcd.io/bbolt"
 )
 
@@ -134,14 +135,7 @@ func updateAppWithCatalog(t *testing.T, version string) (*application, *updateFa
 		Tag: "arm64_sequoia", Cellar: ":any", SHA256: strings.Repeat("b", 64),
 		URL: "https://ghcr.io/v2/homebrew/core/demo/blobs/sha256:" + strings.Repeat("b", 64),
 	}}}
-	keg := filepath.Join(prefix, "Cellar", "demo", "1")
-	owner := strings.Repeat("a", 32) + ":demo"
-	if err := os.MkdirAll(keg, 0755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(keg, ".gobrew-owner"), []byte(owner), 0600); err != nil {
-		t.Fatal(err)
-	}
+	keg, owner := testutil.OwnedKeg(t, prefix, "demo", "1")
 	if err := store.WithLock(context.Background(), func(tx *state.Session) error {
 		return tx.Save(model.Snapshot{Records: map[string]model.Record{"demo": {
 			Formula: f, Keg: keg, Owner: owner, Status: model.Ready, Requested: true,
@@ -252,5 +246,52 @@ func TestInstallCompletionUsesTheLocalCatalogOffline(t *testing.T) {
 	}
 	if names, err := a.engine.FormulaNames("x"); err != nil || len(names) != 0 {
 		t.Fatalf("unexpected names %v: %v", names, err)
+	}
+}
+
+func TestUpdateSkipsBuildsThatCannotSelfUpdate(t *testing.T) {
+	for _, version := range []string{"dev", "v0.3.0"} {
+		// The test binary is neither a release build nor a managed install.
+		a := &application{build: BuildInfo{Version: version}}
+		result, err := a.updateCLI(context.Background())
+		if err != nil || result.Skipped == "" || result.Changed {
+			t.Fatalf("%s: updateCLI = %+v, %v", version, result, err)
+		}
+	}
+}
+
+func TestAutoUpdateRunsOnlyWhenStaleAndNeverBlocksTheCommand(t *testing.T) {
+	t.Setenv("GOBREW_NO_AUTO_UPDATE", "")
+	f := newFakeApp(t, filepath.Join(t.TempDir(), "prefix"), false, func() error { return nil })
+	current := filepath.Join(f.config.CacheDir, "catalog", "CURRENT")
+	if err := os.MkdirAll(filepath.Dir(current), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(current, []byte("x\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	e, _ := f.getEngine()
+	stderr := f.stderr.(*bytes.Buffer)
+	if err := f.autoUpdate(context.Background(), e, true); err != nil || stderr.Len() != 0 {
+		t.Fatalf("fresh catalog auto-updated: %v %q", err, stderr)
+	}
+	stale := time.Now().Add(-25 * time.Hour)
+	if err := os.Chtimes(current, stale, stale); err != nil {
+		t.Fatal(err)
+	}
+	// The offline engine makes the refresh fail; Homebrew then warns and continues.
+	if err := f.autoUpdate(context.Background(), e, true); err != nil {
+		t.Fatal(err)
+	}
+	out := stderr.String()
+	for _, want := range []string{"==> Auto-updating gobrew...", "`$GOBREW_NO_AUTO_UPDATE=1`", "Warning: auto-update failed"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("missing %q in %q", want, out)
+		}
+	}
+	stderr.Reset()
+	t.Setenv("GOBREW_AUTO_UPDATE_SECS", "999999999")
+	if err := f.autoUpdate(context.Background(), e, true); err != nil || stderr.Len() != 0 {
+		t.Fatalf("custom interval ignored: %v %q", err, stderr)
 	}
 }
