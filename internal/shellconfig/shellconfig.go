@@ -227,27 +227,10 @@ func markers(data []byte, path string) (int, int, bool, error) {
 }
 
 // write replaces the file atomically so a crash leaves either version intact.
-func write(path string, data []byte, mode os.FileMode) (err error) {
+func write(path string, data []byte, mode os.FileMode) error {
 	dir := filepath.Dir(path)
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return err
 	}
-	f, err := os.CreateTemp(dir, ".gobrew-shell-")
-	if err != nil {
-		return err
-	}
-	defer func() { _ = os.Remove(f.Name()) }()
-	if _, err = f.Write(data); err == nil {
-		err = f.Chmod(mode)
-	}
-	if err == nil {
-		err = platform.SyncFile(f)
-	}
-	if err = errors.Join(err, f.Close()); err != nil {
-		return err
-	}
-	if err = os.Rename(f.Name(), path); err != nil {
-		return err
-	}
-	return platform.SyncDir(dir)
+	return platform.WriteFileAtomic(path, data, mode)
 }

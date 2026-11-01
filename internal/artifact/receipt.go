@@ -139,7 +139,7 @@ func parseRuntimeDependencies(data []byte) ([]model.RuntimeDependency, error) {
 	for i := range deps {
 		d := &deps[i]
 		d.Name = strings.TrimPrefix(d.Name, "homebrew/core/")
-		if d.Name == "" || d.Name == "." || d.Name == ".." || strings.ContainsAny(d.Name, "/\\\x00") || d.Version == "" || d.Revision < 0 || d.BottleRebuild < 0 || seen[d.Name] {
+		if !model.ValidPathComponent(d.Name) || d.Version == "" || d.Revision < 0 || d.BottleRebuild < 0 || seen[d.Name] {
 			return nil, fmt.Errorf("invalid runtime dependency %q", d.Name)
 		}
 		seen[d.Name] = true
@@ -158,36 +158,14 @@ func validDigest(digest string) bool {
 func (m *Manager) fetchOCI(ctx context.Context, u, bottleURL *url.URL, expected string) ([]byte, error) {
 	client := *m.cfg.HTTP
 	client.CheckRedirect = func(*http.Request, []*http.Request) error { return errors.New("OCI metadata redirect is not allowed") }
-	request := func(token string) (*http.Response, error) {
-		req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
-		if err != nil {
-			return nil, err
-		}
-		req.Header.Set("User-Agent", "gobrew")
-		req.Header.Set("Accept", "application/vnd.oci.image.index.v1+json, application/vnd.oci.image.manifest.v1+json")
-		if token != "" {
-			req.Header.Set("Authorization", "Bearer "+token)
-		}
-		return client.Do(req)
-	}
 	token := ""
 	if u.Hostname() == "ghcr.io" {
-		token = "QQ=="
+		token = "QQ==" // Homebrew's anonymous GHCR credential.
 	}
-	response, err := request(token)
+	accept := http.Header{"Accept": {"application/vnd.oci.image.index.v1+json, application/vnd.oci.image.manifest.v1+json"}}
+	response, err := m.registryGet(ctx, &client, u, bottleURL, accept, token)
 	if err != nil {
 		return nil, err
-	}
-	if response.StatusCode == http.StatusUnauthorized && u.Hostname() == "ghcr.io" {
-		response.Body.Close()
-		token, err = m.ghcrToken(ctx, bottleURL)
-		if err != nil {
-			return nil, err
-		}
-		response, err = request(token)
-		if err != nil {
-			return nil, err
-		}
 	}
 	defer response.Body.Close()
 	if response.StatusCode != http.StatusOK {

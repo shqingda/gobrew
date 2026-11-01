@@ -113,7 +113,7 @@ func (i Installer) ValidateState(prepared model.Prepared, snap model.Snapshot) e
 		if rec.Status != model.Ready {
 			return fmt.Errorf("%w: %s has status %s", model.ErrNeedsRepair, name, rec.Status)
 		}
-		if rec.Formula.Name != name || !validPart(name) || !validOwner(rec.Owner, name) || !validPart(rec.Formula.PkgVersion()) || rec.Keg != filepath.Join(i.Prefix, "Cellar", name, rec.Formula.PkgVersion()) {
+		if rec.Formula.Name != name || !model.ValidPathComponent(name) || !validOwner(rec.Owner, name) || !model.ValidPathComponent(rec.Formula.PkgVersion()) || rec.Keg != filepath.Join(i.Prefix, "Cellar", name, rec.Formula.PkgVersion()) {
 			return fmt.Errorf("%w: invalid installed keg for %s", model.ErrNeedsRepair, name)
 		}
 		if _, err := i.kegPath(rec.Keg); err != nil {

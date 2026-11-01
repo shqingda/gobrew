@@ -13,6 +13,8 @@ import (
 	"path"
 	"path/filepath"
 	"strings"
+
+	"github.com/shqingda/gobrew/internal/model"
 )
 
 // extractBottle uses an os.Root for every write and defers links until regular
@@ -73,7 +75,7 @@ func extractBottle(ctx context.Context, blob, dest string, options ...extraction
 		if err != nil {
 			return err
 		}
-		if path.Base(name) == ".gobrew-owner" {
+		if path.Base(name) == model.OwnerMarker {
 			return fmt.Errorf("bottle uses reserved ownership marker: %s", name)
 		}
 		if name == "." {

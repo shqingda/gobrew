@@ -215,7 +215,7 @@ func validatePath(p pathSpec) error {
 	if strings.ContainsRune(p.Path, 0) {
 		return fmt.Errorf("NUL in path")
 	}
-	if (p.Base == "formula_opt_prefix" || p.Base == "formula_pkgetc") && (p.Formula == "" || strings.ContainsAny(p.Formula, "/\\") || p.Formula == ".." || p.Formula == ".") {
+	if (p.Base == "formula_opt_prefix" || p.Base == "formula_pkgetc") && !model.ValidPathComponent(p.Formula) {
 		return fmt.Errorf("invalid path formula %q", p.Formula)
 	}
 	return nil

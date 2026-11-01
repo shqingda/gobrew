@@ -22,6 +22,7 @@ import (
 	"unicode"
 
 	"github.com/shqingda/gobrew/internal/model"
+	"github.com/shqingda/gobrew/internal/platform"
 	bolt "go.etcd.io/bbolt"
 )
 
@@ -121,7 +122,7 @@ func (c Client) Update(ctx context.Context) (Snapshot, error) {
 	if err != nil {
 		return Snapshot{}, err
 	}
-	req.Header.Set("User-Agent", "gobrew")
+	req.Header.Set("User-Agent", model.UserAgent)
 	client := c.HTTP
 	if client == nil {
 		client = &http.Client{Timeout: 2 * time.Minute}
@@ -249,10 +250,10 @@ func (c Client) publish(ctx context.Context, snapshot Snapshot) error {
 	if err = os.Link(tmp, filepath.Join(dir, snapshot.Generation+".db")); err != nil && !errors.Is(err, os.ErrExist) {
 		return err
 	}
-	if err = syncDir(dir); err != nil {
+	if err = platform.SyncDir(dir); err != nil {
 		return err
 	}
-	return atomicWrite(c.Dir, "CURRENT", []byte(snapshot.Generation+"\n"))
+	return platform.WriteFileAtomic(filepath.Join(c.Dir, "CURRENT"), []byte(snapshot.Generation+"\n"), 0600)
 }
 
 // Fetched reports when the catalog was last refreshed successfully. Update
@@ -341,36 +342,4 @@ func (c Client) load(names []string, selective bool) (Snapshot, error) {
 		return formulas.ForEach(decode)
 	})
 	return snapshot, err
-}
-
-func atomicWrite(dir, name string, data []byte) error {
-	f, err := os.CreateTemp(dir, ".current-*")
-	if err != nil {
-		return err
-	}
-	defer os.Remove(f.Name())
-	if _, err = f.Write(data); err != nil {
-		f.Close()
-		return err
-	}
-	if err = f.Sync(); err != nil {
-		f.Close()
-		return err
-	}
-	if err = f.Close(); err != nil {
-		return err
-	}
-	if err = os.Rename(f.Name(), filepath.Join(dir, name)); err != nil {
-		return err
-	}
-	return syncDir(dir)
-}
-
-func syncDir(path string) error {
-	f, err := os.Open(path)
-	if err != nil {
-		return err
-	}
-	defer f.Close()
-	return f.Sync()
 }

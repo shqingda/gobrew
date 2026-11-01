@@ -80,7 +80,7 @@ func (i Installer) CleanupWith(ctx context.Context, opts CleanupOptions) ([]mode
 						version = fmt.Sprintf("%s_%d", version, dep.Revision)
 					}
 				}
-				if validPart(name) && validPart(version) {
+				if model.ValidPathComponent(name) && model.ValidPathComponent(version) {
 					keep[filepath.Join(cellar, name, version)] = true
 				}
 			}
@@ -273,5 +273,5 @@ func validOwner(owner, name string) bool {
 			return false
 		}
 	}
-	return validPart(name)
+	return model.ValidPathComponent(name)
 }

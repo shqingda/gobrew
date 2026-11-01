@@ -163,3 +163,27 @@ func syncInode(fd int) error {
 		}
 	}
 }
+
+// WriteFileAtomic replaces path with data so a crash leaves either the old or
+// the new contents. The file and its directory entry are durable on return.
+func WriteFileAtomic(path string, data []byte, mode os.FileMode) (err error) {
+	dir := filepath.Dir(path)
+	f, err := os.CreateTemp(dir, ".gobrew-write-")
+	if err != nil {
+		return err
+	}
+	defer func() { _ = os.Remove(f.Name()) }()
+	if _, err = f.Write(data); err == nil {
+		err = f.Chmod(mode)
+	}
+	if err == nil {
+		err = SyncFile(f)
+	}
+	if err = errors.Join(err, f.Close()); err != nil {
+		return err
+	}
+	if err = os.Rename(f.Name(), path); err != nil {
+		return err
+	}
+	return SyncDir(dir)
+}

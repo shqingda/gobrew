@@ -297,8 +297,7 @@ func (m *Manager) prepare(ctx context.Context, p model.Package, downloads, prepa
 }
 
 func validatePackage(p model.Package) error {
-	validComponent := func(s string) bool { return s != "" && s != "." && s != ".." && !strings.ContainsAny(s, "/\\\x00") }
-	if !validComponent(p.Formula.Name) || !validComponent(p.Formula.PkgVersion()) {
+	if !model.ValidPathComponent(p.Formula.Name) || !model.ValidPathComponent(p.Formula.PkgVersion()) {
 		return errors.New("invalid package name or version")
 	}
 	if len(p.Bottle.SHA256) != 64 {

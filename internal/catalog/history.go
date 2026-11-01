@@ -344,7 +344,7 @@ func (h History) get(ctx context.Context, u, auth, accept string) ([]byte, error
 	if err != nil {
 		return nil, err
 	}
-	req.Header.Set("User-Agent", "gobrew")
+	req.Header.Set("User-Agent", model.UserAgent)
 	if auth != "" {
 		req.Header.Set("Authorization", auth)
 	}

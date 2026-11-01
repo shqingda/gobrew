@@ -174,29 +174,7 @@ func (m Manager) write(r receipt) error {
 	if err != nil {
 		return err
 	}
-	return atomicFile(m.root(), "receipt.json", data, 0600)
-}
-
-func atomicFile(dir, name string, data []byte, mode os.FileMode) (err error) {
-	f, err := os.CreateTemp(dir, ".stage-")
-	if err != nil {
-		return err
-	}
-	defer func() { _ = os.Remove(f.Name()) }()
-	if _, err = f.Write(data); err == nil {
-		err = f.Chmod(mode)
-	}
-	if err == nil {
-		err = f.Sync()
-	}
-	err = errors.Join(err, f.Close())
-	if err != nil {
-		return err
-	}
-	if err = os.Rename(f.Name(), filepath.Join(dir, name)); err != nil {
-		return err
-	}
-	return platform.SyncDir(dir)
+	return platform.WriteFileAtomic(filepath.Join(m.root(), "receipt.json"), data, 0600)
 }
 
 func hashFile(path string) (string, error) {
@@ -439,7 +417,7 @@ func (m Manager) install(ctx context.Context, source, version, expected string) 
 		}
 	}
 	if errors.Is(statErr, os.ErrNotExist) {
-		if err := atomicFile(filepath.Dir(dest), hash, data, 0755); err != nil {
+		if err := platform.WriteFileAtomic(filepath.Join(filepath.Dir(dest), hash), data, 0755); err != nil {
 			return result, err
 		}
 	}

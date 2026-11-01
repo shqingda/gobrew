@@ -101,7 +101,7 @@ func normalize(data json.RawMessage, host model.Platform) (model.Formula, error)
 	if raw.Tap != "" && raw.Tap != "homebrew/core" {
 		unsupported("only official homebrew/core formulae are supported")
 	}
-	if f.Version == "" || strings.ContainsAny(f.Version, "/\\\x00") || f.Version == "." || f.Version == ".." {
+	if !model.ValidPathComponent(f.Version) {
 		unsupported("missing or unsafe stable version")
 	}
 	if f.Revision < 0 || f.VersionScheme < 0 || f.BottleRebuild < 0 || (f.CompatibilityVersion != nil && *f.CompatibilityVersion < 0) {

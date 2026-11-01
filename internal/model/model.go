@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -208,4 +209,15 @@ func Emit(events chan<- Event, event Event) {
 	case events <- event:
 	default:
 	}
+}
+
+// OwnerMarker names the file that records gobrew's ownership of a keg.
+const OwnerMarker = ".gobrew-owner"
+
+// UserAgent identifies gobrew's HTTP requests.
+const UserAgent = "gobrew"
+
+// ValidPathComponent reports whether s is safe as exactly one path element.
+func ValidPathComponent(s string) bool {
+	return s != "" && s != "." && s != ".." && !strings.ContainsAny(s, "/\\\x00")
 }

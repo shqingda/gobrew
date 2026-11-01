@@ -114,3 +114,26 @@ func TestSyncTreeConfinesTraversalAndPropagatesFailures(t *testing.T) {
 		t.Fatal("lost file sync failure")
 	}
 }
+
+func TestWriteFileAtomicReplacesWithoutLeftovers(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "receipt.json")
+	if err := os.WriteFile(path, []byte("old"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := WriteFileAtomic(path, []byte("new"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(path)
+	info, statErr := os.Stat(path)
+	if err != nil || statErr != nil || string(data) != "new" || info.Mode().Perm() != 0600 {
+		t.Fatalf("content %q mode %v: %v %v", data, info.Mode(), err, statErr)
+	}
+	if err := WriteFileAtomic(filepath.Join(dir, "missing", "file"), []byte("x"), 0600); err == nil {
+		t.Fatal("write into a missing directory succeeded")
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil || len(entries) != 1 {
+		t.Fatalf("leftover entries %v: %v", entries, err)
+	}
+}

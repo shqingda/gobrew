@@ -62,32 +62,10 @@ func (m *Manager) downloadLocked(ctx context.Context, p model.Package, events ch
 		}
 		return nil
 	}
-	request := func(token string) (*http.Response, error) {
-		req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
-		if err != nil {
-			return nil, err
-		}
-		req.Header.Set("User-Agent", "gobrew")
-		if token != "" {
-			req.Header.Set("Authorization", "Bearer "+token)
-		}
-		return client.Do(req)
-	}
 	model.Emit(events, model.Event{Phase: "download", Package: p.Formula.Name})
-	response, err := request("")
+	response, err := m.registryGet(ctx, &client, u, u, nil, "")
 	if err != nil {
 		return "", err
-	}
-	if response.StatusCode == http.StatusUnauthorized && u.Hostname() == "ghcr.io" {
-		response.Body.Close()
-		token, err := m.ghcrToken(ctx, u)
-		if err != nil {
-			return "", err
-		}
-		response, err = request(token)
-		if err != nil {
-			return "", err
-		}
 	}
 	defer response.Body.Close()
 	if response.StatusCode != http.StatusOK {
@@ -130,6 +108,35 @@ func (m *Manager) downloadLocked(ctx context.Context, p model.Package, events ch
 	return path, nil
 }
 
+// registryGet sends one GET and, for GHCR, retries once with a pull token for
+// the bottle's repository when the registry rejects the initial credential.
+func (m *Manager) registryGet(ctx context.Context, client *http.Client, u, bottle *url.URL, header http.Header, token string) (*http.Response, error) {
+	request := func(token string) (*http.Response, error) {
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
+		if err != nil {
+			return nil, err
+		}
+		for key, values := range header {
+			req.Header[key] = values
+		}
+		req.Header.Set("User-Agent", model.UserAgent)
+		if token != "" {
+			req.Header.Set("Authorization", "Bearer "+token)
+		}
+		return client.Do(req)
+	}
+	response, err := request(token)
+	if err != nil || response.StatusCode != http.StatusUnauthorized || u.Hostname() != "ghcr.io" {
+		return response, err
+	}
+	response.Body.Close()
+	token, err = m.ghcrToken(ctx, bottle)
+	if err != nil {
+		return nil, err
+	}
+	return request(token)
+}
+
 func (m *Manager) ghcrToken(ctx context.Context, u *url.URL) (string, error) {
 	parts := strings.Split(strings.TrimPrefix(u.Path, "/v2/"), "/blobs/")
 	if len(parts) != 2 || !strings.HasPrefix(parts[0], "homebrew/core/") {
@@ -140,7 +147,7 @@ func (m *Manager) ghcrToken(ctx context.Context, u *url.URL) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	req.Header.Set("User-Agent", "gobrew")
+	req.Header.Set("User-Agent", model.UserAgent)
 	response, err := m.cfg.HTTP.Do(req)
 	if err != nil {
 		return "", err

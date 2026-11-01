@@ -22,7 +22,7 @@ import (
 	"github.com/shqingda/gobrew/internal/state"
 )
 
-const ownerFile = ".gobrew-owner"
+const ownerFile = model.OwnerMarker
 
 type Installer struct {
 	Prefix string
@@ -142,7 +142,7 @@ func (i Installer) stage(ctx context.Context, p model.Prepared, before model.Sna
 		}
 		pkg := prepared.Package
 		f := pkg.Formula
-		if !validPart(f.Name) || !validPart(f.PkgVersion()) {
+		if !model.ValidPathComponent(f.Name) || !model.ValidPathComponent(f.PkgVersion()) {
 			return nil, errors.New("invalid package path")
 		}
 		keg, err := state.SecurePath(i.Prefix, filepath.Join("Cellar", f.Name, f.PkgVersion()))
@@ -226,10 +226,6 @@ func kegInUse(s model.Snapshot, keg string) bool {
 		}
 	}
 	return false
-}
-
-func validPart(s string) bool {
-	return s != "" && s != "." && s != ".." && !strings.ContainsAny(s, "/\\\x00")
 }
 func owns(path, owner string) bool {
 	parts := strings.SplitN(owner, ":", 2)
@@ -847,7 +843,7 @@ func copyConfig(src io.Reader, dst string, mode fs.FileMode) error {
 		return err
 	}
 	_, copyErr := io.Copy(tmp, src)
-	err = errors.Join(copyErr, tmp.Sync(), tmp.Close())
+	err = errors.Join(copyErr, platform.SyncFile(tmp), tmp.Close())
 	if err != nil {
 		return err
 	}
