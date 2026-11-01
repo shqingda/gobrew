@@ -4,16 +4,7 @@
 
 ## 版本
 
-最新正式版是 [v0.4.0](releases/v0.4.0.md)，于 2026-10-29 发布，发布流水线的全部门禁均已通过。`main` 之后的整理分支 `tidy/v0.5` 没有新增命令，只做了以下几类改动：
-
-- 清理冗余代码。
-- 拆分大文件。
-- 修补架构边界。
-- 减少 GHCR 请求的网络往返。
-- 打磨交互输出。
-- 整理测试与文档。
-
-本轮计划和进度见 [tasks/plan.md](../tasks/plan.md) 与 [tasks/todo.md](../tasks/todo.md)。
+最新正式版是 [v0.5.0](releases/v0.5.0.md)，于 2026-11-01 发布，发布流水线的全部门禁均已通过（代码检查、macOS 15/26 实瓶测试、Homebrew 性能门槛）。本版的命令是 Homebrew 命令的子集，详见 [0002 决定](decisions/0002-homebrew-command-compatibility.md)。
 
 ## 支持范围
 
