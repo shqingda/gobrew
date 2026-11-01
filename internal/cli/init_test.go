@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"io"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -62,7 +63,7 @@ func newFakeApp(t *testing.T, prefix string, terminal bool, helper func() error)
 		engine:       engine.New(engine.Config{Prefix: prefix, CacheDir: cache, HTTP: &http.Client{Transport: offline{}}, Downloads: 1, Jobs: 1, BlobBudget: 1, TreeBudget: 1}),
 	}
 	f.config.Prefix, f.config.CacheDir = prefix, cache
-	f.elevate = func(_ context.Context, executable string, args []string) error {
+	f.elevate = func(_ context.Context, _ io.Writer, executable string, args []string) error {
 		if !filepath.IsAbs(executable) {
 			t.Errorf("helper executable %q is not absolute", executable)
 		}

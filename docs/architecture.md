@@ -7,6 +7,11 @@ adapter around an in-process engine that can later be called by MyGo.
 
 `cli → engine → catalog / resolver / artifact / installer / state / platform`
 
+`installer → postinstall`; the engine also uses `postinstall` to validate steps
+while planning. Process identity read from the environment, such as sudo's
+`SUDO_UID`, is resolved by the CLI and passed in `engine.Config`; the core still
+checks the real effective user itself.
+
 CLI distribution has a separate path: `cli → selfupdate → platform`. It does
 not enter the Formula engine or change its Plan/Prepare/Apply contract. Shell
 PATH setup is likewise outside the engine: `cli → shellconfig → platform`.

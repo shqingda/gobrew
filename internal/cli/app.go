@@ -76,7 +76,7 @@ type application struct {
 	// runs sudo or touches /opt.
 	systemPrefix string
 	terminal     func() bool
-	elevate      func(ctx context.Context, executable string, args []string) error
+	elevate      func(ctx context.Context, stderr io.Writer, executable string, args []string) error
 }
 
 // Run executes one invocation. It never exits the process or installs signal

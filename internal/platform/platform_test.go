@@ -5,6 +5,8 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
+	"syscall"
 	"testing"
 	"time"
 
@@ -135,5 +137,45 @@ func TestWriteFileAtomicReplacesWithoutLeftovers(t *testing.T) {
 	entries, err := os.ReadDir(dir)
 	if err != nil || len(entries) != 1 {
 		t.Fatalf("leftover entries %v: %v", entries, err)
+	}
+}
+
+func TestCreateOwnedDirCreatesOnlyAMissingOwnedDirectory(t *testing.T) {
+	uid, gid := os.Getuid(), os.Getgid()
+	parent := filepath.Join(t.TempDir(), "opt")
+	prefix := filepath.Join(parent, "gobrew")
+	if err := CreateOwnedDir(prefix, uid, gid); err != nil {
+		t.Fatal(err)
+	}
+	info, err := os.Lstat(prefix)
+	if err != nil || int(info.Sys().(*syscall.Stat_t).Uid) != uid {
+		t.Fatalf("prefix not created for the invoking user: %v", err)
+	}
+	// Repeating for the same user is a no-op so concurrent helpers converge.
+	if err := CreateOwnedDir(prefix, uid, gid); err != nil {
+		t.Fatal(err)
+	}
+	if err := CreateOwnedDir(prefix, uid+1, gid); err == nil {
+		t.Fatal("helper accepted a prefix owned by someone else")
+	}
+	if os.Geteuid() == 0 {
+		return
+	}
+	// A non-root chown to a foreign group fails like a failed handover; the
+	// half-created prefix must not stay behind owned by the wrong account.
+	groups, err := os.Getgroups()
+	if err != nil {
+		t.Fatal(err)
+	}
+	foreign := 1
+	for slices.Contains(groups, foreign) || foreign == gid {
+		foreign++
+	}
+	failed := filepath.Join(parent, "failed")
+	if err := CreateOwnedDir(failed, uid, foreign); err == nil {
+		t.Fatal("chown to a foreign group unexpectedly succeeded")
+	}
+	if _, err := os.Lstat(failed); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("failed handover left %s: %v", failed, err)
 	}
 }

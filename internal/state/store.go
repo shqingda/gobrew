@@ -55,6 +55,15 @@ var layout = []string{".gobrew", ".gobrew/staging", ".gobrew/backups", ".gobrew/
 func (s Store) Dir() string  { return filepath.Join(s.Prefix, ".gobrew") }
 func (s Store) path() string { return filepath.Join(s.Dir(), "state.db") }
 
+// Exists reports whether the state database is present, with a single stat.
+func (s Store) Exists() (bool, error) {
+	_, err := os.Lstat(s.path())
+	if errors.Is(err, os.ErrNotExist) {
+		return false, nil
+	}
+	return err == nil, err
+}
+
 func (s Store) Initialize() error {
 	if _, err := EnsureDir(s.Prefix, ".gobrew", 0755); err != nil {
 		return err
