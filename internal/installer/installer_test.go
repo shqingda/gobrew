@@ -25,13 +25,13 @@ func TestOwnedLinkRecoveryAndForeignConflict(t *testing.T) {
 	if err := os.Symlink(before, filepath.Join(prefix, "bin/tool")); err != nil {
 		t.Fatal(err)
 	}
-	if err := changeLink(prefix, change, false); err != nil {
+	if err := (Installer{Prefix: prefix}).changeLinks([]state.LinkChange{change}, false); err != nil {
 		t.Fatal(err)
 	}
 	if got, _ := os.Readlink(filepath.Join(prefix, "bin/tool")); got != after {
 		t.Fatal(got)
 	}
-	if err := changeLink(prefix, change, true); err != nil {
+	if err := (Installer{Prefix: prefix}).changeLinks([]state.LinkChange{change}, true); err != nil {
 		t.Fatal(err)
 	}
 	if got, _ := os.Readlink(filepath.Join(prefix, "bin/tool")); got != before {
@@ -43,7 +43,7 @@ func TestOwnedLinkRecoveryAndForeignConflict(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(prefix, "bin/tool"), []byte("mine"), 0644); err != nil {
 		t.Fatal(err)
 	}
-	if err := changeLink(prefix, change, false); err == nil {
+	if err := (Installer{Prefix: prefix}).changeLinks([]state.LinkChange{change}, false); err == nil {
 		t.Fatal("overwrote foreign file")
 	}
 	b, _ := os.ReadFile(filepath.Join(prefix, "bin/tool"))

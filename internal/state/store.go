@@ -15,6 +15,7 @@ import (
 	"github.com/shqingda/gobrew/internal/model"
 	"github.com/shqingda/gobrew/internal/platform"
 	bolt "go.etcd.io/bbolt"
+	bolterrors "go.etcd.io/bbolt/errors"
 )
 
 var bucket = []byte("state-v1")
@@ -93,7 +94,7 @@ func (s Store) Initialize() error {
 		return err
 	}
 	// bbolt syncs database contents; persist the initial filename as well.
-	return SyncDir(s.Dir())
+	return platform.SyncDir(s.Dir())
 }
 
 // Pristine reports whether the prefix holds nothing but an interrupted or
@@ -207,7 +208,7 @@ func (s Store) checkFile() error {
 
 func empty() model.Snapshot { return model.Snapshot{Records: make(map[string]model.Record)} }
 func dbError(err error) error {
-	if errors.Is(err, bolt.ErrTimeout) {
+	if errors.Is(err, bolterrors.ErrTimeout) {
 		return model.ErrBusy
 	}
 	return err
@@ -364,13 +365,9 @@ func EnsureDir(prefix, rel string, mode os.FileMode) (string, error) {
 	// Persist each new directory's entry before a journal can reference it.
 	// Existing directories incur neither a walk nor an extra device flush.
 	for _, dir := range created {
-		if err := SyncDir(filepath.Dir(dir)); err != nil {
+		if err := platform.SyncDir(filepath.Dir(dir)); err != nil {
 			return "", err
 		}
 	}
 	return path, nil
-}
-
-func SyncDir(path string) error {
-	return platform.SyncDir(path)
 }

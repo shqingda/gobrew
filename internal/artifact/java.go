@@ -74,9 +74,10 @@ func isJavaClass(data []byte) bool {
 		}
 		return r.ok
 	}
-	for section := 0; section < 2; section++ { // fields, methods
+	for range 2 { // fields, methods
 		for n := int(r.u2()); n > 0; n-- {
 			r.skip(2) // access_flags
+			// Each u2 call consumes the next index: name, then descriptor.
 			if !isTag(r.u2(), 1) || !isTag(r.u2(), 1) || !attributes() {
 				return false
 			}

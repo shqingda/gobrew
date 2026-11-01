@@ -159,7 +159,7 @@ func (i Installer) stage(ctx context.Context, p model.Prepared, before model.Sna
 			return nil, err
 		}
 		_, writeErr := io.WriteString(marker, owner)
-		err = errors.Join(writeErr, marker.Sync(), marker.Close(), state.SyncDir(dest))
+		err = errors.Join(writeErr, marker.Sync(), marker.Close(), platform.SyncDir(dest))
 		if err != nil {
 			return nil, err
 		}
@@ -360,10 +360,6 @@ func checkLink(prefix string, c state.LinkChange) error {
 	return nil
 }
 
-func changeLink(prefix string, c state.LinkChange, undo bool) error {
-	return (Installer{Prefix: prefix}).changeLinks([]state.LinkChange{c}, undo)
-}
-
 // changeLinks is called only after the whole batch is in the durable journal.
 // Namespace updates may be interrupted individually; commit waits for all
 // changed directories and a device barrier, rather than flushing each link.
@@ -478,7 +474,7 @@ func (i Installer) moveKeg(m state.Move, undo bool) error {
 	if err := os.Rename(from, to); err != nil {
 		return err
 	}
-	return errors.Join(state.SyncDir(filepath.Dir(from)), state.SyncDir(filepath.Dir(to)))
+	return errors.Join(platform.SyncDir(filepath.Dir(from)), platform.SyncDir(filepath.Dir(to)))
 }
 
 func (i Installer) switchFiles(j *state.Journal) error {
@@ -819,7 +815,7 @@ func (i Installer) mergeShared(keg string) error {
 				if err := os.Symlink(target, dst); err != nil {
 					return err
 				}
-				return state.SyncDir(filepath.Dir(dst))
+				return platform.SyncDir(filepath.Dir(dst))
 			}
 			if !info.Mode().IsRegular() {
 				return fmt.Errorf("unsupported shared file %s", rel)
@@ -860,5 +856,5 @@ func copyConfig(src io.Reader, dst string, mode fs.FileMode) error {
 	} else if err != nil {
 		return err
 	}
-	return state.SyncDir(filepath.Dir(dst))
+	return platform.SyncDir(filepath.Dir(dst))
 }

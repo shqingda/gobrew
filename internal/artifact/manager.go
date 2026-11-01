@@ -311,7 +311,7 @@ func validatePackage(p model.Package) error {
 	return nil
 }
 
-func readReceipt(keg string, p model.Package) ([]model.RuntimeDependency, error) {
+func readReceipt(keg string) ([]model.RuntimeDependency, error) {
 	info, err := os.Lstat(filepath.Join(keg, "INSTALL_RECEIPT.json"))
 	if err != nil {
 		return nil, fmt.Errorf("read bottle receipt: %w", err)

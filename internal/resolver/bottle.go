@@ -14,10 +14,10 @@ import (
 
 var macOSVersions = map[string]int{"big_sur": 11, "monterey": 12, "ventura": 13, "sonoma": 14, "sequoia": 15, "tahoe": 26, "golden_gate": 27}
 
-// SelectBottle prefers the host tag, then a platform-independent bottle, then
+// selectBottle prefers the host tag, then a platform-independent bottle, then
 // the newest older compatible macOS tag. Future or foreign-architecture tags
 // are never guessed. Prefix length is measured in bytes, as Mach-O requires.
-func SelectBottle(f model.Formula, host model.Platform, prefix string) (model.Bottle, error) {
+func selectBottle(f model.Formula, host model.Platform, prefix string) (model.Bottle, error) {
 	if host.OS != "darwin" || host.Arch != "arm64" || host.Major < 15 {
 		return model.Bottle{}, fmt.Errorf("%w: installation requires Apple Silicon macOS 15+", model.ErrUnsupported)
 	}

@@ -160,6 +160,8 @@ func (r *runner) run(ctx context.Context, s step) error {
 	case "set_permissions":
 		return r.permissions(s)
 	case "change_dylib_id":
+		// resolve_source is accepted but the source is always resolved:
+		// install_name_tool rewrites by rename, which would replace a symlink.
 		p, err := r.path(s.Source)
 		if err != nil {
 			return err

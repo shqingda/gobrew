@@ -85,7 +85,7 @@ func TestCompatibleOutdatedDependentIsNotUpgradedIncidentally(t *testing.T) {
 func TestBottleNeverFallsForwardOrAcrossArchitecture(t *testing.T) {
 	f := formula("a", "1")
 	f.Bottles = map[string]model.Bottle{"arm64_tahoe": {Tag: "arm64_tahoe"}, "sequoia": {Tag: "sequoia"}}
-	if _, err := SelectBottle(f, host, "/opt/gobrew"); !errors.Is(err, model.ErrUnsupported) {
+	if _, err := selectBottle(f, host, "/opt/gobrew"); !errors.Is(err, model.ErrUnsupported) {
 		t.Fatalf("unexpected bottle selection: %v", err)
 	}
 }

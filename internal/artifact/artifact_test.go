@@ -174,7 +174,7 @@ func TestRelocatesDependencySymlinksToStableOpt(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if err := relocateTree(context.Background(), root, "/opt/gobrew", p); err != nil {
+	if _, err := relocateTreeChecked(context.Background(), root, "/opt/gobrew", p); err != nil {
 		t.Fatal(err)
 	}
 	for name, want := range map[string]string{
@@ -206,7 +206,7 @@ func TestRejectsUnrecognizedBottlePlaceholdersWithoutKnownSubstitutions(t *testi
 		if err != nil {
 			t.Fatal(err)
 		}
-		if err := relocateTree(context.Background(), root, "/opt/gobrew", model.Package{}); !errors.Is(err, model.ErrUnsupported) {
+		if _, err := relocateTreeChecked(context.Background(), root, "/opt/gobrew", model.Package{}); !errors.Is(err, model.ErrUnsupported) {
 			t.Fatalf("%s: unknown placeholder accepted: %v", kind, err)
 		}
 	}

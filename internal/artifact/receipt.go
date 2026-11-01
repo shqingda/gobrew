@@ -29,7 +29,7 @@ type ociDescriptor struct {
 // https://github.com/Homebrew/brew/blob/main/Library/Homebrew/resource.rb
 // A missing receipt is never interpreted as an empty dependency set.
 func (m *Manager) runtimeDependencies(ctx context.Context, keg string, p model.Package) ([]model.RuntimeDependency, error) {
-	deps, err := readReceipt(keg, p)
+	deps, err := readReceipt(keg)
 	if err == nil {
 		return deps, nil
 	}

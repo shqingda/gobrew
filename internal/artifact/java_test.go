@@ -38,7 +38,7 @@ func TestJavaClassIsPreservedWithoutMaskingMalformedFatMachO(t *testing.T) {
 	if err := os.WriteFile(path, class, 0644); err != nil {
 		t.Fatal(err)
 	}
-	if err := relocateTree(context.Background(), root, "/opt/gobrew", model.Package{}); err != nil {
+	if _, err := relocateTreeChecked(context.Background(), root, "/opt/gobrew", model.Package{}); err != nil {
 		t.Fatal(err)
 	}
 	got, err := os.ReadFile(path)

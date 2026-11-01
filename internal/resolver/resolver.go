@@ -145,7 +145,7 @@ func Build(req model.Request, generation string, formulae map[string]model.Formu
 		if installed && Compare(record.Formula, f) > 0 && !exact[name] {
 			return fmt.Errorf("%w: refusing to downgrade %s", model.ErrConflict, name)
 		}
-		bottle, err := SelectBottle(f, host, prefix)
+		bottle, err := selectBottle(f, host, prefix)
 		if err != nil {
 			return err
 		}

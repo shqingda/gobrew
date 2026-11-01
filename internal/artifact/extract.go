@@ -100,7 +100,7 @@ func extractBottle(ctx context.Context, blob, dest string, options ...extraction
 			if err := root.MkdirAll(name, mode|0700); err != nil {
 				return err
 			}
-		case tar.TypeReg, tar.TypeRegA:
+		case tar.TypeReg: // The reader normalizes legacy TypeRegA entries.
 			out, err := root.OpenFile(name, os.O_CREATE|os.O_EXCL|os.O_WRONLY, mode|0600)
 			if err != nil {
 				return err

@@ -20,7 +20,7 @@ import (
 
 type replacement struct{ old, new string }
 
-func replacements(prefix string, p model.Package) []replacement {
+func replacements(prefix string) []replacement {
 	return []replacement{
 		{"@@HOMEBREW_CELLAR@@", filepath.Join(prefix, "Cellar")},
 		{"@@HOMEBREW_PREFIX@@", prefix},
@@ -30,13 +30,8 @@ func replacements(prefix string, p model.Package) []replacement {
 	}
 }
 
-func relocateTree(ctx context.Context, tree, prefix string, p model.Package) error {
-	_, err := relocateTreeChecked(ctx, tree, prefix, p)
-	return err
-}
-
 func relocateTreeChecked(ctx context.Context, tree, prefix string, p model.Package) ([]string, error) {
-	repls := replacements(prefix, p)
+	repls := replacements(prefix)
 	var signPaths []string
 	linked := map[string]bool{}
 	err := filepath.WalkDir(tree, func(path string, entry os.DirEntry, walkErr error) error {
