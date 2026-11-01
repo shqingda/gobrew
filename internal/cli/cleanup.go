@@ -1,0 +1,200 @@
+package cli
+
+import (
+	"context"
+	"fmt"
+	"io"
+	"os"
+	"slices"
+	"strconv"
+	"strings"
+	"time"
+
+	"github.com/shqingda/gobrew/internal/engine"
+	"github.com/shqingda/gobrew/internal/model"
+	"github.com/spf13/cobra"
+)
+
+func (a *application) autoremoveCommand() *cobra.Command {
+	var dryRun bool
+	cmd := a.commandFor("autoremove", "Remove dependencies no longer needed by requested or pinned formulae", cobra.NoArgs, func(ctx context.Context, _ []string) error {
+		e, err := a.getEngine()
+		if err != nil {
+			return err
+		}
+		names, err := e.Autoremove(ctx, dryRun)
+		if err != nil {
+			return err
+		}
+		a.names(names, "No unused dependencies.")
+		return nil
+	})
+	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "List unused dependencies without removing them")
+	return cmd
+}
+
+func (a *application) doctorCommand() *cobra.Command {
+	var repair bool
+	cmd := a.commandFor("doctor", "Check installed state, links and dependencies", cobra.NoArgs, func(ctx context.Context, _ []string) error {
+		e, err := a.getEngine()
+		if err != nil {
+			return err
+		}
+		findings, err := e.Doctor(ctx, repair)
+		if err != nil {
+			return err
+		}
+		unhealthy := len(findings) > 0
+		if snapshot, err := e.Installed(); err == nil {
+			findings = append(findings, a.pathFindings(e, snapshot.Records)...)
+		}
+		a.setResult(findings, func(w io.Writer) error {
+			if len(findings) == 0 {
+				_, err := fmt.Fprintln(w, "No installation problems found.")
+				return err
+			}
+			rows := make([][]string, 0, len(findings))
+			for _, f := range findings {
+				problem := f.Problem
+				if f.Severity != "" {
+					problem = f.Severity + ": " + problem
+				}
+				rows = append(rows, []string{f.Package, problem})
+			}
+			return table(w, []string{"FORMULA", "PROBLEM"}, rows)
+		})
+		if unhealthy {
+			return model.ErrNeedsRepair
+		}
+		return nil
+	})
+	cmd.Flags().BoolVar(&repair, "repair", false, "Recover interrupted filesystem transactions before checking; does not replay post-install")
+	return cmd
+}
+
+// cleanupCommand mirrors brew cleanup [--prune=days|all] [-n] [-s] [formula...].
+func (a *application) cleanupCommand() *cobra.Command {
+	var prune string
+	var dryRun, scrub bool
+	cmd := a.commandFor("cleanup [formula...]", "Remove old versions of installed formulae and stale cache entries", cobra.ArbitraryArgs, func(ctx context.Context, names []string) error {
+		e, err := a.getEngine()
+		if err != nil {
+			return err
+		}
+		opts := engine.CleanupOptions{Formulae: names, DryRun: dryRun, All: scrub, MaxAge: cleanupMaxAge()}
+		switch prune {
+		case "":
+		case "all":
+			opts.All = true
+		default:
+			days, err := strconv.Atoi(prune)
+			if err != nil || days < 0 {
+				return usageError{fmt.Errorf("--prune must be a number of days or all")}
+			}
+			opts.MaxAge = time.Duration(days) * 24 * time.Hour
+		}
+		removed, err := e.Cleanup(ctx, opts)
+		if err == nil && !dryRun && len(names) == 0 {
+			err = e.MarkCleaned()
+		}
+		if removed == nil {
+			removed = []model.Removed{}
+		}
+		a.setResult(removed, func(w io.Writer) error {
+			lines := removedLines(removed, dryRun)
+			if total := freed(removed); total > 0 {
+				verb := "has freed"
+				if dryRun {
+					verb = "would free"
+				}
+				lines = append(lines, "==> This operation "+verb+" approximately "+humanBytes(total)+" of disk space.")
+			}
+			for _, line := range lines {
+				if _, err := fmt.Fprintln(w, cleanText(line)); err != nil {
+					return err
+				}
+			}
+			return nil
+		})
+		return err
+	})
+	cmd.Flags().StringVar(&prune, "prune", "", "Remove cache files older than this many days, or all")
+	cmd.Flags().BoolVarP(&dryRun, "dry-run", "n", false, "Show what would be removed without removing anything")
+	cmd.Flags().BoolVarP(&scrub, "scrub", "s", false, "Scrub the cache, including downloads for the latest versions")
+	return cmd
+}
+
+// cleanupMaxAge is Homebrew's HOMEBREW_CLEANUP_MAX_AGE_DAYS, default 120.
+func cleanupMaxAge() time.Duration {
+	days := 120
+	if value, err := strconv.Atoi(os.Getenv("GOBREW_CLEANUP_MAX_AGE_DAYS")); err == nil && value >= 0 {
+		days = value
+	}
+	return time.Duration(days) * 24 * time.Hour
+}
+
+func removedLines(removed []model.Removed, dryRun bool) []string {
+	lines := make([]string, 0, len(removed))
+	for _, r := range removed {
+		if dryRun {
+			lines = append(lines, "Would remove: "+r.Path+" ("+abv(r.Files, r.Bytes)+")")
+		} else {
+			lines = append(lines, "Removing: "+r.Path+"... ("+abv(r.Files, r.Bytes)+")")
+		}
+	}
+	return lines
+}
+
+func freed(removed []model.Removed) int64 {
+	var total int64
+	for _, r := range removed {
+		total += r.Bytes
+	}
+	return total
+}
+
+// installCleanup is brew's install-time cleanup: old versions of the formulae
+// just installed, and every GOBREW_CLEANUP_PERIODIC_FULL_DAYS (default 30) a
+// full cleanup. Like Homebrew, a missing marker starts the period instead.
+func (a *application) installCleanup(ctx context.Context, e *engine.Engine, result model.Result) []string {
+	if os.Getenv("GOBREW_NO_INSTALL_CLEANUP") != "" || len(result.Succeeded) == 0 {
+		return nil
+	}
+	var skip []string
+	for _, name := range strings.Split(os.Getenv("GOBREW_NO_CLEANUP_FORMULAE"), ",") {
+		if name = strings.TrimSpace(name); name != "" {
+			skip = append(skip, name)
+		}
+	}
+	// An explicit older version is not the latest, so brew leaves it alone.
+	formulae := slices.DeleteFunc(slices.Clone(result.Succeeded), func(name string) bool { return slices.Contains(result.Pinned, name) })
+	var lines []string
+	if len(formulae) > 0 {
+		removed, err := e.Cleanup(ctx, engine.CleanupOptions{Formulae: formulae, Skip: skip})
+		if err != nil {
+			return []string{"Warning: cleanup failed: " + err.Error()}
+		}
+		if len(removed) > 0 {
+			lines = append(append(lines, "==> Cleanup"), removedLines(removed, false)...)
+		}
+	}
+	days := 30
+	if value, err := strconv.Atoi(os.Getenv("GOBREW_CLEANUP_PERIODIC_FULL_DAYS")); err == nil && value >= 0 {
+		days = value
+	}
+	if due, err := e.PeriodicCleanupDue(time.Duration(days) * 24 * time.Hour); err == nil && due {
+		lines = append(lines, fmt.Sprintf("==> `gob cleanup` has not been run in the last %d days, running now...", days))
+		removed, err := e.Cleanup(ctx, engine.CleanupOptions{Skip: skip, MaxAge: cleanupMaxAge()})
+		if err == nil {
+			err = e.MarkCleaned()
+		}
+		if err != nil {
+			return append(lines, "Warning: cleanup failed: "+err.Error())
+		}
+		lines = append(lines, removedLines(removed, false)...)
+	}
+	if len(lines) > 0 && os.Getenv("GOBREW_NO_ENV_HINTS") == "" {
+		lines = append(lines, "Disable this behaviour by setting `GOBREW_NO_INSTALL_CLEANUP=1`.", "Hide these hints with `GOBREW_NO_ENV_HINTS=1` (see `gob help`).")
+	}
+	return lines
+}
