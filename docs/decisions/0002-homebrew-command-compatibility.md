@@ -6,7 +6,11 @@
 
 ## 决定
 
-- gobrew 的命令应是 Homebrew 命令的子集：gobrew 没有的命令可以缺席，但已有的同名命令、参数和默认行为要与 brew 一致。
+- gobrew 的命令应是 Homebrew 命令的子集：gobrew 没有的命令可以缺席，但已有的同名命令、参数和默认行为要与 brew 一致。因此 2026-11-01 删除了 brew 没有的 `self`、`init`、`import-homebrew` 和 `completion`：
+  - 安装命令行改由 `install.sh` 以 `GOBREW_INSTALL_BIN_DIR=<dir> gobrew update` 交给已校验的程序完成；自身更新仍由 `update` 负责。
+  - 卸载命令行与 Homebrew 一样使用单独的 `uninstall.sh`。
+  - 初始化由第一次 `install` 自动完成，需要提权时 sudo 只运行固定的 `mkdir` 和 `chown`。
+  - 迁移 Homebrew 软件可用 `brew list --installed-on-request | xargs gob install`；不再提供 shell 补全脚本。
 - 默认行为以 [Homebrew 手册](https://docs.brew.sh/Manpage) 为准。例如 `install` 和 `version-install` 都不自动 pin；`upgrade` 跳过被 pin 的软件并提示 `Not upgrading N pinned package(s)`，只有显式点名被 pin 的软件时才以退出码 1 结束。
 - 供脚本读取的文本输出与 brew 一致，例如 `list`、`outdated`、`deps`、`uses` 和 `search`。`--json` 仍是 gobrew 自己的稳定结构。
 - 因为 gobrew 只有 Formula、从不交互确认，`--formula`、`-y/--no-ask` 这类参数照常接受，不改变行为。

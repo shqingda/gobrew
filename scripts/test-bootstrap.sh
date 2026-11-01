@@ -36,19 +36,13 @@ export HOME="$work/home" SHELL=/bin/zsh
 unset GOBREW_VERSION ZDOTDIR GOBREW_NO_MODIFY_PATH
 sh "$repo/install.sh"
 test "$(readlink "$work/bin/gob")" = gobrew
-# The bootstrap also initializes Formula storage, so no separate init is needed.
-test -f "$work/prefix/.gobrew/state.db"
+# Formula storage is left to the first install, which needs no separate init.
+test ! -e "$work/prefix"
 # New shells find the commands without manual PATH edits.
 test "$(zsh -c 'source "$HOME/.zshrc"; whence -p gob')" = "$work/bin/gob"
 "$work/bin/gob" --version
 "$work/bin/gobrew" --version
 sh "$repo/install.sh"
-# Storage that cannot be created must not fail the CLI installation; the
-# temporary prefix is never the system prefix, so no sudo is attempted.
-mkdir -m 0555 "$work/locked"
-GOBREW_PREFIX="$work/locked/prefix" sh "$repo/install.sh" 2> "$work/locked.err"
-grep -q 'first gob install will retry' "$work/locked.err"
-chmod 0755 "$work/locked"
 # Verification failure must leave both the executable and receipt untouched.
 before=$(shasum -a 256 "$work/bin/.gobrew/receipt.json")
 printf 'corruption' >> "$work/assets/gobrew_0.2.0_darwin_arm64.tar.gz"
@@ -58,8 +52,23 @@ if sh "$repo/install.sh"; then
 fi
 test "$before" = "$(shasum -a 256 "$work/bin/.gobrew/receipt.json")"
 test "$(grep -c '>>> gobrew >>>' "$work/home/.zshrc")" = 1
-"$work/bin/gob" self uninstall
-test "$(cat "$work/home/.zshrc")" = '# user settings'
+# A foreign gob stops the uninstaller before anything changes.
+mv "$work/bin/gob" "$work/gob.saved"
+printf 'foreign\n' > "$work/bin/gob"
+if sh "$repo/uninstall.sh"; then
+    printf '%s\n' 'uninstall removed a foreign gob' >&2
+    exit 1
+fi
+test -L "$work/bin/gobrew" && test -f "$work/bin/.gobrew/receipt.json"
+rm "$work/bin/gob" && mv "$work/gob.saved" "$work/bin/gob"
+printf '%s\n' 'export EDITOR=vim' >> "$work/home/.zshrc"
+sh "$repo/uninstall.sh"
+test "$(cat "$work/home/.zshrc")" = "$(printf '%s\n%s' '# user settings' 'export EDITOR=vim')"
 test ! -e "$work/bin/gobrew" && test ! -L "$work/bin/gobrew"
 test ! -e "$work/bin/gob" && test ! -L "$work/bin/gob"
-printf '%s\n' 'Bootstrap, storage setup, alias, repeat installation, integrity rejection and self-uninstall passed.'
+test ! -e "$work/bin/.gobrew"
+# The CLI installs again after an uninstall.
+(cd "$work/assets" && tar -czf gobrew_0.2.0_darwin_arm64.tar.gz gobrew_0.2.0_darwin_arm64 && shasum -a 256 gobrew_0.2.0_darwin_arm64.tar.gz > checksums.txt)
+sh "$repo/install.sh"
+test "$(readlink "$work/bin/gob")" = gobrew
+printf '%s\n' 'Bootstrap, alias, repeat installation, integrity rejection, uninstall and reinstall passed.'

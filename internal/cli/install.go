@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path/filepath"
 	"slices"
 	"strings"
 	"time"
@@ -206,69 +205,6 @@ func (a *application) postinstall(ctx context.Context, names []string) error {
 	}
 	a.names(names, "")
 	return nil
-}
-
-func (a *application) importHomebrewCommand() *cobra.Command {
-	var from string
-	var dryRun bool
-	// brew migrate moves renamed formulae; this gobrew-only import has its own name.
-	cmd := a.commandFor("import-homebrew", "Read requested Homebrew formulae and reinstall them in gobrew", cobra.NoArgs, func(ctx context.Context, _ []string) error {
-		e, err := a.getEngine()
-		if err != nil {
-			return err
-		}
-		if !filepath.IsAbs(from) {
-			return usageError{errors.New("--from-homebrew must be an absolute path")}
-		}
-		migration, err := e.Migration(from)
-		if err != nil {
-			return err
-		}
-		if len(migration.Names) == 0 {
-			a.message(migration, "No requested core formulae to migrate.")
-			return nil
-		}
-		request := model.Request{Action: "install", Names: migration.Names}
-		if dryRun {
-			plan, err := e.Plan(ctx, request)
-			if err != nil {
-				return err
-			}
-			a.setResult(struct {
-				Plan    model.Plan `json:"plan"`
-				Skipped []string   `json:"skipped"`
-			}{plan, migration.Skipped}, func(w io.Writer) error {
-				if err := renderPlan(w, plan); err != nil {
-					return err
-				}
-				return renderSkipped(w, migration.Skipped)
-			})
-			return nil
-		}
-		if err = a.ensureInitialized(ctx, e); err != nil {
-			return err
-		}
-		var result model.Result
-		err = a.withEvents(func(events chan<- model.Event) error {
-			var err error
-			result, err = e.Execute(ctx, request, events)
-			return err
-		})
-		notes := a.afterInstall(ctx, e, result, err)
-		a.setResult(struct {
-			Result  model.Result `json:"result"`
-			Skipped []string     `json:"skipped"`
-		}{result, migration.Skipped}, func(w io.Writer) error {
-			if err := a.renderInstall(w, e, request, result, notes); err != nil {
-				return err
-			}
-			return renderSkipped(w, migration.Skipped)
-		})
-		return err
-	})
-	cmd.Flags().StringVar(&from, "from-homebrew", "/opt/homebrew", "Existing Homebrew prefix to inspect read-only")
-	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Show the migration plan without installing")
-	return cmd
 }
 
 func (a *application) withEvents(run func(chan<- model.Event) error) error {

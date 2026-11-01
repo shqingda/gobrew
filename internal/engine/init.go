@@ -22,8 +22,8 @@ func (e *Engine) Initialized() (bool, error) {
 
 // Init creates or completes a user-owned prefix. It is idempotent and safe to
 // run concurrently. When the parent directory is not writable it returns
-// model.ErrPrivilegeRequired; obtaining privilege belongs to the caller. Run as
-// root, it only performs the privileged half for SystemPrefix.
+// model.ErrPrivilegeRequired; obtaining privilege belongs to the caller. It
+// refuses to run as root so the prefix is never owned by root.
 func (e *Engine) Init() error {
 	if _, err := e.Host(); err != nil {
 		return err
@@ -33,15 +33,7 @@ func (e *Engine) Init() error {
 		return errors.New("prefix must be absolute")
 	}
 	if os.Geteuid() == 0 {
-		if prefix != SystemPrefix {
-			return errors.New("root bootstrap is restricted to " + SystemPrefix)
-		}
-		owner := e.config.BootstrapOwner
-		if owner == nil || owner.UID <= 0 || owner.GID < 0 {
-			return errors.New("bootstrap requires the invoking non-root user")
-		}
-		// No network, package code or database runs in the privileged process.
-		return platform.CreateOwnedDir(prefix, owner.UID, owner.GID)
+		return errors.New("run gobrew as your normal user, without sudo")
 	}
 	// Mkdir first: it reports an existing path before checking write access,
 	// and makes concurrent initializers agree on a single creator.

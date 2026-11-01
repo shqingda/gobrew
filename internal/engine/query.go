@@ -3,11 +3,8 @@ package engine
 import (
 	"cmp"
 	"context"
-	"encoding/json"
 	"fmt"
 	"maps"
-	"os"
-	"path/filepath"
 	"slices"
 	"strings"
 	"time"
@@ -48,75 +45,6 @@ func (e *Engine) Outdated(ctx context.Context) ([]Outdated, error) {
 		}
 		return 0
 	})
-	return result, nil
-}
-
-type Migration struct {
-	Names   []string `json:"names"`
-	Skipped []string `json:"skipped"`
-}
-
-// Migration reads only Homebrew receipts. It never invokes brew, imports its
-// ownership, or executes formula code. Selected roots are freshly installed.
-func (e *Engine) Migration(prefix string) (Migration, error) {
-	result := Migration{Names: []string{}, Skipped: []string{}}
-	if !filepath.IsAbs(prefix) {
-		return result, fmt.Errorf("Homebrew prefix must be absolute")
-	}
-	cellar := filepath.Join(prefix, "Cellar")
-	racks, err := os.ReadDir(cellar)
-	if err != nil {
-		return result, err
-	}
-	for _, rack := range racks {
-		if !rack.IsDir() {
-			continue
-		}
-		versions, err := os.ReadDir(filepath.Join(cellar, rack.Name()))
-		if err != nil {
-			return result, err
-		}
-		requested, known := false, false
-		for _, version := range versions {
-			if !version.IsDir() {
-				continue
-			}
-			path := filepath.Join(cellar, rack.Name(), version.Name(), "INSTALL_RECEIPT.json")
-			file, err := os.Open(path)
-			if err != nil {
-				continue
-			}
-			var receipt struct {
-				Requested  *bool `json:"installed_on_request"`
-				Dependency *bool `json:"installed_as_dependency"`
-				Source     struct {
-					Tap string `json:"tap"`
-				} `json:"source"`
-			}
-			err = json.NewDecoder(file).Decode(&receipt)
-			_ = file.Close()
-			if err != nil {
-				continue
-			}
-			if receipt.Source.Tap != "" && receipt.Source.Tap != "homebrew/core" {
-				continue
-			}
-			if receipt.Requested != nil {
-				known = true
-				requested = requested || *receipt.Requested
-			} else if receipt.Dependency != nil {
-				known = true
-				requested = requested || !*receipt.Dependency
-			}
-		}
-		if requested {
-			result.Names = append(result.Names, rack.Name())
-		} else if !known {
-			result.Skipped = append(result.Skipped, rack.Name())
-		}
-	}
-	slices.Sort(result.Names)
-	slices.Sort(result.Skipped)
 	return result, nil
 }
 
@@ -299,14 +227,4 @@ func (e *Engine) Search(ctx context.Context, query string, descriptions bool) ([
 		return resolver.CompareVersions(cmp.Or(versionA, "0"), cmp.Or(versionB, "0"))
 	})
 	return result, err
-}
-
-// FormulaNames lists catalog names starting with prefix for shell completion.
-// It reads only the local catalog and never touches the network.
-func (e *Engine) FormulaNames(prefix string) ([]string, error) {
-	c, err := e.client()
-	if err != nil {
-		return nil, err
-	}
-	return c.Names(prefix, 500)
 }

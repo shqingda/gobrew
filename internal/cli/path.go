@@ -58,21 +58,6 @@ func (a *application) setupPath(env shellconfig.Env) string {
 	return note + "Open a new terminal, or run: exec " + profile.Shell
 }
 
-func (a *application) removePath() string {
-	profile, err := a.profile()
-	if err != nil {
-		return ""
-	}
-	removed, err := profile.Remove()
-	if err != nil {
-		return "Could not remove the gobrew PATH block from " + tildePath(profile.Path) + ": " + err.Error()
-	}
-	if removed {
-		return "Removed the gobrew PATH block from " + tildePath(profile.Path) + "."
-	}
-	return ""
-}
-
 func (a *application) profile() (shellconfig.Profile, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {

@@ -171,44 +171,6 @@ func CloneTree(ctx context.Context, src, dst string) error {
 	return SyncDir(filepath.Dir(dst))
 }
 
-// CreateOwnedDir creates a missing parent (such as /opt on a fresh system, left
-// owned by the caller) and the missing directory path, then hands only path to
-// uid:gid. An existing path is accepted only if uid already owns it; nothing is
-// ever chowned twice or adopted, and a path whose handover failed is removed.
-func CreateOwnedDir(prefix string, uid, gid int) error {
-	parent := filepath.Dir(prefix)
-	if err := os.Mkdir(parent, 0755); err == nil {
-		if err = SyncDir(filepath.Dir(parent)); err != nil {
-			return err
-		}
-	} else if !errors.Is(err, os.ErrExist) {
-		return err
-	}
-	info, err := os.Lstat(parent)
-	if err != nil {
-		return err
-	}
-	if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
-		return fmt.Errorf("unsafe %s directory", parent)
-	}
-	if err = os.Mkdir(prefix, 0755); errors.Is(err, os.ErrExist) {
-		info, err = os.Lstat(prefix)
-		if err != nil {
-			return err
-		}
-		if owner, ok := OwnerUID(info); ok && info.IsDir() && info.Mode()&os.ModeSymlink == 0 && owner == uid {
-			return nil
-		}
-		return errors.New("only a missing directory is created; existing ownership is never changed")
-	} else if err != nil {
-		return err
-	}
-	if err = os.Chown(prefix, uid, gid); err != nil {
-		return errors.Join(err, os.Remove(prefix))
-	}
-	return SyncDir(parent)
-}
-
 // OwnerUID returns the numeric owner of info when the platform reports one.
 func OwnerUID(info os.FileInfo) (int, bool) {
 	stat, ok := info.Sys().(*syscall.Stat_t)

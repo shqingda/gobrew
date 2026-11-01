@@ -19,7 +19,6 @@ gb=("$binary" --prefix "$prefix" --cache-dir "$cache")
 # Keep the run deterministic, as the benchmark does.
 export GOBREW_NO_AUTO_UPDATE=1
 
-"${gb[@]}" init
 "${gb[@]}" update
 "${gb[@]}" install hello jq ca-certificates node python@3.15
 "$prefix/bin/hello"

@@ -75,7 +75,7 @@ func latest(ctx context.Context, client *http.Client) (string, error) {
 
 func newer(candidate, current string) (bool, error) {
 	if !versionPattern.MatchString(candidate) || !versionPattern.MatchString(current) {
-		return false, errors.New("self update requires stable semantic release versions")
+		return false, errors.New("updating gobrew requires stable semantic release versions")
 	}
 	a, b := strings.Split(candidate[1:], "."), strings.Split(current[1:], ".")
 	for i := range a {

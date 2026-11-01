@@ -24,7 +24,6 @@
   - 依赖解析与 ABI 检查。
   - pin、指定版本安装（`version-install`）。
   - 卸载时自动清理无用依赖、cleanup、doctor 与 PATH 诊断。
-  - 从 Homebrew 迁移已请求的软件。
 - **不做**：
   - Formula 开发工具。
   - 源码构建，以及 `--HEAD`。
@@ -42,7 +41,6 @@
 2026-11-01 对照 [Homebrew 手册](https://docs.brew.sh/Manpage) 逐条检查后，以下差异仍然存在：
 
 - **待决定（涉及产品形态）**：
-  - Homebrew 没有的命令：`self`、`init`、`import-homebrew`、`completion`（brew 的 `completions` 管理 tap 补全链接，语义不同）。
   - 全局参数 `--prefix DIR`、`--cache-dir` 等是 gobrew 的配置项；brew 的 `--prefix`、`--cache`、`--cellar` 是打印路径的命令。
   - `doctor --repair` 和 `reinstall --dry-run` 是 brew 没有的参数。
 - **因正确性或安全约束有意保留**：

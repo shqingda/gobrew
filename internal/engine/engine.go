@@ -29,14 +29,7 @@ type Config struct {
 
 	// GitHubToken optionally raises GitHub API limits for explicit versions.
 	GitHubToken string
-
-	// BootstrapOwner is the invoking user that a root Init hands the new
-	// prefix to. The caller derives it, for example from sudo's SUDO_UID.
-	BootstrapOwner *Owner
 }
-
-// Owner identifies a non-root account by numeric user and group IDs.
-type Owner struct{ UID, GID int }
 
 func Defaults() (Config, error) {
 	cache, err := os.UserCacheDir()

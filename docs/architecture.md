@@ -67,26 +67,27 @@ case recovers once and makes a fresh plan; a GUI can expose recovery explicitly.
 
 ## Ownership and state
 
-The default Formula prefix is `/opt/gobrew`, owned by one non-root user. The
-privileged `init` operation may create only this fixed missing directory (and a
-missing `/opt`, left owned by root) and hand the new prefix to the `SUDO_UID`
-user; it never adopts or chowns an existing directory, and removes the prefix
-again if the handover fails. Normal formula execution never runs as root.
+The default Formula prefix is `/opt/gobrew`, owned by one non-root user. gobrew
+itself never runs as root and refuses to initialize as root. The privileged
+helper is a fixed `/bin/sh` script of `/bin/mkdir` and `/usr/sbin/chown` run
+through `sudo`: it may create only this fixed missing directory (and a missing
+`/opt`, left owned by root, never through a symlinked parent) and hand the new
+prefix to the invoking user; it never adopts or chowns an existing directory,
+and removes the prefix again if the handover fails.
 
-Initialization is not a separate user step. The curl bootstrap runs `init`
-after installing the CLI, and the first `install` or `import-homebrew` initializes a
+Like Homebrew, there is no `init` command. The first `install` initializes a
 missing prefix before planning. The engine reports a non-writable parent as
 `ErrPrivilegeRequired` and never prompts. The CLI alone decides to elevate: only
 for the fixed default prefix, only with a controlling terminal and without
-`--json`, by running its own absolute executable as `sudo -- <exe> init` once.
-sudo reads the password from the terminal, never from stdin. The unprivileged
-`init` then creates the database. Without a terminal the command fails with an
-absolute manual command. Read-only commands and dry runs never initialize.
+`--json`, by running the helper once. sudo reads the password from the
+terminal, never from stdin. The unprivileged process then creates the
+database. Without a terminal the command fails with an absolute manual
+command. Read-only commands and dry runs never initialize.
 Install and upgrade dry runs skip automatic catalog/CLI updates entirely. They
 only plan and never elevate, initialize the prefix, apply packages, run cleanup,
 or modify shell configuration. Planning may still fetch and cache a missing
 catalog snapshot; dry-run is not an offline guarantee.
-`init` is idempotent and concurrent-safe; it completes a prefix that contains
+Initialization is idempotent and concurrent-safe; it completes a prefix that contains
 only empty layout directories left by an interrupted run, and refuses any other
 existing content.
 
@@ -190,8 +191,8 @@ install needs no Prepare or Apply. It attempts a local catalog lookup; a missing
 catalog or a formula absent from it also permits this offline fallback, without
 claiming the installed version is current. Before ordinary install, upgrade and
 outdated, the CLI attempts automatic self/catalog updates when the catalog is
-stale (24 hours by default), unless disabled. Reinstall, version-install,
-import-homebrew and dry-run do not trigger this automatic update. With automatic
+stale (24 hours by default), unless disabled. Reinstall, version-install
+and dry-run do not trigger this automatic update. With automatic
 updates disabled, or after a failed refresh, healthy installed requests can
 therefore remain unchanged even without a catalog. The automatic update itself
 may have used the network before the local no-op. Help, version
@@ -259,9 +260,11 @@ metadata. `HOMEBREW_GITHUB_API_TOKEN` or
 ## Validation and distribution
 
 The curl installer resolves one stable GitHub Release, verifies its archive
-against that release's SHA-256 manifest, and passes the executable to
-`self install`. Only the shell bootstrap is responsible for initial download;
-the Go `selfupdate` package owns CLI installation, updates and removal. The
+against that release's SHA-256 manifest, and runs the executable as
+`GOBREW_INSTALL_BIN_DIR=<dir> gobrew update`, which installs the running
+executable instead of refreshing the catalog. Only the shell bootstrap is
+responsible for initial download; the Go `selfupdate` package owns CLI
+installation and updates. Like Homebrew, removal is a separate `uninstall.sh`. The
 archive and checksum manifest share the GitHub trust boundary: they are not an
 independent signature scheme.
 
@@ -278,9 +281,9 @@ outside it. The block prepends the managed command directory and the default
 prefix's `bin` and `sbin`, so gobrew precedes Homebrew for same-named commands.
 Files are replaced atomically; symlinked dotfiles update their target, while
 damaged markers, foreign owners and hard links are refused with manual
-instructions. `self install` and successful `install`/`import-homebrew` call it, the
+instructions. The installer handoff and successful `install` call it, the
 latter only for the default prefix and only when the running shell lacks a
-directory, so configured no-ops do no file access. `self uninstall` removes the
+directory, so configured no-ops do no file access. `uninstall.sh` removes the
 block. `GOBREW_NO_MODIFY_PATH` disables it. The engine never touches shell
 configuration; Homebrew's files are only read, to report duplicate commands.
 
@@ -290,13 +293,12 @@ activation or removal is persisted before changing links, and `current` is
 switched atomically. Recovery replays only owned filesystem operations. Update
 downloads happen outside the lock; apply rejects a changed active executable.
 Only newer stable releases are selected automatically, with no automatic
-downgrade. Unmanaged executables must first use `self install`.
+downgrade. Unmanaged executables are skipped until the installer manages them.
 
-Self-uninstall removes the owned CLI executables and command links while
-retaining Formulae, configuration, data and caches. Small receipt and lock files
-remain so retries and later installations use the same ownership and locking
-boundary. If interruption leaves no usable command entry point, the curl
-installer can be run again. CLI lifecycle tests use isolated temporary command
+`uninstall.sh` removes the command links and the `.gobrew` store only after
+checking that every link and store entry is one gobrew creates, retaining
+Formulae, configuration, data and caches. If interruption leaves no usable
+command entry point, the curl installer can be run again. CLI lifecycle tests use isolated temporary command
 directories, including checksum rejection, link conflicts and recovery.
 
 Unit and filesystem tests cover dependency planning, malicious archives,

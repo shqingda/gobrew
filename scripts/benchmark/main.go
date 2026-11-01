@@ -256,9 +256,6 @@ func measureGobrew(gb runner, prefix, cache string, round int, names []string, r
 	if err := resetOwnedPrefix(prefix); err != nil {
 		return err
 	}
-	if _, _, err := gb.run("init"); err != nil {
-		return err
-	}
 	duration, _, err := gb.run("update")
 	if err != nil {
 		return err
@@ -277,9 +274,6 @@ func measureGobrew(gb runner, prefix, cache string, round int, names []string, r
 		return err
 	}
 	if err = resetOwnedPrefix(prefix); err != nil {
-		return err
-	}
-	if _, _, err = gb.run("init"); err != nil {
 		return err
 	}
 	duration, output, err = gb.run(install...)

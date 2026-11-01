@@ -70,13 +70,9 @@ main() {
     chmod 0755 "$work/gobrew"
     bin=${GOBREW_BIN_DIR:-$HOME/.local/bin}
     title "Installing gobrew $version"
-    "$work/gobrew" self install --bin-dir "$bin"
-    title "Setting up Formula storage"
-    # Set up Formula storage now. For /opt/gobrew this may ask once for an
-    # administrator password on the terminal; sudo never reads this pipe.
-    if ! "$bin/gobrew" init; then
-        printf '%s\n' 'Formula storage is not set up yet; the first gob install will retry.' >&2
-    fi
+    # The verified executable installs itself and the gob alias through
+    # update; the first gob install sets up Formula storage.
+    GOBREW_INSTALL_BIN_DIR=$bin "$work/gobrew" update
     title "Next steps"
     printf '%s\n' '  gob install <formula>'
 }

@@ -238,17 +238,6 @@ func TestUsageErrorsPointToTheCommandHelp(t *testing.T) {
 	}
 }
 
-func TestInstallCompletionUsesTheLocalCatalogOffline(t *testing.T) {
-	a, requests, _ := updateApp(t)
-	names, err := a.engine.FormulaNames("de")
-	if err != nil || strings.Join(names, ",") != "demo" || requests.calls != 0 {
-		t.Fatalf("names=%v err=%v requests=%d", names, err, requests.calls)
-	}
-	if names, err := a.engine.FormulaNames("x"); err != nil || len(names) != 0 {
-		t.Fatalf("unexpected names %v: %v", names, err)
-	}
-}
-
 func TestUpdateSkipsBuildsThatCannotSelfUpdate(t *testing.T) {
 	for _, version := range []string{"dev", "v0.3.0"} {
 		// The test binary is neither a release build nor a managed install.
@@ -257,6 +246,27 @@ func TestUpdateSkipsBuildsThatCannotSelfUpdate(t *testing.T) {
 		if err != nil || result.Skipped == "" || result.Changed {
 			t.Fatalf("%s: updateCLI = %+v, %v", version, result, err)
 		}
+	}
+}
+
+func TestInstallScriptHandoffInstallsTheRunningExecutable(t *testing.T) {
+	dir, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	bin := filepath.Join(dir, "bin")
+	t.Setenv("GOBREW_NO_MODIFY_PATH", "1")
+	a := &application{build: BuildInfo{Version: "v0.5.0"}, systemPrefix: "/opt/gobrew"}
+	a.config.Prefix = filepath.Join(t.TempDir(), "prefix")
+	result, err := a.installCLI(context.Background(), bin)
+	if err != nil || !result.Installed || result.Version != "v0.5.0" || result.BinDir != bin {
+		t.Fatalf("updateCLI = %+v, %v", result, err)
+	}
+	if link, err := os.Readlink(filepath.Join(bin, "gob")); err != nil || link != "gobrew" {
+		t.Fatalf("gob alias %q: %v", link, err)
+	}
+	if _, err := a.installCLI(context.Background(), "relative"); err == nil {
+		t.Fatal("relative install directory accepted")
 	}
 }
 

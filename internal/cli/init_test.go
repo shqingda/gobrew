@@ -7,8 +7,10 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -63,11 +65,11 @@ func newFakeApp(t *testing.T, prefix string, terminal bool, helper func() error)
 		engine:       engine.New(engine.Config{Prefix: prefix, CacheDir: cache, HTTP: &http.Client{Transport: offline{}}, Downloads: 1, Jobs: 1, BlobBudget: 1, TreeBudget: 1}),
 	}
 	f.config.Prefix, f.config.CacheDir = prefix, cache
-	f.elevate = func(_ context.Context, _ io.Writer, executable string, args []string) error {
-		if !filepath.IsAbs(executable) {
-			t.Errorf("helper executable %q is not absolute", executable)
+	f.elevate = func(_ context.Context, _ io.Writer, command []string) error {
+		if !filepath.IsAbs(command[0]) {
+			t.Errorf("helper executable %q is not absolute", command[0])
 		}
-		f.calls = append(f.calls, args)
+		f.calls = append(f.calls, command)
 		return helper()
 	}
 	return f
@@ -92,7 +94,7 @@ func TestFirstInstallInitializesWithOneElevation(t *testing.T) {
 	if code, out := f.run(t, "install", "uv"); code == 0 || !strings.Contains(out, "network disabled") {
 		t.Fatalf("install did not reach planning after setup: exit = %d: %s", code, out)
 	}
-	want := [][]string{{"--prefix", prefix, "--quiet", "init"}}
+	want := [][]string{{"/bin/sh", "-c", createOwnedPrefix, "sh", strconv.Itoa(os.Getuid()), strconv.Itoa(os.Getgid()), prefix}}
 	if !slices.EqualFunc(f.calls, want, slices.Equal) {
 		t.Fatalf("elevation calls = %v, want %v", f.calls, want)
 	}
@@ -112,7 +114,6 @@ func TestElevationIsNeverAttemptedWithoutAnInteractiveTerminal(t *testing.T) {
 	}{
 		{"no-terminal", false, []string{"install", "uv"}},
 		{"json", true, []string{"install", "uv", "--json"}},
-		{"init-no-terminal", false, []string{"init"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			prefix, helper := lockedPrefix(t)
@@ -121,7 +122,7 @@ func TestElevationIsNeverAttemptedWithoutAnInteractiveTerminal(t *testing.T) {
 			if code != 1 || len(f.calls) != 0 {
 				t.Fatalf("exit = %d, calls = %d: %s", code, len(f.calls), out)
 			}
-			if !strings.Contains(out, "run once in a terminal: sudo '/") {
+			if !strings.Contains(out, "run once in a terminal: sudo /bin/mkdir -p '/") {
 				t.Fatalf("missing absolute manual command: %s", out)
 			}
 			if slices.Contains(tc.args, "--json") && !strings.Contains(out, `"code":"privilege_required"`) {
@@ -134,7 +135,7 @@ func TestElevationIsNeverAttemptedWithoutAnInteractiveTerminal(t *testing.T) {
 func TestDeclinedOrForeignElevationLeavesNoState(t *testing.T) {
 	prefix, _ := lockedPrefix(t)
 	f := newFakeApp(t, prefix, true, func() error { return errors.New("exit status 1") })
-	if code, out := f.run(t, "init"); code != 1 || !strings.Contains(out, "did not complete") {
+	if code, out := f.run(t, "install", "uv"); code != 1 || !strings.Contains(out, "did not complete") {
 		t.Fatalf("exit = %d: %s", code, out)
 	}
 	if _, err := os.Lstat(prefix); !errors.Is(err, os.ErrNotExist) {
@@ -143,7 +144,7 @@ func TestDeclinedOrForeignElevationLeavesNoState(t *testing.T) {
 	// Only the fixed system prefix may be elevated; any other path just fails.
 	f = newFakeApp(t, prefix, true, func() error { return nil })
 	f.systemPrefix = "/opt/gobrew"
-	if code, out := f.run(t, "init"); code != 1 || len(f.calls) != 0 {
+	if code, out := f.run(t, "install", "uv"); code != 1 || len(f.calls) != 0 {
 		t.Fatalf("custom prefix elevated: exit = %d, calls = %d: %s", code, len(f.calls), out)
 	}
 }
@@ -163,11 +164,40 @@ func TestPrefixEnvironmentMatchesShellenv(t *testing.T) {
 	prefix := filepath.Join(t.TempDir(), "env prefix")
 	t.Setenv("GOBREW_PREFIX", prefix)
 	var stdout, stderr bytes.Buffer
-	if code := Run(context.Background(), []string{"init"}, &stdout, &stderr, BuildInfo{}); code != 0 {
+	if code := Run(context.Background(), []string{"shellenv", "sh"}, &stdout, &stderr, BuildInfo{}); code != 0 {
 		t.Fatalf("exit = %d: %s", code, &stderr)
 	}
-	if !stateExists(prefix) {
-		t.Fatal("GOBREW_PREFIX was ignored")
+	if !strings.Contains(stdout.String(), "export GOBREW_PREFIX='"+prefix+"'") {
+		t.Fatalf("GOBREW_PREFIX was ignored: %s", &stdout)
+	}
+}
+
+// The root helper is plain sh; run it unprivileged against a temporary tree.
+func TestCreateOwnedPrefixCreatesOnlyAMissingDirectory(t *testing.T) {
+	uid, gid := strconv.Itoa(os.Getuid()), strconv.Itoa(os.Getgid())
+	run := func(prefix string) error {
+		return exec.Command("/bin/sh", "-c", createOwnedPrefix, "sh", uid, gid, prefix).Run()
+	}
+	base := t.TempDir()
+	prefix := filepath.Join(base, "opt", "gobrew")
+	if err := run(prefix); err != nil {
+		t.Fatalf("missing parent and prefix were not created: %v", err)
+	}
+	if info, err := os.Lstat(prefix); err != nil || !info.IsDir() {
+		t.Fatalf("prefix missing: %v", err)
+	}
+	if err := run(prefix); err == nil {
+		t.Fatal("helper accepted an existing prefix")
+	}
+	if err := os.Symlink(filepath.Join(base, "opt"), filepath.Join(base, "link")); err != nil {
+		t.Fatal(err)
+	}
+	linked := filepath.Join(base, "link", "other")
+	if err := run(linked); err == nil {
+		t.Fatal("helper followed a symlinked parent")
+	}
+	if _, err := os.Lstat(filepath.Join(base, "opt", "other")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatal("helper created a directory through a symlinked parent")
 	}
 }
 

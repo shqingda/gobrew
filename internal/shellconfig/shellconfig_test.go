@@ -39,13 +39,6 @@ func TestEnsureIsIdempotentAndRemoveRestoresTheFile(t *testing.T) {
 	if info, _ := os.Stat(rc); info.Mode().Perm() != 0600 {
 		t.Fatalf("mode changed to %v", info.Mode())
 	}
-	if removed, err := p.Remove(); err != nil || !removed {
-		t.Fatalf("Remove = %v, %v", removed, err)
-	}
-	data, _ = os.ReadFile(rc)
-	if string(data) != original+"\nexport EDITOR=vim\n" {
-		t.Fatalf("Remove changed user text:\n%q", data)
-	}
 }
 
 func TestBlockWinsOverAStartupFileThatResetsPath(t *testing.T) {

@@ -103,14 +103,6 @@ func (a *application) renderInstall(w io.Writer, e *engine.Engine, request model
 	return nil
 }
 
-func renderSkipped(w io.Writer, names []string) error {
-	if len(names) == 0 {
-		return nil
-	}
-	_, err := fmt.Fprintln(w, "Skipped:", cleanText(strings.Join(names, ", ")))
-	return err
-}
-
 func table(w io.Writer, headers []string, rows [][]string) error {
 	tw := tabwriter.NewWriter(w, 0, 4, 2, ' ', 0)
 	if _, err := fmt.Fprintln(tw, strings.Join(headers, "\t")); err != nil {

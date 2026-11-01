@@ -69,7 +69,7 @@ class Comparison:
                 "nanobrew is an unmodified release binary using its compiled-in prefix; gobrew uses a short temporary prefix.",
                 "Preinstalled Homebrew and /usr/local are denied to measured processes by macOS sandbox-exec.",
                 "Catalog refresh is outside install timing. Cold clears artifact caches; warm clears installed state and mutable configuration only; no-op preserves installed state.",
-                "Both empty prefixes are initialized before timing. Candidate preflights are recorded separately and excluded from the five-round summary; non-equivalent closures receive no speed ratio.",
+                "Both prefixes start empty; gobrew creates its state database inside the timed install, as a first install does. Candidate preflights are recorded separately and excluded from the five-round summary; non-equivalent closures receive no speed ratio.",
                 "gobrew validates signed metadata; nanobrew's native Homebrew API path uses HTTPS JSON and bottle SHA. This trust difference is disclosed, not removed from gobrew.",
                 "Comparability requires identical installed package sets, versions including revisions, and bottle SHA. Matching SHA binds nanobrew's bottle bytes to gobrew's selected tag; nanobrew state has no dependency list, so raw dependency metadata fields are not compared.",
                 "All executable, signature, linkage and installed-artifact checks run outside timing. Each installed keg must contain at least one verified Mach-O executable or library.",
@@ -157,7 +157,6 @@ class Comparison:
                 for p in self.gb_cache.iterdir():
                     if p.name != "catalog":
                         shutil.rmtree(p) if p.is_dir() else p.unlink()
-            self.run("gobrew-init", [*self.gb, "init"], self.envs["gobrew"])
         else:
             for name in ("prefix", "db"):
                 shutil.rmtree(NB_ROOT / name, ignore_errors=True)
