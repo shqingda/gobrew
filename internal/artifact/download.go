@@ -63,7 +63,7 @@ func (m *Manager) downloadLocked(ctx context.Context, p model.Package, events ch
 		return nil
 	}
 	model.Emit(events, model.Event{Phase: "download", Package: p.Formula.Name})
-	response, err := m.registryGet(ctx, &client, u, u, nil, "")
+	response, err := m.registryGet(ctx, &client, u, u, nil)
 	if err != nil {
 		return "", err
 	}
@@ -108,9 +108,14 @@ func (m *Manager) downloadLocked(ctx context.Context, p model.Package, events ch
 	return path, nil
 }
 
-// registryGet sends one GET and, for GHCR, retries once with a pull token for
-// the bottle's repository when the registry rejects the initial credential.
-func (m *Manager) registryGet(ctx context.Context, client *http.Client, u, bottle *url.URL, header http.Header, token string) (*http.Response, error) {
+// registryGet sends one GET. GHCR requests start with Homebrew's anonymous
+// credential, which public homebrew/core content accepts without a token
+// round trip, and retry once with a scoped pull token if it is rejected.
+func (m *Manager) registryGet(ctx context.Context, client *http.Client, u, bottle *url.URL, header http.Header) (*http.Response, error) {
+	token := ""
+	if u.Hostname() == "ghcr.io" {
+		token = "QQ=="
+	}
 	request := func(token string) (*http.Response, error) {
 		req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
 		if err != nil {

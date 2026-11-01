@@ -158,12 +158,8 @@ func validDigest(digest string) bool {
 func (m *Manager) fetchOCI(ctx context.Context, u, bottleURL *url.URL, expected string) ([]byte, error) {
 	client := *m.cfg.HTTP
 	client.CheckRedirect = func(*http.Request, []*http.Request) error { return errors.New("OCI metadata redirect is not allowed") }
-	token := ""
-	if u.Hostname() == "ghcr.io" {
-		token = "QQ==" // Homebrew's anonymous GHCR credential.
-	}
 	accept := http.Header{"Accept": {"application/vnd.oci.image.index.v1+json, application/vnd.oci.image.manifest.v1+json"}}
-	response, err := m.registryGet(ctx, &client, u, bottleURL, accept, token)
+	response, err := m.registryGet(ctx, &client, u, bottleURL, accept)
 	if err != nil {
 		return nil, err
 	}
