@@ -75,7 +75,7 @@ func (a *application) doctorCommand() *cobra.Command {
 // cleanupCommand mirrors brew cleanup [--prune=days|all] [-n] [-s] [formula...].
 func (a *application) cleanupCommand() *cobra.Command {
 	var prune string
-	var dryRun, scrub bool
+	var dryRun, scrub, prunePrefix bool
 	cmd := a.commandFor("cleanup [formula...]", "Remove old versions of installed formulae and stale cache entries", cobra.ArbitraryArgs, func(ctx context.Context, names []string) error {
 		e, err := a.getEngine()
 		if err != nil {
@@ -93,15 +93,17 @@ func (a *application) cleanupCommand() *cobra.Command {
 			}
 			opts.MaxAge = time.Duration(days) * 24 * time.Hour
 		}
-		removed, err := e.Cleanup(ctx, opts)
-		if err == nil && !dryRun && len(names) == 0 {
+		var removed []model.Removed
+		if prunePrefix {
+			removed, err = e.PrunePrefix(ctx, dryRun)
+		} else if removed, err = e.Cleanup(ctx, opts); err == nil && !dryRun && len(names) == 0 {
 			err = e.MarkCleaned()
 		}
 		if removed == nil {
 			removed = []model.Removed{}
 		}
 		a.setResult(removed, func(w io.Writer) error {
-			lines := removedLines(removed, dryRun)
+			lines := removedLines(removed, e.Prefix(), dryRun)
 			if total := freed(removed); total > 0 {
 				verb := "has freed"
 				if dryRun {
@@ -121,6 +123,7 @@ func (a *application) cleanupCommand() *cobra.Command {
 	cmd.Flags().StringVar(&prune, "prune", "", "Remove cache files older than this many days, or all")
 	cmd.Flags().BoolVarP(&dryRun, "dry-run", "n", false, "Show what would be removed without removing anything")
 	cmd.Flags().BoolVarP(&scrub, "scrub", "s", false, "Scrub the cache, including downloads for the latest versions")
+	cmd.Flags().BoolVar(&prunePrefix, "prune-prefix", false, "Only prune gobrew's broken links and empty directories from the prefix")
 	return cmd
 }
 
@@ -133,14 +136,35 @@ func cleanupMaxAge() time.Duration {
 	return time.Duration(days) * 24 * time.Hour
 }
 
-func removedLines(removed []model.Removed, dryRun bool) []string {
+// removedLines follows brew: pruned paths are listed only in a dry run, and a
+// real run sums them up in one line.
+func removedLines(removed []model.Removed, prefix string, dryRun bool) []string {
 	lines := make([]string, 0, len(removed))
+	links, dirs := 0, 0
 	for _, r := range removed {
-		if dryRun {
+		switch {
+		case r.Kind == model.BrokenLink:
+			links++
+			if dryRun {
+				lines = append(lines, "Would remove (broken link): "+r.Path)
+			}
+		case r.Kind == model.EmptyDirectory:
+			dirs++
+			if dryRun {
+				lines = append(lines, "Would remove (empty directory): "+r.Path)
+			}
+		case dryRun:
 			lines = append(lines, "Would remove: "+r.Path+" ("+abv(r.Files, r.Bytes)+")")
-		} else {
+		default:
 			lines = append(lines, "Removing: "+r.Path+"... ("+abv(r.Files, r.Bytes)+")")
 		}
+	}
+	if !dryRun && links+dirs > 0 {
+		summary := fmt.Sprintf("Pruned %d symbolic links ", links)
+		if dirs > 0 {
+			summary += fmt.Sprintf("and %d directories ", dirs)
+		}
+		lines = append(lines, summary+"from "+prefix)
 	}
 	return lines
 }
@@ -175,7 +199,7 @@ func (a *application) installCleanup(ctx context.Context, e *engine.Engine, resu
 			return []string{"Warning: cleanup failed: " + err.Error()}
 		}
 		if len(removed) > 0 {
-			lines = append(append(lines, "==> Cleanup"), removedLines(removed, false)...)
+			lines = append(append(lines, "==> Cleanup"), removedLines(removed, e.Prefix(), false)...)
 		}
 	}
 	days := 30
@@ -191,7 +215,7 @@ func (a *application) installCleanup(ctx context.Context, e *engine.Engine, resu
 		if err != nil {
 			return append(lines, "Warning: cleanup failed: "+err.Error())
 		}
-		lines = append(lines, removedLines(removed, false)...)
+		lines = append(lines, removedLines(removed, e.Prefix(), false)...)
 	}
 	if len(lines) > 0 && os.Getenv("GOBREW_NO_ENV_HINTS") == "" {
 		lines = append(lines, "Disable this behaviour by setting `GOBREW_NO_INSTALL_CLEANUP=1`.", "Hide these hints with `GOBREW_NO_ENV_HINTS=1` (see `gobrew help`).")

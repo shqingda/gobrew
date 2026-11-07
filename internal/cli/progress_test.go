@@ -32,7 +32,7 @@ func TestProgressRendersHomebrewStyle(t *testing.T) {
 	_ = p.event(model.Event{Phase: "download", Package: "uv", Completed: 512, Total: 1024})
 	_ = p.event(model.Event{Phase: "extract", Package: "uv"})
 	out := term.String()
-	if !strings.Contains(out, "\r\033[K###") || !strings.Contains(out, " 50.0% 512B/1.0KB") || !strings.HasSuffix(out, "==> Pouring uv\n") {
+	if !strings.Contains(out, "\r\033[K###") || !strings.Contains(out, " 50.0% 512B/1KB") || !strings.HasSuffix(out, "==> Pouring uv\n") {
 		t.Fatalf("terminal output = %q", out)
 	}
 }

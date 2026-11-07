@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"slices"
 
 	"github.com/shqingda/gobrew/internal/model"
 	"github.com/shqingda/gobrew/internal/state"
@@ -71,30 +72,82 @@ func (i Installer) MutateRecords(ctx context.Context, fn func(*model.Snapshot) e
 	})
 }
 
-func (i Installer) SetLinked(ctx context.Context, names []string, linked, allowKegOnly bool) error {
-	return i.MutateRecords(ctx, func(s *model.Snapshot) error {
-		for _, name := range names {
-			rec, ok := s.Records[name]
-			if !ok {
-				return fmt.Errorf("%w: %s", model.ErrNotFound, name)
-			}
-			if linked && rec.Formula.KegOnly && !allowKegOnly {
-				return fmt.Errorf("%w: %s is keg-only; use link --force to expose it", model.ErrUnsupported, name)
-			}
-			if !owns(rec.Keg, rec.Owner) {
-				return fmt.Errorf("%w: %s", model.ErrNeedsRepair, name)
-			}
-			if _, err := i.kegPath(rec.Keg); err != nil {
-				return err
-			}
-			links, err := i.links(rec.Keg, rec.Keg, name, linked)
-			if err != nil {
-				return err
-			}
-			rec.Linked = linked
-			rec.Links = links
-			s.Records[name] = rec
-		}
-		return nil
+// SetLinked links or unlinks formulae through the ownership journal.
+func (i Installer) SetLinked(ctx context.Context, names []string, linked, allowKegOnly bool) ([]model.LinkResult, error) {
+	var results []model.LinkResult
+	err := i.MutateRecords(ctx, func(s *model.Snapshot) (err error) {
+		results, err = i.changeLinked(s, names, linked, allowKegOnly)
+		return err
 	})
+	return results, err
+}
+
+// PreviewLinked reports what SetLinked would change, including the conflicts
+// that would stop it, without taking the writer lock or touching the prefix.
+func (i Installer) PreviewLinked(names []string, linked, allowKegOnly bool) ([]model.LinkResult, error) {
+	before, err := (state.Store{Prefix: i.Prefix}).Load()
+	if err != nil {
+		return nil, err
+	}
+	if before.RecoveryRequired {
+		return nil, model.ErrRecoveryRequired
+	}
+	after := cloneSnapshot(before)
+	results, err := i.changeLinked(&after, names, linked, allowKegOnly)
+	if err != nil {
+		return nil, err
+	}
+	changes, err := linkChanges(before, after)
+	if err != nil {
+		return nil, err
+	}
+	for _, c := range changes {
+		if err = checkLink(i.Prefix, c); err != nil {
+			return nil, err
+		}
+	}
+	return results, nil
+}
+
+func (i Installer) changeLinked(s *model.Snapshot, names []string, linked, allowKegOnly bool) ([]model.LinkResult, error) {
+	results := make([]model.LinkResult, 0, len(names))
+	for _, name := range names {
+		rec, ok := s.Records[name]
+		if !ok {
+			return nil, fmt.Errorf("%w: %s", model.ErrNotFound, name)
+		}
+		result := model.LinkResult{Name: name, Keg: rec.Keg, Paths: []string{}, AlreadyLinked: linked && rec.Linked}
+		if result.AlreadyLinked {
+			results = append(results, result)
+			continue
+		}
+		if linked && rec.Formula.KegOnly && !allowKegOnly {
+			return nil, fmt.Errorf("%w: %s is keg-only; use link --force to expose it", model.ErrUnsupported, name)
+		}
+		if !owns(rec.Keg, rec.Owner) {
+			return nil, fmt.Errorf("%w: %s", model.ErrNeedsRepair, name)
+		}
+		if _, err := i.kegPath(rec.Keg); err != nil {
+			return nil, err
+		}
+		links, err := i.links(rec.Keg, rec.Keg, name, linked)
+		if err != nil {
+			return nil, err
+		}
+		added, removed := links, rec.Links
+		if !linked {
+			added, removed = rec.Links, links
+		}
+		for path := range added {
+			if _, kept := removed[path]; !kept {
+				result.Paths = append(result.Paths, filepath.Join(i.Prefix, path))
+			}
+		}
+		slices.Sort(result.Paths)
+		rec.Linked = linked
+		rec.Links = links
+		s.Records[name] = rec
+		results = append(results, result)
+	}
+	return results, nil
 }

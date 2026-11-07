@@ -1,6 +1,6 @@
 # 当前状态
 
-更新日期：2026-11-01（Asia/Taipei）。
+更新日期：2026-11-07（Asia/Taipei）。
 
 ## 版本
 
@@ -38,12 +38,14 @@
   - 不支持 `uninstall --ignore-dependencies` 与 `--force`：仍被依赖的软件不能卸载。
   - 升级依赖会破坏被 pin 的依赖方时，gobrew 在切换前拒绝；brew 会直接升级。
   - 不支持 `link --overwrite`：从不覆盖别人的文件。
+  - `cleanup --prune-prefix` 和完整 `cleanup` 只清理指向本 prefix `Cellar`、且没有 record 声明的失效链接，以及链接目录下的空目录；brew 会删除所有失效链接。`etc`、`var` 从不清理。
   - `version-install` 在原名下安装指定版本；brew 会把它提取成个人 tap 中的独立 Formula（如 `uv@0.13.5`）。
 - **尚未实现的参数和输出**：
-  - `list <formula>` 的 keg 文件摘要。
-  - `info` 的 brew 文本格式，以及不带参数时的统计。
-  - `deps --tree`／`--topological`。
-  - `link`／`unlink -n`，`cleanup --prune-prefix`。
+  - `info` 没有 `--HEAD` 相关内容、Options、Analytics，也没有 keg-only 的具体原因和编译器提示。Formula 的弃用原因同样没有。
+  - `info` 的 `Required` 把 recommended 依赖合在一起；`deps` 不带名字也不带 `--installed` 时 gobrew 报用法错误，brew 会列出全部 Formula。
+  - `deps` 的 `--graph`、`--dot`、`--missing`、`--annotate`、`--include-*`。
+  - `list --versions` 只显示当前版本，不列出保留的旧 keg；`list` 的 `-l`、`-r`、`-t`、`--multiple`。
+  - `link` 对 keg-only 不加 `--force` 时报错（退出码 3）；brew 只警告并以 0 退出。
   - brew 的 `--json=v1/v2` 结构（gobrew 的 `--json` 是自己的格式）。
 
 ## 验证方式

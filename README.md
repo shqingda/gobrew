@@ -130,7 +130,7 @@ gobrew doctor
 eval "$(gobrew shellenv zsh)"
 ```
 
-`update` 先更新 gobrew 自身，再刷新并校验 Formula 目录，最后列出可升级的软件；`upgrade` 升级已安装软件及必要依赖，不带名称时升级全部未 pin 的软件。与 brew 一样，被 pin 的软件会被跳过，并提示 `Not upgrading N pinned package(s)`；只有显式点名被 pin 的软件时才以退出码 1 结束（`--json` 错误码为 `held`），其余软件照常升级。源码构建或未托管的程序会跳过自身更新并说明原因，目录仍会刷新；自身更新失败时目录照常刷新，显式 `update` 命令以非零状态退出。`uninstall NAME` 卸载指定 Formula，并自动清理不再被任何主动安装或 pin 的包需要的依赖；仍被依赖的包不能直接卸载。`list` 与 brew 一样只列名称，`--versions` 附带版本，`--installed-on-request`／`--pinned` 可筛选；主动安装和 pin 的包不会被自动清理。`outdated` 在终端显示 `name (旧版本) < 新版本`，管道中只列名称。`autoremove --dry-run` 可预览已有的无用依赖，`autoremove` 清理它们。
+`update` 先更新 gobrew 自身，再刷新并校验 Formula 目录，最后列出可升级的软件；`upgrade` 升级已安装软件及必要依赖，不带名称时升级全部未 pin 的软件。与 brew 一样，被 pin 的软件会被跳过，并提示 `Not upgrading N pinned package(s)`；只有显式点名被 pin 的软件时才以退出码 1 结束（`--json` 错误码为 `held`），其余软件照常升级。源码构建或未托管的程序会跳过自身更新并说明原因，目录仍会刷新；自身更新失败时目录照常刷新，显式 `update` 命令以非零状态退出。`uninstall NAME` 卸载指定 Formula，并自动清理不再被任何主动安装或 pin 的包需要的依赖；仍被依赖的包不能直接卸载。`list` 与 brew 一样只列名称，`--versions` 附带版本，`--installed-on-request`／`--pinned` 可筛选；`list NAME` 列出 keg 里的文件，在终端显示摘要，管道中逐个列出；主动安装和 pin 的包不会被自动清理。`outdated` 在终端显示 `name (旧版本) < 新版本`，管道中只列名称。`autoremove --dry-run` 可预览已有的无用依赖，`autoremove` 清理它们。
 
 `install` 会升级本地目录中已知过时的已安装请求项；未发现更高版本时可返回 no-op，不再准备或安装软件。请求项已知过时但被 pin，或设置了 `GOBREW_NO_INSTALL_UPGRADE` 时，保持原版本并以退出码 1 结束（与 brew 一致），给出 unpin／upgrade 指引；`--json` 的错误码为 `held`，可与真正的失败区分。显式请求原先作为依赖安装的软件，会将它保留为用户请求。
 
@@ -138,9 +138,9 @@ eval "$(gobrew shellenv zsh)"
 
 如果所有请求项及其依赖均已健康安装，且本地目录没有已知的更高版本，安装规划可直接返回本地 no-op。本地目录缺失或不再列出该 Formula 时也保留这一后备行为：自动更新被禁用或失败后，可保持已安装版本，不必为 no-op 再下载目录，但不能据此确认它是最新版本。自动更新仍可能先访问网络，因此“已安装”并不保证整次命令永不联网。
 
-成功安装后默认清理本次涉及软件的无引用旧 keg；被 pin 的软件和仍被依赖引用的版本保留。默认每 30 天另做一次全量清理，首次没有周期记录时只开始计时。周期标记是缓存目录中的 `.cleaned`，不是 Formula prefix 中的文件。`cleanup [formula...] --dry-run` 可预览；不指定软件时还会按缓存预算和默认 120 天年龄清理缓存，`--prune=天数|all` 可覆盖年龄条件，`-s` 清理所有未被租约保护的缓存。自动清理失败时，普通文本模式提示警告，已成功安装的软件仍保留。
+成功安装后默认清理本次涉及软件的无引用旧 keg；被 pin 的软件和仍被依赖引用的版本保留。默认每 30 天另做一次全量清理，首次没有周期记录时只开始计时。周期标记是缓存目录中的 `.cleaned`，不是 Formula prefix 中的文件。`cleanup [formula...] --dry-run` 可预览；不指定软件时还会按缓存预算和默认 120 天年龄清理缓存，`--prune=天数|all` 可覆盖年龄条件，`-s` 清理所有未被租约保护的缓存。全量清理还会移除 prefix 中失效的 gobrew 链接和空目录，`--prune-prefix` 只做这一步；指向别处的失效链接和 `etc`、`var` 不会被碰。自动清理失败时，普通文本模式提示警告，已成功安装的软件仍保留。
 
-`deps` 查询传递依赖，多个 Formula 时取交集（`--union` 取并集），`-1` 只看直接依赖，`--installed` 只列已安装的；`uses` 查询直接反向依赖，`--recursive` 递归，`--installed` 使用本机安装记录。keg-only 默认只提供 `opt` 路径；`link --force` 可显式公开其命令，但不会覆盖别人的文件。`pin` 约束升级，不是绕过依赖检查。
+`deps` 查询传递依赖，多个 Formula 时取交集（`--union` 取并集），`-1` 只看直接依赖，`--installed` 只列已安装的（不带名字时覆盖全部已安装软件），`--tree` 显示依赖树（`--prune` 省略重复子树），`-n` 按拓扑排序；`uses` 查询直接反向依赖，`--recursive` 递归，`--installed` 使用本机安装记录。keg-only 默认只提供 `opt` 路径；`link --force` 可显式公开其命令，但不会覆盖别人的文件。`link`／`unlink` 的 `-n` 只列出将要创建或移除的链接，遇到冲突时同样报错。`pin` 约束升级，不是绕过依赖检查。
 
 Formula 安装类命令支持 `--dry-run`：只规划，不自动更新目录或替换 CLI，不初始化、提权、安装、清理或修改 shell 配置。如果本地没有规划所需的目录快照，仍会获取它并写入目录缓存，因此 dry-run 不等于离线模式。`gobrew --help` 列出 prefix、cache、并发与缓存容量选项。
 

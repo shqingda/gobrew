@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/shqingda/gobrew/internal/engine"
@@ -166,9 +167,13 @@ func (a *application) pathFindings(e *engine.Engine, records map[string]model.Re
 
 // kegSummary matches Homebrew's "<keg>: N files, SIZE" line.
 func kegSummary(keg string) string {
-	files, size := 0, int64(0)
-	_ = filepath.WalkDir(keg, func(_ string, entry fs.DirEntry, err error) error {
-		if err != nil || !entry.Type().IsRegular() {
+	files, size := diskUsage(keg)
+	return keg + ": " + abv(files, size)
+}
+
+func diskUsage(root string) (files int, size int64) {
+	_ = filepath.WalkDir(root, func(_ string, entry fs.DirEntry, err error) error {
+		if err != nil || !entry.Type().IsRegular() || entry.Name() == model.OwnerMarker {
 			return nil
 		}
 		if info, err := entry.Info(); err == nil {
@@ -176,10 +181,10 @@ func kegSummary(keg string) string {
 		}
 		return nil
 	})
-	return keg + ": " + abv(files, size)
+	return files, size
 }
 
-// abv matches Homebrew's disk-usage text: "14 files, 40.6MB", "1 file, 2KB",
+// abv matches Homebrew's disk-usage text: "1,014 files, 40.6MB", "1 file, 2KB",
 // or just the size when the file count is unknown.
 func abv(files int, bytes int64) string {
 	switch files {
@@ -188,7 +193,16 @@ func abv(files int, bytes int64) string {
 	case 1:
 		return "1 file, " + humanBytes(bytes)
 	}
-	return fmt.Sprintf("%d files, %s", files, humanBytes(bytes))
+	return readableNumber(files) + " files, " + humanBytes(bytes)
+}
+
+// readableNumber ports Formatter.number_readable: thousands separated by commas.
+func readableNumber(n int) string {
+	digits := strconv.Itoa(n)
+	for i := len(digits) - 3; i > 0; i -= 3 {
+		digits = digits[:i] + "," + digits[i:]
+	}
+	return digits
 }
 
 // shadowText ports Homebrew's shadowed_path_text caveat: executables in the

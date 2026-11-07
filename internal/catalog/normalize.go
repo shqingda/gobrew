@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"regexp"
 	"slices"
-	"sort"
 	"strconv"
 	"strings"
 
@@ -47,6 +46,8 @@ type rawFormula struct {
 		Specs    []string        `json:"specs"`
 	} `json:"requirements"`
 	Conflicts          []string          `json:"conflicts_with"`
+	ConflictReasons    []string          `json:"conflicts_with_reasons"`
+	SourcePath         string            `json:"ruby_source_path"`
 	KegOnly            bool              `json:"keg_only"`
 	Disabled           bool              `json:"disabled"`
 	Deprecated         bool              `json:"deprecated"`
@@ -92,7 +93,7 @@ func normalize(data json.RawMessage, host model.Platform) (model.Formula, error)
 	if !formulaName.MatchString(raw.Name) {
 		return model.Formula{}, fmt.Errorf("unsafe formula name %q", raw.Name)
 	}
-	f := model.Formula{Name: raw.Name, Aliases: raw.Aliases, Description: raw.Description, Homepage: raw.Homepage, License: raw.License, Version: raw.Versions.Stable, Revision: raw.Revision, VersionScheme: raw.VersionScheme, CompatibilityVersion: raw.CompatibilityVersion, BottleRebuild: raw.Bottle.Stable.Rebuild, Bottles: raw.Bottle.Stable.Files, Dependencies: append(raw.Dependencies, raw.Recommended...), NoLinkageDependencies: raw.NoLinkageDependencies, Conflicts: raw.Conflicts, KegOnly: raw.KegOnly, Disabled: raw.Disabled, Deprecated: raw.Deprecated, Caveats: raw.Caveats, PostInstallDefined: raw.PostInstallDefined, Steps: raw.Steps}
+	f := model.Formula{Name: raw.Name, Aliases: raw.Aliases, Description: raw.Description, Homepage: raw.Homepage, License: raw.License, Version: raw.Versions.Stable, Revision: raw.Revision, VersionScheme: raw.VersionScheme, CompatibilityVersion: raw.CompatibilityVersion, BottleRebuild: raw.Bottle.Stable.Rebuild, Bottles: raw.Bottle.Stable.Files, Dependencies: append(raw.Dependencies, raw.Recommended...), NoLinkageDependencies: raw.NoLinkageDependencies, Conflicts: raw.Conflicts, ConflictReasons: raw.ConflictReasons, SourcePath: raw.SourcePath, KegOnly: raw.KegOnly, Disabled: raw.Disabled, Deprecated: raw.Deprecated, Caveats: raw.Caveats, PostInstallDefined: raw.PostInstallDefined, Steps: raw.Steps}
 	unsupported := func(reason string) {
 		if f.UnsupportedReason == "" {
 			f.UnsupportedReason = reason
@@ -224,8 +225,14 @@ func normalize(data json.RawMessage, host model.Platform) (model.Formula, error)
 			}
 		}
 	}
-	sort.Strings(f.Dependencies)
-	f.Dependencies = slices.Compact(f.Dependencies)
+	// brew deps --tree and --topological show declaration order; plans sort
+	// their own copy.
+	declared := make(map[string]bool, len(f.Dependencies))
+	f.Dependencies = slices.DeleteFunc(f.Dependencies, func(name string) bool {
+		duplicate := declared[name]
+		declared[name] = true
+		return duplicate
+	})
 	for tag, b := range f.Bottles {
 		b.Tag = tag
 		f.Bottles[tag] = b

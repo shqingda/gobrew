@@ -33,10 +33,20 @@ python="$prefix/opt/python@3.15/bin/python3.15"
 "$python" -m venv "$prefix/.smoke-venv"
 "$prefix/.smoke-venv/bin/python" -m pip --version
 "${gb[@]}" --json list
+# Query output follows brew, over a real catalog and real kegs.
+"${gb[@]}" deps --tree jq | grep -x '└── oniguruma' >/dev/null
+"${gb[@]}" deps --installed | grep -x 'jq: oniguruma' >/dev/null
+"${gb[@]}" list jq | grep -x "$prefix/Cellar/jq/.*/bin/jq" >/dev/null
+"${gb[@]}" info jq | grep -x '==> Installed Versions' >/dev/null
+"${gb[@]}" info | grep -E '^[0-9]+ kegs, ' >/dev/null
 "${gb[@]}" install hello jq ca-certificates node python@3.15
 "${gb[@]}" pin jq
 "${gb[@]}" unpin jq
+"${gb[@]}" unlink --dry-run hello | grep -x "$prefix/bin/hello" >/dev/null
+test -e "$prefix/bin/hello"
 "${gb[@]}" unlink hello
+test ! -e "$prefix/bin/hello"
+"${gb[@]}" link --dry-run hello | grep -x "$prefix/bin/hello" >/dev/null
 test ! -e "$prefix/bin/hello"
 "${gb[@]}" link hello
 "$prefix/bin/hello"
@@ -48,4 +58,13 @@ test ! -e "$prefix/bin/hello"
 test ! -e "$prefix/bin/jq"
 "${gb[@]}" autoremove
 "${gb[@]}" cleanup
+# Only a broken link into this Cellar is gobrew's to prune.
+ln -s "$prefix/Cellar/gone/1/bin/gone" "$prefix/bin/gone"
+ln -s /nonexistent/foreign "$prefix/bin/foreign"
+"${gb[@]}" cleanup --prune-prefix --dry-run | grep -x "Would remove (broken link): $prefix/bin/gone" >/dev/null
+test -L "$prefix/bin/gone"
+"${gb[@]}" cleanup --prune-prefix
+test ! -L "$prefix/bin/gone"
+test -L "$prefix/bin/foreign"
+rm "$prefix/bin/foreign"
 echo 'Real-bottle smoke tests passed.'

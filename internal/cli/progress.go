@@ -3,6 +3,7 @@ package cli
 import (
 	"fmt"
 	"io"
+	"math"
 	"os"
 	"strings"
 	"time"
@@ -173,17 +174,19 @@ func (p *progress) draw(force bool) error {
 	return err
 }
 
+// humanBytes ports Formatter.disk_usage_readable: decimal units, one place,
+// and no trailing ".0".
 func humanBytes(n int64) string {
-	const unit = 1024
-	if n < unit {
-		return fmt.Sprintf("%dB", n)
-	}
-	value, suffix := float64(n)/unit, "KB"
-	for _, next := range []string{"MB", "GB", "TB"} {
-		if value < unit {
+	round := func(value float64) float64 { return math.Round(value*10) / 10 }
+	size, unit := float64(n), "B"
+	for _, next := range []string{"KB", "MB", "GB"} {
+		if round(size) < 1000 {
 			break
 		}
-		value, suffix = value/unit, next
+		size, unit = size/1000, next
 	}
-	return fmt.Sprintf("%.1f%s", value, suffix)
+	if size = round(size); size == math.Trunc(size) {
+		return fmt.Sprintf("%.0f%s", size, unit)
+	}
+	return fmt.Sprintf("%.1f%s", size, unit)
 }

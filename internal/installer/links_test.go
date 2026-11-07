@@ -7,11 +7,13 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 
 	"github.com/shqingda/gobrew/internal/model"
 	"github.com/shqingda/gobrew/internal/platform"
 	"github.com/shqingda/gobrew/internal/state"
+	"github.com/shqingda/gobrew/internal/testutil"
 )
 
 func TestOwnedLinkRecoveryAndForeignConflict(t *testing.T) {
@@ -178,5 +180,79 @@ func checkRepairLinks(t *testing.T, barrierFailure bool) {
 	}
 	if _, err = os.Readlink(foreign); err != nil {
 		t.Fatalf("generated command not linked: %v", err)
+	}
+}
+
+func TestPreviewLinkedPredictsSetLinkedWithoutTouchingPrefix(t *testing.T) {
+	prefix := t.TempDir()
+	store := state.Store{Prefix: prefix}
+	if err := store.Initialize(); err != nil {
+		t.Fatal(err)
+	}
+	keg, owner := testutil.OwnedKeg(t, prefix, "tool", "1")
+	if err := os.Mkdir(filepath.Join(keg, "bin"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(keg, "bin/tool"), []byte("#!/bin/sh\n"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(prefix, "opt"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(keg, filepath.Join(prefix, "opt/tool")); err != nil {
+		t.Fatal(err)
+	}
+	record := model.Record{Formula: model.Formula{Name: "tool", Version: "1"}, Keg: keg, Owner: owner, Status: model.Ready, Links: map[string]string{"opt/tool": keg}}
+	if err := store.WithLock(context.Background(), func(tx *state.Session) error {
+		return tx.Save(model.Snapshot{Records: map[string]model.Record{"tool": record}})
+	}); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(prefix, "bin/tool")
+	i, names, want := Installer{Prefix: prefix}, []string{"tool"}, []string{link}
+
+	if err := os.MkdirAll(filepath.Dir(link), 0755); err != nil {
+		t.Fatal(err)
+	}
+	preview, err := i.PreviewLinked(names, true, false)
+	if err != nil || !slices.Equal(preview[0].Paths, want) {
+		t.Fatalf("preview = %+v, %v", preview, err)
+	}
+	if _, err = os.Lstat(link); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("preview created a link: %v", err)
+	}
+
+	if err = os.WriteFile(link, []byte("mine"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = i.PreviewLinked(names, true, false); !errors.Is(err, model.ErrConflict) {
+		t.Fatalf("preview hid a foreign file: %v", err)
+	}
+	if err = os.Remove(link); err != nil {
+		t.Fatal(err)
+	}
+
+	linked, err := i.SetLinked(context.Background(), names, true, false)
+	if err != nil || !slices.Equal(linked[0].Paths, want) {
+		t.Fatalf("link = %+v, %v", linked, err)
+	}
+	again, err := i.SetLinked(context.Background(), names, true, false)
+	if err != nil || !again[0].AlreadyLinked || len(again[0].Paths) != 0 {
+		t.Fatalf("second link = %+v, %v", again, err)
+	}
+
+	preview, err = i.PreviewLinked(names, false, false)
+	if err != nil || !slices.Equal(preview[0].Paths, want) {
+		t.Fatalf("unlink preview = %+v, %v", preview, err)
+	}
+	if _, err = os.Lstat(link); err != nil {
+		t.Fatalf("preview removed a link: %v", err)
+	}
+	unlinked, err := i.SetLinked(context.Background(), names, false, false)
+	if err != nil || !slices.Equal(unlinked[0].Paths, want) {
+		t.Fatalf("unlink = %+v, %v", unlinked, err)
+	}
+	if _, err = os.Lstat(filepath.Join(prefix, "opt/tool")); err != nil {
+		t.Fatalf("unlink removed the opt link: %v", err)
 	}
 }

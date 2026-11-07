@@ -24,12 +24,18 @@ func (e *Engine) Pin(ctx context.Context, names []string, pinned bool) error {
 		return nil
 	})
 }
-func (e *Engine) Link(ctx context.Context, names []string, linked, force bool) error {
+func (e *Engine) Link(ctx context.Context, names []string, linked, force bool) ([]model.LinkResult, error) {
 	if err := e.checkMutation(); err != nil {
-		return err
+		return nil, err
 	}
 	return e.installer().SetLinked(ctx, names, linked, force)
 }
+
+// PreviewLink is the read-only form of Link behind link and unlink --dry-run.
+func (e *Engine) PreviewLink(names []string, linked, force bool) ([]model.LinkResult, error) {
+	return e.installer().PreviewLinked(names, linked, force)
+}
+
 func (e *Engine) PostInstall(ctx context.Context, names []string, events chan<- model.Event) error {
 	if err := e.checkMutation(); err != nil {
 		return err

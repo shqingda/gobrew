@@ -3,6 +3,8 @@ package cli
 import (
 	"fmt"
 	"io"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"text/tabwriter"
@@ -59,7 +61,7 @@ func (a *application) renderInstall(w io.Writer, e *engine.Engine, request model
 			continue
 		}
 		var caveats []string
-		if text := strings.TrimSpace(r.Formula.Caveats); text != "" {
+		if text := formulaCaveats(r.Formula, e.Prefix()); text != "" {
 			caveats = append(caveats, text)
 		}
 		if text := shadowText(e.Prefix(), r); text != "" {
@@ -101,6 +103,15 @@ func (a *application) renderInstall(w io.Writer, e *engine.Engine, request model
 		}
 	}
 	return nil
+}
+
+// formulaCaveats expands the placeholders Homebrew's API uses for local paths.
+func formulaCaveats(f model.Formula, prefix string) string {
+	pairs := []string{"$HOMEBREW_PREFIX", prefix, "$HOMEBREW_CELLAR", filepath.Join(prefix, "Cellar")}
+	if home, err := os.UserHomeDir(); err == nil {
+		pairs = append(pairs, "/$HOME", home)
+	}
+	return strings.TrimSpace(strings.NewReplacer(pairs...).Replace(f.Caveats))
 }
 
 func table(w io.Writer, headers []string, rows [][]string) error {

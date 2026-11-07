@@ -18,10 +18,10 @@ PATH setup is likewise outside the engine: `cli → shellconfig → platform`.
 
 Large packages are split into files named by role rather than into more
 packages: `cli` has `app.go` (run, errors, JSON envelope), `root.go`,
-`init.go`, `query.go`, `install.go`, `update.go`, `cleanup.go` and `render.go`;
-`engine` has `plan.go`, `operation.go`, `mutate.go`, `maintenance.go` and
-`init.go`; `installer` has `apply.go`, `links.go`, `journal.go`, `records.go`
-and `postinstall.go`. Shared durable writes (`WriteFileAtomic`) and the
+`init.go`, `query.go`, `kegfiles.go`, `install.go`, `update.go`, `cleanup.go`
+and `render.go`; `engine` has `plan.go`, `operation.go`, `mutate.go`,
+`maintenance.go`, `deps.go` and `init.go`; `installer` has `apply.go`,
+`links.go`, `journal.go`, `records.go`, `prune.go` and `postinstall.go`. Shared durable writes (`WriteFileAtomic`) and the
 owned-directory bootstrap (`CreateOwnedDir`) live in `platform`.
 
 The `model` package contains shared values, errors and bounded progress events.
@@ -164,6 +164,12 @@ recorded minimum runtime version or revision. Explicit version plans load one
 complete catalog generation so dependencies unique to the historical recipe are
 available; ordinary plans retain the indexed closure path.
 
+`deps` follows brew's choice of source: recorded runtime dependencies when every
+named formula is installed, declared ones for `--direct`, `--tree` or anything
+not installed. The catalog therefore keeps declaration order, which `--tree` and
+`--topological` show; the resolver sorts its own copy, so plans do not depend on
+it.
+
 Keep installed runtime dependency facts. Version ordering includes version_scheme
 and revision; compatibility_version is an ABI hint, not a replacement for runtime
 minimum versions. Dependency changes consider installed reverse dependents.
@@ -207,6 +213,14 @@ retained kegs. Periodic full cleanup defaults to 30 days, with its marker at
 Cleanup failures warn without undoing the successful install. The existing
 installer recovery and ownership checks remain the boundary for removal,
 including cleanup after a partially successful operation.
+
+Full cleanup also prunes the prefix, and `cleanup --prune-prefix` does only
+that. Unlike brew, which removes every broken link, gobrew removes one only if
+it points into this Cellar and no record claims it: a claimed broken link is a
+doctor finding and any other link is foreign. Empty subdirectories of the link
+directories and `opt` also go; `etc` and `var` are never touched. Pruning holds
+the writer lock but needs no journal, because each removal is idempotent, changes
+no state, and an interrupted run is finished by the next one.
 
 Planning reads only requested roots, every installed recipe, and their current
 dependency closures in one short index transaction. Including installed recipes

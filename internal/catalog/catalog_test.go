@@ -69,6 +69,17 @@ func TestUpdateKeepsLastVerifiedSnapshot(t *testing.T) {
 	}
 }
 
+func TestNormalizationKeepsDependencyDeclarationOrder(t *testing.T) {
+	raw := json.RawMessage(`{"name":"demo","versions":{"stable":"1"},"dependencies":["zlib","abc","zlib"],"recommended_dependencies":["mid"]}`)
+	f, err := normalize(raw, model.Platform{OS: "darwin", Arch: "arm64", Major: 15})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := []string{"zlib", "abc", "mid"}; !reflect.DeepEqual(f.Dependencies, want) {
+		t.Fatalf("dependencies = %v, want %v", f.Dependencies, want)
+	}
+}
+
 func TestNormalizationRejectsUnknownRuntimeRequirements(t *testing.T) {
 	raw := json.RawMessage(`{"name":"demo","versions":{"stable":"1"},"requirements":[{"name":"future-runtime","contexts":[],"specs":["stable"]}],"uses_from_macos":[{"zlib":"build"},"expat"],"uses_from_macos_bounds":[{},{"since":"tahoe"}]}`)
 	f, err := normalize(raw, model.Platform{OS: "darwin", Arch: "arm64", Major: 15})

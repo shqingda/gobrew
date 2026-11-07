@@ -172,7 +172,7 @@ func (a *application) uninstall(ctx context.Context, names []string) error {
 }
 
 func (a *application) linkCommand(linked bool) *cobra.Command {
-	var force bool
+	var force, dryRun bool
 	name, description := "link", "Link an installed formula into the shared prefix"
 	if !linked {
 		name, description = "unlink", "Remove only gobrew-owned formula links"
@@ -182,16 +182,56 @@ func (a *application) linkCommand(linked bool) *cobra.Command {
 		if err != nil {
 			return err
 		}
-		if err = e.Link(ctx, names, linked, force); err != nil {
+		if dryRun {
+			results, err := e.PreviewLink(names, linked, force)
+			if err != nil {
+				return err
+			}
+			a.setResult(results, func(w io.Writer) error { return a.renderLinks(w, results, linked, true) })
+			return nil
+		}
+		results, err := e.Link(ctx, names, linked, force)
+		if err != nil {
 			return err
 		}
-		a.names(names, "")
+		a.setResult(names, func(w io.Writer) error { return a.renderLinks(w, results, linked, false) })
 		return nil
 	})
 	if linked {
-		cmd.Flags().BoolVar(&force, "force", false, "Allow linking keg-only formulae; never overwrite foreign files")
+		cmd.Flags().BoolVarP(&force, "force", "f", false, "Allow linking keg-only formulae; never overwrite foreign files")
 	}
+	help := "List the links that would be removed without changing anything"
+	if linked {
+		help = "List the links that would be created without changing anything"
+	}
+	cmd.Flags().BoolVarP(&dryRun, "dry-run", "n", false, help)
 	return cmd
+}
+
+// renderLinks follows brew's link and unlink output. An already linked keg is
+// a warning, with exit status 0, in both real and dry runs.
+func (a *application) renderLinks(w io.Writer, results []model.LinkResult, linked, dryRun bool) error {
+	for _, r := range results {
+		var lines []string
+		switch {
+		case r.AlreadyLinked:
+			fmt.Fprintln(a.stderr, cleanText("Warning: Already linked: "+r.Keg+"\nTo relink, run:\n  gobrew unlink "+r.Name+" && gobrew link "+r.Name))
+		case dryRun && linked:
+			lines = append([]string{"Would link:"}, r.Paths...)
+		case dryRun:
+			lines = append([]string{"Would remove:"}, r.Paths...)
+		case linked:
+			lines = []string{fmt.Sprintf("Linking %s... %d symlinks created.", r.Keg, len(r.Paths))}
+		default:
+			lines = []string{fmt.Sprintf("Unlinking %s... %d symlinks removed.", r.Keg, len(r.Paths))}
+		}
+		for _, line := range lines {
+			if _, err := fmt.Fprintln(w, cleanText(line)); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 func (a *application) postinstall(ctx context.Context, names []string) error {

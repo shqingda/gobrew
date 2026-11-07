@@ -53,6 +53,10 @@ type Formula struct {
 	Steps                 []json.RawMessage   `json:"post_install_steps,omitempty"`
 	UnsupportedReason     string              `json:"unsupported_reason,omitempty"`
 	Conflicts             []string            `json:"conflicts,omitempty"`
+	// ConflictReasons parallels Conflicts; an entry may be empty.
+	ConflictReasons []string `json:"conflict_reasons,omitempty"`
+	// SourcePath is the recipe's path in homebrew-core, for display only.
+	SourcePath string `json:"source_path,omitempty"`
 }
 
 func (f Formula) PkgVersion() string {
@@ -93,6 +97,15 @@ type Record struct {
 	InstalledAt         time.Time           `json:"installed_at"`
 	PostInstallError    string              `json:"post_install_error,omitempty"`
 	PostInstallComplete bool                `json:"post_install_complete"`
+}
+
+// LinkResult reports what link or unlink changes for one keg. Paths are
+// absolute; AlreadyLinked means link left the keg alone.
+type LinkResult struct {
+	Name          string   `json:"name"`
+	Keg           string   `json:"keg"`
+	Paths         []string `json:"paths"`
+	AlreadyLinked bool     `json:"already_linked,omitempty"`
 }
 
 const (
@@ -186,7 +199,14 @@ type Removed struct {
 	Path  string `json:"path"`
 	Files int    `json:"files,omitempty"`
 	Bytes int64  `json:"bytes"`
+	// Kind marks what pruning the prefix removed; kegs and cache entries have none.
+	Kind string `json:"kind,omitempty"`
 }
+
+const (
+	BrokenLink     = "broken-link"
+	EmptyDirectory = "empty-directory"
+)
 
 // Timings measures the application's three stages, excluding CLI rendering.
 // Wall-clock process timing remains the end-to-end performance measure.

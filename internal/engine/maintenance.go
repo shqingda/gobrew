@@ -93,7 +93,20 @@ func (e *Engine) Cleanup(ctx context.Context, opts CleanupOptions) ([]model.Remo
 		return removed, err
 	}
 	caches, err := m.CleanupWith(ctx, artifact.CleanupOptions{DryRun: opts.DryRun, MaxAge: opts.MaxAge, All: opts.All})
-	return append(removed, caches...), err
+	removed = append(removed, caches...)
+	if err != nil {
+		return removed, err
+	}
+	pruned, err := e.installer().PrunePrefix(ctx, opts.DryRun)
+	return append(removed, pruned...), err
+}
+
+// PrunePrefix is brew cleanup --prune-prefix: it removes nothing else.
+func (e *Engine) PrunePrefix(ctx context.Context, dryRun bool) ([]model.Removed, error) {
+	if err := e.checkMutation(); err != nil {
+		return nil, err
+	}
+	return e.installer().PrunePrefix(ctx, dryRun)
 }
 
 // PeriodicCleanupDue follows brew: a missing marker is created and not due;

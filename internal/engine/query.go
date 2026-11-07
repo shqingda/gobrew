@@ -3,7 +3,6 @@ package engine
 import (
 	"cmp"
 	"context"
-	"fmt"
 	"maps"
 	"slices"
 	"strings"
@@ -45,74 +44,6 @@ func (e *Engine) Outdated(ctx context.Context) ([]Outdated, error) {
 		}
 		return 0
 	})
-	return result, nil
-}
-
-// DepsOptions mirrors brew deps --direct, --union and --installed.
-type DepsOptions struct {
-	Direct, Union, Installed bool
-}
-
-// Deps lists the dependencies of each named formula like brew deps: the
-// intersection for several names unless Union is set. Installed keeps only
-// installed dependencies.
-func (e *Engine) Deps(ctx context.Context, names []string, opts DepsOptions) ([]string, error) {
-	cat, err := e.Catalog(ctx)
-	if err != nil {
-		return nil, err
-	}
-	var installed map[string]model.Record
-	if opts.Installed {
-		snap, err := e.Installed()
-		if err != nil {
-			return nil, err
-		}
-		installed = snap.Records
-	}
-	var result []string
-	for i, name := range names {
-		first, err := cat.Lookup(name)
-		if err != nil {
-			return nil, err
-		}
-		seen, visiting := map[string]bool{}, map[string]bool{}
-		var visit func(string, int) error
-		visit = func(n string, depth int) error {
-			f, err := cat.Lookup(n)
-			if err != nil {
-				return err
-			}
-			if visiting[f.Name] {
-				return fmt.Errorf("dependency cycle at %s", f.Name)
-			}
-			if seen[f.Name] {
-				return nil
-			}
-			visiting[f.Name] = true
-			if !opts.Direct || depth == 0 {
-				for _, dep := range f.Dependencies {
-					if err = visit(dep, depth+1); err != nil {
-						return err
-					}
-				}
-			}
-			delete(visiting, f.Name)
-			seen[f.Name] = true
-			return nil
-		}
-		if err = visit(first.Name, 0); err != nil {
-			return nil, err
-		}
-		delete(seen, first.Name)
-		deps := make([]string, 0, len(seen))
-		for n := range seen {
-			if _, ok := installed[n]; ok || !opts.Installed {
-				deps = append(deps, n)
-			}
-		}
-		slices.Sort(deps)
-		result = combine(result, deps, i == 0, opts.Union)
-	}
 	return result, nil
 }
 
@@ -174,13 +105,18 @@ func (e *Engine) Uses(ctx context.Context, names []string, installed, recursive 
 	return result, nil
 }
 
-// combine folds one sorted name list into the running result.
+// combine folds one name list into the running result, keeping its order.
 func combine(result, names []string, first, union bool) []string {
 	switch {
 	case first:
 		return names
 	case union:
-		return slices.Compact(slices.Sorted(slices.Values(append(result, names...))))
+		for _, name := range names {
+			if !slices.Contains(result, name) {
+				result = append(result, name)
+			}
+		}
+		return result
 	default:
 		return slices.DeleteFunc(result, func(n string) bool { return !slices.Contains(names, n) })
 	}
