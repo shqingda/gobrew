@@ -4,7 +4,7 @@
 
 ## 版本
 
-最新正式版是 [v0.5.0](releases/v0.5.0.md)，于 2026-11-01 发布，发布流水线的全部门禁均已通过（代码检查、macOS 15/26 实瓶测试、Homebrew 性能门槛）。本版的命令是 Homebrew 命令的子集，详见 [0002 决定](decisions/0002-homebrew-command-compatibility.md)。
+最新正式版是 [v0.5.0](releases/v0.5.0.md)，于 2026-11-01 发布，发布流水线的全部门禁均已通过（代码检查、macOS 15/26 实瓶测试、Homebrew 性能门槛）。本版的命令是 Homebrew 命令的子集，详见 [0002 决定](decisions/0002-homebrew-command-compatibility.md)。此后 `self` 已按 [0003 决定](decisions/0003-restore-self-command.md) 恢复，尚未发布。
 
 ## 支持范围
 
@@ -39,6 +39,7 @@
   - 升级依赖会破坏被 pin 的依赖方时，gobrew 在切换前拒绝；brew 会直接升级。
   - 不支持 `link --overwrite`：从不覆盖别人的文件。
   - `cleanup --prune-prefix` 和完整 `cleanup` 只清理指向本 prefix `Cellar`、且没有 record 声明的失效链接，以及链接目录下的空目录；brew 会删除所有失效链接。`etc`、`var` 从不清理。
+  - `self` 是 brew 没有的命令，由用户决定保留，见 [0003 决定](decisions/0003-restore-self-command.md)。
   - `version-install` 在原名下安装指定版本；brew 会把它提取成个人 tap 中的独立 Formula（如 `uv@0.13.5`）。
 - **尚未实现的参数和输出**：
   - `info` 没有 `--HEAD` 相关内容、Options、Analytics，也没有 keg-only 的具体原因和编译器提示。Formula 的弃用原因同样没有。

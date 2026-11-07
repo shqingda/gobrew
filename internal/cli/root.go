@@ -104,7 +104,7 @@ func (a *application) root() *cobra.Command {
 	root.AddCommand(a.cleanupCommand())
 	root.AddCommand(a.commandFor("postinstall <formula>...", "Explicitly retry supported post-install initialization", cobra.MinimumNArgs(1), a.postinstall))
 	root.AddCommand(a.depsCommand(), a.usesCommand())
-	root.AddCommand(a.shellenvCommand())
+	root.AddCommand(a.shellenvCommand(), a.selfCommand())
 	for _, command := range root.Commands() {
 		command.Aliases = brewAliases[command.Name()]
 		// gobrew has only formulae, so brew's --formula changes nothing.

@@ -27,4 +27,4 @@ CGO_ENABLED=0 go build -trimpath \
 scripts/test-bootstrap.sh "$PWD/bin/gobrew"
 shasum -a 256 bin/gobrew > bin/gobrew.sha256
 printf '\nLocal checks passed. Test build: %s/bin/gobrew\n' "$PWD"
-printf 'Commit: %s\nInstall when ready: GOBREW_INSTALL_BIN_DIR=$HOME/.local/bin ./bin/gobrew update\n' "$commit"
+printf 'Commit: %s\nInstall when ready: ./bin/gobrew self install\n' "$commit"

@@ -189,6 +189,33 @@ func (p Profile) Ensure(env Env) (bool, error) {
 	return true, write(target, next, mode)
 }
 
+// Remove deletes only the managed block (or the wholly owned file).
+func (p Profile) Remove() (bool, error) {
+	target, data, mode, err := p.read()
+	if err != nil || len(data) == 0 {
+		return false, err
+	}
+	if p.Whole {
+		if !bytes.HasPrefix(data, []byte(begin+"\n")) {
+			return false, nil
+		}
+		if err := os.Remove(target); err != nil {
+			return false, err
+		}
+		return true, platform.SyncDir(filepath.Dir(target))
+	}
+	start, stop, found, err := markers(data, target)
+	if err != nil || !found {
+		return false, err
+	}
+	// Also drop the blank separator line Ensure added before the block.
+	if start >= 2 && data[start-1] == '\n' && data[start-2] == '\n' {
+		start--
+	}
+	next := append(append([]byte{}, data[:start]...), data[stop:]...)
+	return true, write(target, next, mode)
+}
+
 // read follows a symlinked dotfile to its real file so the link survives, and
 // accepts only a regular, singly linked file owned by the current user.
 func (p Profile) read() (string, []byte, os.FileMode, error) {

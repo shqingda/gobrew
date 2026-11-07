@@ -18,8 +18,8 @@ PATH setup is likewise outside the engine: `cli → shellconfig → platform`.
 
 Large packages are split into files named by role rather than into more
 packages: `cli` has `app.go` (run, errors, JSON envelope), `root.go`,
-`init.go`, `query.go`, `kegfiles.go`, `install.go`, `update.go`, `cleanup.go`
-and `render.go`; `engine` has `plan.go`, `operation.go`, `mutate.go`,
+`init.go`, `query.go`, `kegfiles.go`, `install.go`, `update.go`, `self.go`,
+`cleanup.go` and `render.go`; `engine` has `plan.go`, `operation.go`, `mutate.go`,
 `maintenance.go`, `deps.go` and `init.go`; `installer` has `apply.go`,
 `links.go`, `journal.go`, `records.go`, `prune.go` and `postinstall.go`. Shared durable writes (`WriteFileAtomic`) and the
 owned-directory bootstrap (`CreateOwnedDir`) live in `platform`.
@@ -278,7 +278,10 @@ against that release's SHA-256 manifest, and runs the executable as
 `GOBREW_INSTALL_BIN_DIR=<dir> gobrew update`, which installs the running
 executable instead of refreshing the catalog. Only the shell bootstrap is
 responsible for initial download; the Go `selfupdate` package owns CLI
-installation and updates. Like Homebrew, removal is a separate `uninstall.sh`. The
+installation, updates and removal. `self install`, `self update` and
+`self uninstall` expose them directly, the one command brew lacks (decision
+0003). `uninstall.sh` stays as the complete removal, and also finishes after
+`self uninstall`, which keeps small ownership and lock records for retries. The
 archive and checksum manifest share the GitHub trust boundary: they are not an
 independent signature scheme.
 
@@ -297,7 +300,8 @@ Files are replaced atomically; symlinked dotfiles update their target, while
 damaged markers, foreign owners and hard links are refused with manual
 instructions. The installer handoff and successful `install` call it, the
 latter only for the default prefix and only when the running shell lacks a
-directory, so configured no-ops do no file access. `uninstall.sh` removes the
+directory, so configured no-ops do no file access. `self uninstall` and
+`uninstall.sh` remove the
 block. `GOBREW_NO_MODIFY_PATH` disables it. The engine never touches shell
 configuration; Homebrew's files are only read, to report duplicate commands.
 
@@ -307,7 +311,8 @@ activation or removal is persisted before changing links, and `current` is
 switched atomically. Recovery replays only owned filesystem operations. Update
 downloads happen outside the lock; apply rejects a changed active executable.
 Only newer stable releases are selected automatically, with no automatic
-downgrade. Unmanaged executables are skipped until the installer manages them.
+downgrade. Unmanaged executables are skipped until `self install` or the
+installer manages them.
 
 `uninstall.sh` removes the command links and the `.gobrew` store only after
 checking that every link and store entry is one gobrew creates, retaining

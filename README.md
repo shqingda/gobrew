@@ -49,7 +49,7 @@ gob install uv
 | bash | 已存在的 `~/.bash_profile`、`~/.bash_login` 或 `~/.profile`，都没有时新建 `~/.bash_profile` |
 | fish | `~/.config/fish/conf.d/gobrew.fish` |
 
-这段配置以 `# >>> gobrew >>>` 开始、`# <<< gobrew <<<` 结束；gobrew 只修改这两行之间的内容，重复执行不会重复添加，运行 `uninstall.sh` 时移除。写在文件末尾是为了即使前面有 `export PATH=...` 这类重写 PATH 的语句也能生效。软链接的配置文件会更新其指向的真实文件；标记损坏、不归当前用户所有或有多个硬链接的文件不会被改动，而是打印手工配置方法。
+这段配置以 `# >>> gobrew >>>` 开始、`# <<< gobrew <<<` 结束；gobrew 只修改这两行之间的内容，重复执行不会重复添加，运行 `self uninstall` 或 `uninstall.sh` 时移除。写在文件末尾是为了即使前面有 `export PATH=...` 这类重写 PATH 的语句也能生效。软链接的配置文件会更新其指向的真实文件；标记损坏、不归当前用户所有或有多个硬链接的文件不会被改动，而是打印手工配置方法。
 
 已经打开的终端无法被其他程序修改环境变量，因此第一次安装后需要新开终端或执行 `exec zsh`，Homebrew 也是如此。当前终端已包含这些目录时，`install` 不会读写任何配置文件。只有默认目录 `/opt/gobrew` 会写入启动文件；`--prefix` 指定的开发或测试目录不会，可用 `gobrew --prefix DIR shellenv` 打印配置。设置 `GOBREW_NO_MODIFY_PATH=1` 可完全关闭自动配置。shellenv 导出的 `GOBREW_PREFIX` 也会被 gobrew 读取，作为 `--prefix` 的默认值。
 
@@ -75,13 +75,13 @@ make build
 ./bin/gobrew --version
 ```
 
-与 Homebrew 一样没有安装自身的命令。curl 安装器下载并校验发布程序后，以 `GOBREW_INSTALL_BIN_DIR=目录 gobrew update` 把它装入命令目录并创建 `gob` 链接；源码构建也可以这样加入托管安装：
+curl 安装器下载并校验发布程序后，以 `GOBREW_INSTALL_BIN_DIR=目录 gobrew update` 把它装入命令目录并创建 `gob` 链接。源码构建可以用 `self install` 加入托管安装，`--bin-dir` 可指定命令目录，默认是 `~/.local/bin`：
 
 ```sh
-GOBREW_INSTALL_BIN_DIR="$HOME/.local/bin" ./bin/gobrew update
+./bin/gobrew self install
 ```
 
-设置该变量时，`update` 只安装正在运行的程序，不刷新 Formula 目录。没有稳定版本号的开发构建不会自身更新，可重新构建后再次安装。
+设置 `GOBREW_INSTALL_BIN_DIR` 时，`update` 只安装正在运行的程序，不刷新 Formula 目录，效果与 `self install` 相同。没有稳定版本号的开发构建不支持自身更新，可重新构建后再次安装。
 
 开发或隔离验证可使用短的独立目录：
 
@@ -96,9 +96,9 @@ prefix=$(mktemp -d /tmp/gb.XXXX)
 
 ## 更新与卸载命令行
 
-`gob update` 先更新 gobrew 自身：检查最新稳定发布，校验下载内容后原子切换可执行文件，不自动降级；然后刷新 Formula 目录。手工放置、未经安装器托管的程序会跳过自身更新并说明原因。
+`gob update` 先更新 gobrew 自身：检查最新稳定发布，校验下载内容后原子切换可执行文件，不自动降级；然后刷新 Formula 目录。手工放置、未经托管的程序会跳过自身更新并说明原因。只想更新程序、不刷新目录时，用 `gob self update`。
 
-与 Homebrew 一样，卸载命令行使用单独的脚本：
+卸载命令行有两种方式。`gob self uninstall` 移除托管的程序、`gobrew`、`gob` 链接和 shell 启动文件中的 gobrew 配置段，少量归属记录和锁文件保留在 `.gobrew` 中，供中断恢复和重新安装使用。卸载脚本还会移除这些记录，在 `self uninstall` 之后也可以运行：
 
 ```sh
 curl -fsSL https://github.com/shqingda/gobrew/releases/latest/download/uninstall.sh | sh

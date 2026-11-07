@@ -2,7 +2,7 @@
 
 ## 状态与日期
 
-已接受，2026-11-01（Asia/Taipei）。用户要求 gobrew 与 Homebrew 完全兼容，除非某个命令 gobrew 没有。本记录取代 [0001](0001-homebrew-feature-scope.md) 中“参数与提示语逐字兼容”不做的那一行；0001 的其余取舍不变。
+已接受，2026-11-01（Asia/Taipei）。`self` 已由 [0003](0003-restore-self-command.md) 恢复，是下面“命令是子集”的唯一例外。用户要求 gobrew 与 Homebrew 完全兼容，除非某个命令 gobrew 没有。本记录取代 [0001](0001-homebrew-feature-scope.md) 中“参数与提示语逐字兼容”不做的那一行；0001 的其余取舍不变。
 
 ## 决定
 

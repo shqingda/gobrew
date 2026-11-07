@@ -54,8 +54,10 @@ func TestJSONUsageErrorsHaveOneDocument(t *testing.T) {
 		{"--json", "--unknown"},
 		{"unknown", "--json"},
 		{"help", "unknown", "--json"},
-		// Commands Homebrew does not have are not gobrew commands either.
-		{"self", "install", "--json"},
+		{"self", "unknown", "--json"},
+		{"self", "install", "extra", "--json"},
+		{"self", "install", "--bin-dir", "relative", "--json"},
+		// Commands Homebrew does not have are not gobrew commands, except self.
 		{"init", "--json"},
 		{"import-homebrew", "--json"},
 		{"completion", "zsh", "--json"},
@@ -79,6 +81,18 @@ func TestJSONUsageErrorsHaveOneDocument(t *testing.T) {
 		}
 		if stderr.Len() != 0 {
 			t.Fatalf("%v: JSON error also wrote stderr: %s", args, &stderr)
+		}
+	}
+}
+
+func TestSelfRefusesUnmanagedExecutables(t *testing.T) {
+	for _, action := range []string{"update", "uninstall"} {
+		var stdout, stderr bytes.Buffer
+		if code := Run(context.Background(), []string{"self", action, "--json"}, &stdout, &stderr, BuildInfo{}); code != 3 {
+			t.Fatalf("%s: exit = %d, stdout = %s, stderr = %s", action, code, &stdout, &stderr)
+		}
+		if !strings.Contains(stdout.String(), `"command":"self `+action+`"`) || !strings.Contains(stdout.String(), "gobrew self install") {
+			t.Fatalf("%s: wrong output: %s", action, &stdout)
 		}
 	}
 }

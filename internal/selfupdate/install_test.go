@@ -52,19 +52,21 @@ func TestLifecycleAndRecovery(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// A receipt left inactive by an older self uninstall unlinks on replay,
-	// and a later install recovers from it.
+	// Simulate interruption after a durable uninstall intent but before unlinking.
 	r.Active = ""
 	if err := m.write(r); err != nil {
 		t.Fatal(err)
 	}
-	if err := m.reconcile(r); err != nil {
+	if _, err := m.Uninstall(ctx); err != nil {
 		t.Fatal(err)
 	}
 	for _, name := range []string{"gob", "gobrew"} {
 		if _, err := os.Lstat(filepath.Join(m.BinDir, name)); !errors.Is(err, os.ErrNotExist) {
 			t.Fatalf("remaining %s: %v", name, err)
 		}
+	}
+	if _, err := m.Uninstall(ctx); err != nil {
+		t.Fatal(err)
 	}
 	if _, err := m.Install(ctx, source, "v0.1.1"); err != nil {
 		t.Fatal(err)
@@ -97,6 +99,9 @@ func TestForeignAliasAndModifiedBinaryArePreserved(t *testing.T) {
 	binary := filepath.Join(m.root(), "versions", r.Active)
 	if err := os.WriteFile(binary, []byte("user change"), 0755); err != nil {
 		t.Fatal(err)
+	}
+	if _, err := m.Uninstall(ctx); !errors.Is(err, model.ErrConflict) {
+		t.Fatalf("uninstall of modified: %v", err)
 	}
 	if err := os.WriteFile(source, []byte("next executable"), 0755); err != nil {
 		t.Fatal(err)

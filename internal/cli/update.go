@@ -72,17 +72,13 @@ func outdatedLines(outdated []engine.Outdated) []string {
 
 func (a *application) update(ctx context.Context, _ []string) error {
 	// install.sh hands over here to install the verified executable it
-	// downloaded; like brew, gobrew has no command for installing itself.
+	// downloaded, which works with every release that install.sh can select.
 	if dir := os.Getenv("GOBREW_INSTALL_BIN_DIR"); dir != "" {
 		cli, err := a.installCLI(ctx, dir)
 		if err != nil {
 			return err
 		}
-		message := "Installed gobrew " + cli.Version + " and gob → gobrew in " + cli.BinDir + "."
-		if cli.Note != "" {
-			message += "\n" + cli.Note
-		}
-		a.message(cli, message)
+		a.setResult(cli, func(w io.Writer) error { return writeInstalled(w, cli) })
 		return nil
 	}
 	e, err := a.getEngine()
@@ -173,7 +169,7 @@ func (a *application) updateCLI(ctx context.Context) (cliUpdate, error) {
 	}
 	manager, err := selfupdate.Running()
 	if err != nil {
-		return cliUpdate{Skipped: "this executable is not a managed installation; reinstall with install.sh"}, nil
+		return cliUpdate{Skipped: "this executable is not a managed installation; run 'gobrew self install' first"}, nil
 	}
 	result, err := manager.Update(ctx)
 	return cliUpdate{Result: result}, err
@@ -183,7 +179,7 @@ func (a *application) updateCLI(ctx context.Context) (cliUpdate, error) {
 // and adds it to new shells.
 func (a *application) installCLI(ctx context.Context, binDir string) (cliUpdate, error) {
 	if !filepath.IsAbs(binDir) {
-		return cliUpdate{}, usageError{errors.New("GOBREW_INSTALL_BIN_DIR must be absolute")}
+		return cliUpdate{}, usageError{errors.New("the command directory must be an absolute path")}
 	}
 	binDir = filepath.Clean(binDir)
 	source, err := os.Executable()

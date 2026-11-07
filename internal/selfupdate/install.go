@@ -43,6 +43,11 @@ type receipt struct {
 
 type Manager struct{ BinDir string }
 
+func DefaultBinDir() (string, error) {
+	home, err := os.UserHomeDir()
+	return filepath.Join(home, ".local", "bin"), err
+}
+
 // Running only accepts executables inside the managed content-addressed store.
 // A source build or a manually unpacked executable is never silently overwritten.
 func Running() (Manager, error) {
@@ -57,7 +62,7 @@ func Running() (Manager, error) {
 	versions := filepath.Dir(exe)
 	root := filepath.Dir(versions)
 	if filepath.Base(versions) != "versions" || filepath.Base(root) != ".gobrew" || !digestPattern.MatchString(filepath.Base(exe)) {
-		return Manager{}, fmt.Errorf("%w: unmanaged executable; reinstall with install.sh", model.ErrUnsupported)
+		return Manager{}, fmt.Errorf("%w: unmanaged executable; run 'gobrew self install' first", model.ErrUnsupported)
 	}
 	return Manager{BinDir: filepath.Dir(root)}, nil
 }
@@ -423,6 +428,28 @@ func (m Manager) install(ctx context.Context, source, version, expected string) 
 	}
 	// Once the intent is durable, complete its bounded filesystem transition even
 	// when cancellation arrives; a later invocation can replay a failed transition.
+	return result, m.reconcile(r)
+}
+
+func (m Manager) Uninstall(ctx context.Context) (result Result, err error) {
+	result = Result{BinDir: m.BinDir, Removed: true}
+	release, err := m.lock(ctx)
+	if err != nil {
+		return result, err
+	}
+	defer func() { err = errors.Join(err, release()) }()
+	r, err := m.read()
+	if err != nil {
+		return result, err
+	}
+	if err := m.checkLinks(r); err != nil {
+		return result, err
+	}
+	result.Changed = r.Active != ""
+	r.Active = ""
+	if err := m.write(r); err != nil {
+		return result, err
+	}
 	return result, m.reconcile(r)
 }
 

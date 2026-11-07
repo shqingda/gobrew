@@ -71,4 +71,17 @@ test ! -e "$work/bin/.gobrew"
 (cd "$work/assets" && tar -czf gobrew_0.2.0_darwin_arm64.tar.gz gobrew_0.2.0_darwin_arm64 && shasum -a 256 gobrew_0.2.0_darwin_arm64.tar.gz > checksums.txt)
 sh "$repo/install.sh"
 test "$(readlink "$work/bin/gob")" = gobrew
-printf '%s\n' 'Bootstrap, alias, repeat installation, integrity rejection, uninstall and reinstall passed.'
+# gobrew self covers the same lifecycle from inside the executable, keeping
+# only the small records it needs for retries, and uninstall.sh still finishes.
+"$work/bin/gob" self uninstall
+test "$(cat "$work/home/.zshrc")" = "$(printf '%s\n%s' '# user settings' 'export EDITOR=vim')"
+test ! -e "$work/bin/gobrew" && test ! -L "$work/bin/gobrew"
+test ! -e "$work/bin/gob" && test ! -L "$work/bin/gob"
+test -f "$work/bin/.gobrew/receipt.json"
+"$work/assets/gobrew_0.2.0_darwin_arm64/gobrew" self install --bin-dir "$work/bin"
+test "$(readlink "$work/bin/gob")" = gobrew
+test "$(grep -c '>>> gobrew >>>' "$work/home/.zshrc")" = 1
+"$work/bin/gobrew" self uninstall
+sh "$repo/uninstall.sh"
+test ! -e "$work/bin/.gobrew"
+printf '%s\n' 'Bootstrap, alias, repeat installation, integrity rejection, uninstall, reinstall and self lifecycle passed.'
