@@ -28,7 +28,7 @@ func (e *Engine) Plan(ctx context.Context, req model.Request) (model.Plan, error
 	}
 	// The common no-op path never starts networking: it reads only the
 	// requested formulae from the local catalog to tell up-to-date from outdated.
-	if req.Action == "install" && len(req.Names) > 0 {
+	if req.Action == "install" && len(req.Names) > 0 && !req.OnlyDependencies {
 		if plan, ok, err := e.installedNoop(req, snap); err != nil || ok {
 			return plan, err
 		}
@@ -140,7 +140,7 @@ func (e *Engine) installedNoop(req model.Request, snap model.Snapshot) (model.Pl
 			}
 		}
 		unchanged = append(unchanged, name)
-		if !r.Requested {
+		if !r.Requested && req.MarksRequested() {
 			promote = append(promote, name)
 		}
 	}

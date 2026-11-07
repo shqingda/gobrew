@@ -9,6 +9,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 
 	"github.com/shqingda/gobrew/internal/model"
 	"github.com/shqingda/gobrew/internal/platform"
@@ -75,12 +76,16 @@ func (i Installer) finishPackage(ctx context.Context, tx *state.Session, snap *m
 		return errors.Join(cause, tx.Save(*snap))
 	}
 	if !rec.PostInstallComplete {
+		steps := rec.Formula.Steps
+		if slices.Contains(j.SkipPostInstall, name) {
+			steps = nil
+		}
 		rec.PostInstallError = "initialization interrupted; inspect before retrying"
 		snap.Records[name] = rec
 		if err := tx.Save(*snap); err != nil {
 			return err
 		}
-		if len(rec.Formula.Steps) > 0 {
+		if len(steps) > 0 {
 			model.Emit(events, model.Event{Phase: "postinstall", Package: name})
 		}
 		if err := ctx.Err(); err != nil {
@@ -89,10 +94,10 @@ func (i Installer) finishPackage(ctx context.Context, tx *state.Session, snap *m
 		if err := i.mergeShared(rec.Keg); err != nil {
 			return fail(err)
 		}
-		if err := postinstall.Run(ctx, rec.Formula.Steps, postinstall.Env{Prefix: i.Prefix, Keg: rec.Keg, Name: name, Version: rec.Formula.Version, Output: &outputEvents{events: events, name: name}}); err != nil {
+		if err := postinstall.Run(ctx, steps, postinstall.Env{Prefix: i.Prefix, Keg: rec.Keg, Name: name, Version: rec.Formula.Version, Output: &outputEvents{events: events, name: name}}); err != nil {
 			return fail(err)
 		}
-		if len(rec.Formula.Steps) > 0 {
+		if len(steps) > 0 {
 			if err := i.syncPostInstall(ctx, rec.Keg); err != nil {
 				return fail(err)
 			}

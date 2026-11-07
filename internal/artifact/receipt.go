@@ -15,6 +15,7 @@ import (
 	"strings"
 
 	"github.com/shqingda/gobrew/internal/model"
+	"github.com/shqingda/gobrew/internal/platform"
 )
 
 const maxManifestSize = 8 << 20
@@ -155,7 +156,15 @@ func validDigest(digest string) bool {
 	return err == nil && strings.ToLower(digest) == digest
 }
 
-func (m *Manager) fetchOCI(ctx context.Context, u, bottleURL *url.URL, expected string) ([]byte, error) {
+func (m *Manager) fetchOCI(ctx context.Context, u, bottleURL *url.URL, expected string) (data []byte, err error) {
+	err = platform.Retry(ctx, m.retryDelays, func() error {
+		data, err = m.fetchOCIOnce(ctx, u, bottleURL, expected)
+		return err
+	})
+	return data, err
+}
+
+func (m *Manager) fetchOCIOnce(ctx context.Context, u, bottleURL *url.URL, expected string) ([]byte, error) {
 	client := *m.cfg.HTTP
 	client.CheckRedirect = func(*http.Request, []*http.Request) error { return errors.New("OCI metadata redirect is not allowed") }
 	accept := http.Header{"Accept": {"application/vnd.oci.image.index.v1+json, application/vnd.oci.image.manifest.v1+json"}}
@@ -165,7 +174,7 @@ func (m *Manager) fetchOCI(ctx context.Context, u, bottleURL *url.URL, expected 
 	}
 	defer response.Body.Close()
 	if response.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("OCI metadata returned HTTP %d", response.StatusCode)
+		return nil, platform.StatusError(response.StatusCode, fmt.Sprintf("OCI metadata returned HTTP %d", response.StatusCode))
 	}
 	data, err := io.ReadAll(io.LimitReader(response.Body, maxManifestSize+1))
 	if err != nil {

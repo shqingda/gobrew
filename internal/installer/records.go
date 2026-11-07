@@ -84,7 +84,8 @@ func (i Installer) SetLinked(ctx context.Context, names []string, linked, allowK
 
 // PreviewLinked reports what SetLinked would change, including the conflicts
 // that would stop it, without taking the writer lock or touching the prefix.
-func (i Installer) PreviewLinked(names []string, linked, allowKegOnly bool) ([]model.LinkResult, error) {
+// Like brew link --dry-run, it lists keg-only formulae without --force.
+func (i Installer) PreviewLinked(names []string, linked bool) ([]model.LinkResult, error) {
 	before, err := (state.Store{Prefix: i.Prefix}).Load()
 	if err != nil {
 		return nil, err
@@ -93,7 +94,7 @@ func (i Installer) PreviewLinked(names []string, linked, allowKegOnly bool) ([]m
 		return nil, model.ErrRecoveryRequired
 	}
 	after := cloneSnapshot(before)
-	results, err := i.changeLinked(&after, names, linked, allowKegOnly)
+	results, err := i.changeLinked(&after, names, linked, true)
 	if err != nil {
 		return nil, err
 	}
@@ -117,12 +118,11 @@ func (i Installer) changeLinked(s *model.Snapshot, names []string, linked, allow
 			return nil, fmt.Errorf("%w: %s", model.ErrNotFound, name)
 		}
 		result := model.LinkResult{Name: name, Keg: rec.Keg, Paths: []string{}, AlreadyLinked: linked && rec.Linked}
-		if result.AlreadyLinked {
+		result.KegOnly = linked && rec.Formula.KegOnly && rec.Formula.KegOnlyReason != model.KegOnlyVersioned
+		result.NeedsForce = result.KegOnly && !allowKegOnly
+		if result.AlreadyLinked || result.NeedsForce {
 			results = append(results, result)
 			continue
-		}
-		if linked && rec.Formula.KegOnly && !allowKegOnly {
-			return nil, fmt.Errorf("%w: %s is keg-only; use link --force to expose it", model.ErrUnsupported, name)
 		}
 		if !owns(rec.Keg, rec.Owner) {
 			return nil, fmt.Errorf("%w: %s", model.ErrNeedsRepair, name)

@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/shqingda/gobrew/internal/model"
 )
@@ -28,7 +29,7 @@ func selectBottle(f model.Formula, host model.Platform, prefix string) (model.Bo
 		return model.Bottle{}, fmt.Errorf("%w: %s: %s", model.ErrUnsupported, f.Name, f.UnsupportedReason)
 	}
 	if f.Disabled {
-		return model.Bottle{}, fmt.Errorf("%w: %s is disabled by Homebrew", model.ErrUnsupported, f.Name)
+		return model.Bottle{}, fmt.Errorf("%w: %s has been %s", model.ErrUnsupported, f.Name, f.DeprecationMessage(time.Now()))
 	}
 	if f.PostInstallDefined {
 		return model.Bottle{}, fmt.Errorf("%w: %s uses a Ruby post-install hook", model.ErrUnsupported, f.Name)

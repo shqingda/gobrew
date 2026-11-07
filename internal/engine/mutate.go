@@ -32,8 +32,8 @@ func (e *Engine) Link(ctx context.Context, names []string, linked, force bool) (
 }
 
 // PreviewLink is the read-only form of Link behind link and unlink --dry-run.
-func (e *Engine) PreviewLink(names []string, linked, force bool) ([]model.LinkResult, error) {
-	return e.installer().PreviewLinked(names, linked, force)
+func (e *Engine) PreviewLink(names []string, linked bool) ([]model.LinkResult, error) {
+	return e.installer().PreviewLinked(names, linked)
 }
 
 func (e *Engine) PostInstall(ctx context.Context, names []string, events chan<- model.Event) error {

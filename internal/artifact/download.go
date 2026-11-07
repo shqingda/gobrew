@@ -63,20 +63,36 @@ func (m *Manager) downloadLocked(ctx context.Context, p model.Package, events ch
 		return nil
 	}
 	model.Emit(events, model.Event{Phase: "download", Package: p.Formula.Name})
-	response, err := m.registryGet(ctx, &client, u, u, nil)
+	var n int64
+	err = platform.Retry(ctx, m.retryDelays, func() (err error) {
+		n, err = m.fetchBlob(ctx, &client, u, p, path, events)
+		return err
+	})
 	if err != nil {
 		return "", err
+	}
+	model.Emit(events, model.Event{Phase: "download", Package: p.Formula.Name, Completed: n, Total: n})
+	return path, nil
+}
+
+// fetchBlob makes one attempt: it writes a new temporary file and publishes it
+// only after the whole download matches the signed digest.
+func (m *Manager) fetchBlob(ctx context.Context, client *http.Client, u *url.URL, p model.Package, path string, events chan<- model.Event) (int64, error) {
+	sha := p.Bottle.SHA256
+	response, err := m.registryGet(ctx, client, u, u, nil)
+	if err != nil {
+		return 0, err
 	}
 	defer response.Body.Close()
 	if response.StatusCode != http.StatusOK {
-		return "", downloadStatusError(response.StatusCode)
+		return 0, downloadStatusError(response.StatusCode)
 	}
 	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
-		return "", err
+		return 0, err
 	}
 	tmp, err := os.CreateTemp(filepath.Dir(path), ".download-"+sha+"-")
 	if err != nil {
-		return "", err
+		return 0, err
 	}
 	defer os.Remove(tmp.Name())
 	defer tmp.Close()
@@ -84,28 +100,24 @@ func (m *Manager) downloadLocked(ctx context.Context, p model.Package, events ch
 	counter := &progressWriter{events: events, event: model.Event{Phase: "download", Package: p.Formula.Name, Total: max(response.ContentLength, 0)}}
 	n, err := io.Copy(io.MultiWriter(tmp, hash, counter), response.Body)
 	if err != nil {
-		return "", err
+		return 0, err
 	}
 	if response.ContentLength >= 0 && n != response.ContentLength {
-		return "", fmt.Errorf("truncated bottle: got %d bytes, expected %d", n, response.ContentLength)
+		return 0, fmt.Errorf("truncated bottle: got %d bytes, expected %d", n, response.ContentLength)
 	}
 	if actual := hex.EncodeToString(hash.Sum(nil)); actual != sha {
-		return "", fmt.Errorf("bottle checksum mismatch: expected %s, got %s", sha, actual)
+		return 0, fmt.Errorf("bottle checksum mismatch: expected %s, got %s", sha, actual)
 	}
 	if err := platform.SyncFile(tmp); err != nil {
-		return "", err
+		return 0, err
 	}
 	if err := tmp.Close(); err != nil {
-		return "", err
+		return 0, err
 	}
 	if err := os.Rename(tmp.Name(), path); err != nil {
-		return "", err
+		return 0, err
 	}
-	if err := platform.SyncDir(filepath.Dir(path)); err != nil {
-		return "", err
-	}
-	model.Emit(events, model.Event{Phase: "download", Package: p.Formula.Name, Completed: n, Total: n})
-	return path, nil
+	return n, platform.SyncDir(filepath.Dir(path))
 }
 
 // registryGet sends one GET. GHCR requests start with Homebrew's anonymous
@@ -159,7 +171,7 @@ func (m *Manager) ghcrToken(ctx context.Context, u *url.URL) (string, error) {
 	}
 	defer response.Body.Close()
 	if response.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("GHCR authentication returned HTTP %d", response.StatusCode)
+		return "", platform.StatusError(response.StatusCode, fmt.Sprintf("GHCR authentication returned HTTP %d", response.StatusCode))
 	}
 	var token struct {
 		Token string `json:"token"`
@@ -198,5 +210,5 @@ func downloadStatusError(status int) error {
 	case http.StatusTooManyRequests, http.StatusForbidden:
 		return fmt.Errorf("download returned HTTP %d; the registry is limiting requests, retry later", status)
 	}
-	return fmt.Errorf("download returned HTTP %d", status)
+	return platform.StatusError(status, fmt.Sprintf("download returned HTTP %d", status))
 }

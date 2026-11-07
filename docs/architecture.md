@@ -170,6 +170,13 @@ not installed. The catalog therefore keeps declaration order, which `--tree` and
 `--topological` show; the resolver sorts its own copy, so plans do not depend on
 it.
 
+`DeclaredDependencies` adds the build, test, optional and implicit dependencies
+with their tags, for `deps` alone; installation still reads `Dependencies`.
+Listings port `Dependency.expand` and `merge_repeats`, so a cycle through build
+dependencies is skipped rather than reported. The field joined the catalog
+without a schema change: an older index has none, and until the next `update`
+`deps` falls back to `Dependencies`.
+
 Keep installed runtime dependency facts. Version ordering includes version_scheme
 and revision; compatibility_version is an ABI hint, not a replacement for runtime
 minimum versions. Dependency changes consider installed reverse dependents.
@@ -253,6 +260,13 @@ Verify official metadata signatures and bottle digests. Confine extraction;
 reject traversal, symlink escapes, special files and unsafe metadata. Relocation
 and post-install have explicit supported operations. Unknown operations fail
 closed. System commands use argument arrays and controlled environments.
+
+Network requests make up to four attempts with backoff, like brew's
+`curl --retry 3`, through `platform.Retry`. Only transport failures (dropped
+connections, timeouts) and HTTP 5xx replies repeat. Digest or signature failures
+and 403, 404 and 429 replies fail at once. Every attempt starts over, bottles in
+a new temporary file, and is verified in full, so a retry never resumes
+unverified bytes. Waiting holds the blob lease but not the prefix lock.
 
 Explicit older versions (`version-install formula[@version] [version]`, as in
 Homebrew) are the one source outside the signed snapshot. As in Homebrew,

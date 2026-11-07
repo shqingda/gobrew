@@ -30,34 +30,117 @@ type Platform struct {
 	Major int    `json:"major"`
 }
 
+// deprecationReasons are the named reasons of deprecate! and disable!.
+var deprecationReasons = map[string]string{
+	"does_not_build":      "does not build",
+	"no_license":          "has no license",
+	"repo_archived":       "has an archived upstream repository",
+	"repo_removed":        "has a removed upstream repository",
+	"unmaintained":        "is not maintained upstream",
+	"unreachable":         "is no longer reliably reachable upstream",
+	"unsupported":         "is not supported upstream",
+	"deprecated_upstream": "is deprecated upstream",
+	"versioned_formula":   "is a versioned formula",
+	"checksum_mismatch": "was built with an initially released source file that had a different checksum than the current one. " +
+		"Upstream's repository might have been compromised. We can re-package this once upstream has confirmed that they retagged their release",
+}
+
+// DeprecationMessage ports Homebrew's DeprecateDisable.message, or is empty for
+// a formula that is neither deprecated nor disabled. Dates are ISO strings, so
+// they compare as text.
+func (f Formula) DeprecationMessage(today time.Time) string {
+	if !f.Deprecated && !f.Disabled {
+		return ""
+	}
+	kind, reason := "disabled", f.DisableReason
+	if f.Deprecated {
+		kind, reason = "deprecated", f.DeprecationReason
+	}
+	if text, ok := deprecationReasons[reason]; ok {
+		reason = text
+	}
+	message := kind + "!"
+	if reason != "" {
+		message = kind + " because it " + reason + "!"
+	}
+	now := today.Format(time.DateOnly)
+	date := f.DisableDate
+	if deprecated, err := time.Parse(time.DateOnly, f.DeprecationDate); date == "" && err == nil {
+		if estimate := deprecated.AddDate(1, 0, 0).Format(time.DateOnly); estimate >= now {
+			date = estimate
+		}
+	}
+	if date != "" && date < now {
+		message += " It was disabled on " + date + "."
+	} else if date != "" {
+		message += " It will be disabled on " + date + "."
+	}
+	formula, cask := f.DeprecationFormula, f.DeprecationCask
+	if f.Disabled {
+		formula, cask = f.DisableFormula, f.DisableCask
+	}
+	if formula != "" {
+		message += "\nReplacement:\n  gobrew install " + formula
+	} else if cask != "" {
+		message += "\nReplacement:\n  brew install --cask " + cask
+	}
+	return message
+}
+
+// DeclaredDependency is one depends_on line with its tags, in formula order.
+// Only deps reads it: bottles install from Dependencies alone.
+type DeclaredDependency struct {
+	Name        string `json:"name"`
+	Build       bool   `json:"build,omitempty"`
+	Test        bool   `json:"test,omitempty"`
+	Recommended bool   `json:"recommended,omitempty"`
+	Optional    bool   `json:"optional,omitempty"`
+	NoLinkage   bool   `json:"no_linkage,omitempty"`
+	Implicit    bool   `json:"implicit,omitempty"`
+}
+
 type Formula struct {
-	Name                  string              `json:"name"`
-	Aliases               []string            `json:"aliases,omitempty"`
-	Description           string              `json:"description"`
-	Homepage              string              `json:"homepage,omitempty"`
-	License               string              `json:"license,omitempty"`
-	Version               string              `json:"version"`
-	Revision              int                 `json:"revision"`
-	VersionScheme         int                 `json:"version_scheme"`
-	CompatibilityVersion  *int                `json:"compatibility_version,omitempty"`
-	BottleRebuild         int                 `json:"bottle_rebuild"`
-	Bottles               map[string]Bottle   `json:"bottles"`
-	Dependencies          []string            `json:"dependencies,omitempty"`
-	NoLinkageDependencies []string            `json:"no_linkage_dependencies,omitempty"`
-	RuntimeDependencies   []RuntimeDependency `json:"runtime_dependencies,omitempty"`
-	KegOnly               bool                `json:"keg_only"`
-	Disabled              bool                `json:"disabled"`
-	Deprecated            bool                `json:"deprecated"`
-	Caveats               string              `json:"caveats,omitempty"`
-	PostInstallDefined    bool                `json:"post_install_defined"`
-	Steps                 []json.RawMessage   `json:"post_install_steps,omitempty"`
-	UnsupportedReason     string              `json:"unsupported_reason,omitempty"`
-	Conflicts             []string            `json:"conflicts,omitempty"`
+	Name                  string               `json:"name"`
+	Aliases               []string             `json:"aliases,omitempty"`
+	Description           string               `json:"description"`
+	Homepage              string               `json:"homepage,omitempty"`
+	License               string               `json:"license,omitempty"`
+	Version               string               `json:"version"`
+	Revision              int                  `json:"revision"`
+	VersionScheme         int                  `json:"version_scheme"`
+	CompatibilityVersion  *int                 `json:"compatibility_version,omitempty"`
+	BottleRebuild         int                  `json:"bottle_rebuild"`
+	Bottles               map[string]Bottle    `json:"bottles"`
+	Dependencies          []string             `json:"dependencies,omitempty"`
+	NoLinkageDependencies []string             `json:"no_linkage_dependencies,omitempty"`
+	DeclaredDependencies  []DeclaredDependency `json:"declared_dependencies,omitempty"`
+	RuntimeDependencies   []RuntimeDependency  `json:"runtime_dependencies,omitempty"`
+	KegOnly               bool                 `json:"keg_only"`
+	KegOnlyReason         string               `json:"keg_only_reason,omitempty"`
+	KegOnlyExplanation    string               `json:"keg_only_explanation,omitempty"`
+	Disabled              bool                 `json:"disabled"`
+	Deprecated            bool                 `json:"deprecated"`
+	DeprecationDate       string               `json:"deprecation_date,omitempty"`
+	DeprecationReason     string               `json:"deprecation_reason,omitempty"`
+	DeprecationFormula    string               `json:"deprecation_replacement_formula,omitempty"`
+	DeprecationCask       string               `json:"deprecation_replacement_cask,omitempty"`
+	DisableDate           string               `json:"disable_date,omitempty"`
+	DisableReason         string               `json:"disable_reason,omitempty"`
+	DisableFormula        string               `json:"disable_replacement_formula,omitempty"`
+	DisableCask           string               `json:"disable_replacement_cask,omitempty"`
+	Caveats               string               `json:"caveats,omitempty"`
+	PostInstallDefined    bool                 `json:"post_install_defined"`
+	Steps                 []json.RawMessage    `json:"post_install_steps,omitempty"`
+	UnsupportedReason     string               `json:"unsupported_reason,omitempty"`
+	Conflicts             []string             `json:"conflicts,omitempty"`
 	// ConflictReasons parallels Conflicts; an entry may be empty.
 	ConflictReasons []string `json:"conflict_reasons,omitempty"`
 	// SourcePath is the recipe's path in homebrew-core, for display only.
 	SourcePath string `json:"source_path,omitempty"`
 }
+
+// KegOnlyVersioned marks an alternate version, which brew links without --force.
+const KegOnlyVersioned = ":versioned_formula"
 
 func (f Formula) PkgVersion() string {
 	if f.Revision > 0 {
@@ -100,12 +183,15 @@ type Record struct {
 }
 
 // LinkResult reports what link or unlink changes for one keg. Paths are
-// absolute; AlreadyLinked means link left the keg alone.
+// absolute. AlreadyLinked and NeedsForce mean link left the keg alone; KegOnly
+// means it needs brew's PATH advice even once linked.
 type LinkResult struct {
 	Name          string   `json:"name"`
 	Keg           string   `json:"keg"`
 	Paths         []string `json:"paths"`
 	AlreadyLinked bool     `json:"already_linked,omitempty"`
+	NeedsForce    bool     `json:"needs_force,omitempty"`
+	KegOnly       bool     `json:"keg_only,omitempty"`
 }
 
 const (
@@ -134,7 +220,17 @@ type Request struct {
 	// NoInstallUpgrade keeps install from upgrading an installed but outdated
 	// requested formula (Homebrew's HOMEBREW_NO_INSTALL_UPGRADE).
 	NoInstallUpgrade bool `json:"no_install_upgrade,omitempty"`
+	// AsDependency installs without marking the named formulae as requested.
+	AsDependency bool `json:"as_dependency,omitempty"`
+	// OnlyDependencies installs what the named formulae need but not themselves.
+	OnlyDependencies bool `json:"only_dependencies,omitempty"`
+	// SkipLink and SkipPostInstall apply to the named formulae, not dependencies.
+	SkipLink        bool `json:"skip_link,omitempty"`
+	SkipPostInstall bool `json:"skip_post_install,omitempty"`
 }
+
+// MarksRequested reports whether the named formulae become requested roots.
+func (r Request) MarksRequested() bool { return !r.AsDependency && !r.OnlyDependencies }
 
 type Package struct {
 	Formula   Formula `json:"formula"`
@@ -143,6 +239,9 @@ type Package struct {
 	// Historic marks an explicitly requested older version whose bottle was
 	// verified against GHCR and homebrew-core instead of signed metadata.
 	Historic bool `json:"historic,omitempty"`
+	// SkipLink and SkipPostInstall carry Request's options for a named formula.
+	SkipLink        bool `json:"skip_link,omitempty"`
+	SkipPostInstall bool `json:"skip_post_install,omitempty"`
 }
 
 type Plan struct {
@@ -242,4 +341,17 @@ const UserAgent = "gobrew"
 // ValidPathComponent reports whether s is safe as exactly one path element.
 func ValidPathComponent(s string) bool {
 	return s != "" && s != "." && s != ".." && !strings.ContainsAny(s, "/\\\x00")
+}
+
+// Analytics is one category of formulae.brew.sh install counts, such as
+// install-on-request, with its periods in the order the API lists them.
+type Analytics struct {
+	Category string            `json:"category"`
+	Periods  []AnalyticsPeriod `json:"periods"`
+}
+
+// AnalyticsPeriod is the total count over a number of days.
+type AnalyticsPeriod struct {
+	Days  int   `json:"days"`
+	Count int64 `json:"count"`
 }

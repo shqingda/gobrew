@@ -43,6 +43,8 @@ type Client struct {
 	// default always uses HTTPS and the compiled-in official Homebrew key.
 	URL string
 	Key *rsa.PublicKey
+
+	retryDelays []time.Duration
 }
 
 func (s Snapshot) Lookup(name string) (model.Formula, error) {
@@ -118,29 +120,13 @@ func (c Client) Update(ctx context.Context) (Snapshot, error) {
 	if err != nil || u.Host == "" || (u.Scheme != "https" && !(c.Key != nil && u.Scheme == "http")) {
 		return Snapshot{}, errors.New("catalog URL must use HTTPS")
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	var data []byte
+	err = platform.Retry(ctx, c.retryDelays, func() (err error) {
+		data, err = c.download(ctx, endpoint)
+		return err
+	})
 	if err != nil {
 		return Snapshot{}, err
-	}
-	req.Header.Set("User-Agent", model.UserAgent)
-	client := c.HTTP
-	if client == nil {
-		client = &http.Client{Timeout: 2 * time.Minute}
-	}
-	res, err := client.Do(req)
-	if err != nil {
-		return Snapshot{}, fmt.Errorf("download catalog: %w", err)
-	}
-	defer res.Body.Close()
-	if res.StatusCode != http.StatusOK {
-		return Snapshot{}, fmt.Errorf("download catalog: HTTP %s", res.Status)
-	}
-	data, err := io.ReadAll(io.LimitReader(res.Body, maxCatalogBytes+1))
-	if err != nil {
-		return Snapshot{}, err
-	}
-	if len(data) > maxCatalogBytes {
-		return Snapshot{}, errors.New("catalog exceeds size limit")
 	}
 	key := c.Key
 	if key == nil {
@@ -183,6 +169,35 @@ func (c Client) Update(ctx context.Context) (Snapshot, error) {
 		return Snapshot{}, err
 	}
 	return snapshot, nil
+}
+
+// download makes one attempt; Update verifies the signature of what it returns.
+func (c Client) download(ctx context.Context, endpoint string) ([]byte, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("User-Agent", model.UserAgent)
+	client := c.HTTP
+	if client == nil {
+		client = &http.Client{Timeout: 2 * time.Minute}
+	}
+	res, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("download catalog: %w", err)
+	}
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusOK {
+		return nil, platform.StatusError(res.StatusCode, "download catalog: HTTP "+res.Status)
+	}
+	data, err := io.ReadAll(io.LimitReader(res.Body, maxCatalogBytes+1))
+	if err != nil {
+		return nil, err
+	}
+	if len(data) > maxCatalogBytes {
+		return nil, errors.New("catalog exceeds size limit")
+	}
+	return data, nil
 }
 
 func (c Client) publish(ctx context.Context, snapshot Snapshot) error {

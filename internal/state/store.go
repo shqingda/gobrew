@@ -47,6 +47,9 @@ type Journal struct {
 	Packages     []string       `json:"packages"`
 	PendingLinks []LinkChange   `json:"pending_links,omitempty"`
 	LinkPackage  string         `json:"link_package,omitempty"`
+	// SkipPostInstall lists packages whose post-install steps this Apply leaves
+	// out; an explicit gobrew postinstall runs them later.
+	SkipPostInstall []string `json:"skip_post_install,omitempty"`
 }
 
 // layout lists every directory Initialize creates, parents first.

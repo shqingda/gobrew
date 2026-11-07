@@ -225,3 +225,47 @@ func TestPostInstallCancellationPreservesCauseAndRepairState(t *testing.T) {
 		})
 	}
 }
+
+func TestSkipOptionsLeaveTheKegUnlinkedAndHooksUnrun(t *testing.T) {
+	prefix, tree := t.TempDir(), t.TempDir()
+	s := state.Store{Prefix: prefix}
+	if err := s.Initialize(); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(filepath.Join(tree, "bin"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	ran := filepath.Join(prefix, "var", "ran")
+	if err := os.WriteFile(filepath.Join(tree, "bin", "hook"), []byte("#!/bin/sh\n: > '"+ran+"'\n"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	f := model.Formula{Name: "demo", Version: "1", Steps: []json.RawMessage{json.RawMessage(`{"type":"run","command":{"base":"bin","path":"hook"},"args":[]}`)}}
+	p := onePackage(prefix, tree, f)
+	p.Packages[0].Package.SkipLink, p.Packages[0].Package.SkipPostInstall = true, true
+	inst := Installer{Prefix: prefix}
+	if _, err := inst.Apply(context.Background(), p, nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Lstat(ran); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("skipped post-install ran: %v", err)
+	}
+	if _, err := os.Lstat(filepath.Join(prefix, "bin", "hook")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("skipped link was created: %v", err)
+	}
+	if _, err := os.Lstat(filepath.Join(prefix, "opt", "demo")); err != nil {
+		t.Fatalf("opt link missing: %v", err)
+	}
+	snap, err := s.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rec := snap.Records["demo"]; rec.Status != model.Ready || rec.Linked {
+		t.Fatalf("record = %+v", rec)
+	}
+	if err := inst.PostInstall(context.Background(), []string{"demo"}, nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Lstat(ran); err != nil {
+		t.Fatalf("postinstall did not run the skipped hook: %v", err)
+	}
+}

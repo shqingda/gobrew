@@ -5,10 +5,14 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/url"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/shqingda/gobrew/internal/engine"
 	"github.com/shqingda/gobrew/internal/model"
@@ -165,6 +169,10 @@ func (a *application) infoCommand() *cobra.Command {
 		if snapshot, err := e.Installed(); err == nil {
 			records = snapshot.Records
 		}
+		var analytics [][]model.Analytics
+		if !installed && !a.json {
+			analytics = formulaAnalytics(ctx, e, formulae)
+		}
 		a.setResult(formulae, func(w io.Writer) error {
 			for i, f := range formulae {
 				if i > 0 {
@@ -172,7 +180,11 @@ func (a *application) infoCommand() *cobra.Command {
 						return err
 					}
 				}
-				if err := renderInfo(w, f, e.Prefix(), records); err != nil {
+				var counts []model.Analytics
+				if analytics != nil {
+					counts = analytics[i]
+				}
+				if err := a.renderInfo(w, f, e.Prefix(), records, counts); err != nil {
 					return err
 				}
 			}
@@ -182,6 +194,40 @@ func (a *application) infoCommand() *cobra.Command {
 	})
 	cmd.Flags().BoolVar(&installed, "installed", false, "Read installed metadata without opening the catalog")
 	return cmd
+}
+
+// formulaAnalytics fetches every formula's install counts at once. Like brew,
+// GOBREW_NO_ANALYTICS or GOBREW_NO_GITHUB_API turns them off, and a failed
+// request only leaves the section out.
+func formulaAnalytics(ctx context.Context, e *engine.Engine, formulae []model.Formula) [][]model.Analytics {
+	if os.Getenv("GOBREW_NO_ANALYTICS") != "" || os.Getenv("GOBREW_NO_GITHUB_API") != "" {
+		return nil
+	}
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	result := make([][]model.Analytics, len(formulae))
+	var wg sync.WaitGroup
+	for i, f := range formulae {
+		wg.Go(func() {
+			result[i], _ = e.FormulaAnalytics(ctx, f.Name)
+		})
+	}
+	wg.Wait()
+	return result
+}
+
+// analyticsLines is brew's summary: one line per category, with the total of
+// each period.
+func analyticsLines(analytics []model.Analytics) []string {
+	lines := make([]string, 0, len(analytics))
+	for _, a := range analytics {
+		periods := make([]string, 0, len(a.Periods))
+		for _, p := range a.Periods {
+			periods = append(periods, fmt.Sprintf("%s (%d days)", readableNumber(int(p.Count)), p.Days))
+		}
+		lines = append(lines, a.Category+": "+strings.Join(periods, ", "))
+	}
+	return lines
 }
 
 // infoStatistics is brew info without arguments: "N kegs, M files, SIZE",
@@ -209,8 +255,8 @@ func (a *application) infoStatistics(e *engine.Engine) error {
 }
 
 // renderInfo follows brew info's layout. gobrew installs no HEAD builds and has
-// no options or analytics, so those parts are absent.
-func renderInfo(w io.Writer, f model.Formula, prefix string, records map[string]model.Record) error {
+// no options, so those parts are absent.
+func (a *application) renderInfo(w io.Writer, f model.Formula, prefix string, records map[string]model.Record, analytics []model.Analytics) error {
 	r, installed := records[f.Name]
 	p := newProgress(w)
 	write := func(lines ...string) error {
@@ -243,11 +289,8 @@ func renderInfo(w io.Writer, f model.Formula, prefix string, records map[string]
 	if len(f.Aliases) > 0 {
 		lines = append(lines, "Aliases: "+strings.Join(f.Aliases, ", "))
 	}
-	if f.Disabled {
-		lines = append(lines, "Disabled upstream.")
-	}
-	if f.Deprecated {
-		lines = append(lines, "Deprecated upstream.")
+	if message := f.DeprecationMessage(time.Now()); message != "" {
+		lines = append(lines, strings.Split(strings.ToUpper(message[:1])+message[1:], "\n")...)
 	}
 	if f.UnsupportedReason != "" {
 		lines = append(lines, "Unsupported: "+f.UnsupportedReason)
@@ -297,8 +340,8 @@ func renderInfo(w io.Writer, f model.Formula, prefix string, records map[string]
 		}
 	}
 	var caveats []string
-	if f.KegOnly {
-		caveats = append(caveats, f.Name+" is keg-only, which means it was not symlinked into "+prefix+".\nTo link it anyway, run:\n  gobrew link --force "+f.Name)
+	if f.KegOnly && !r.Linked {
+		caveats = append(caveats, a.kegOnlyCaveat(f, prefix, r.Keg))
 	}
 	if text := formulaCaveats(f, prefix); text != "" {
 		caveats = append(caveats, text)
@@ -308,13 +351,21 @@ func renderInfo(w io.Writer, f model.Formula, prefix string, records map[string]
 			caveats = append(caveats, text)
 		}
 	}
-	if len(caveats) == 0 {
+	if len(caveats) > 0 {
+		if err := p.title("Caveats"); err != nil {
+			return err
+		}
+		if err := write(strings.Join(caveats, "\n\n")); err != nil {
+			return err
+		}
+	}
+	if len(analytics) == 0 {
 		return nil
 	}
-	if err := p.title("Caveats"); err != nil {
+	if err := p.title("Analytics"); err != nil {
 		return err
 	}
-	return write(strings.Join(caveats, "\n\n"))
+	return write(analyticsLines(analytics)...)
 }
 
 // hasARMBottle mirrors brew's "(bottled)" for the only platform gobrew supports.
@@ -343,18 +394,26 @@ func conflictLines(f model.Formula) []string {
 // dependencyLines marks each dependency on a terminal, as brew does, and flags
 // a missing one only for an installed formula, which needs it.
 func dependencyLines(f model.Formula, r model.Record, installed bool, records map[string]model.Record, tty bool) []string {
+	required, recommended, optional := declaredGroups(f)
 	var lines []string
-	if len(f.Dependencies) > 0 {
-		names := make([]string, len(f.Dependencies))
-		for i, name := range f.Dependencies {
+	for _, group := range []struct {
+		label string
+		names []string
+		need  bool
+	}{{"Required", required, true}, {"Recommended", recommended, false}, {"Optional", optional, false}} {
+		if len(group.names) == 0 {
+			continue
+		}
+		names := make([]string, len(group.names))
+		for i, name := range group.names {
 			names[i] = name
 			if _, ok := records[strings.TrimPrefix(name, "homebrew/core/")]; tty && ok {
 				names[i] += " \u2714"
-			} else if tty && installed {
+			} else if tty && installed && group.need {
 				names[i] += " \u2718"
 			}
 		}
-		lines = append(lines, fmt.Sprintf("Required (%d): %s", len(names), strings.Join(names, ", ")))
+		lines = append(lines, fmt.Sprintf("%s (%d): %s", group.label, len(names), strings.Join(names, ", ")))
 	}
 	if installed && len(r.Dependencies) > 0 {
 		present := 0
@@ -372,11 +431,39 @@ func dependencyLines(f model.Formula, r model.Record, installed bool, records ma
 	return lines
 }
 
+// declaredGroups splits dependencies like brew info. Build and test ones stay
+// out: brew shows them only for source builds, which gobrew does not do.
+func declaredGroups(f model.Formula) (required, recommended, optional []string) {
+	if len(f.DeclaredDependencies) == 0 {
+		return f.Dependencies, nil, nil
+	}
+	for _, dep := range f.DeclaredDependencies {
+		switch {
+		case dep.Recommended:
+			recommended = append(recommended, dep.Name)
+		case dep.Optional:
+			optional = append(optional, dep.Name)
+		case !dep.Build && !dep.Test:
+			required = append(required, dep.Name)
+		}
+	}
+	return required, recommended, optional
+}
+
 func (a *application) listCommand() *cobra.Command {
-	var pinned, onRequest, notOnRequest, versions, onePerLine bool
-	cmd := a.commandFor("list [formula...]", "List installed formulae, or the files of named ones, without network access", cobra.ArbitraryArgs, func(_ context.Context, names []string) error {
-		if len(names) > 0 && (onRequest || notOnRequest) {
-			return usageError{errors.New("cannot use --installed-on-request or --no-installed-on-request with formula arguments")}
+	var pinned, onRequest, notOnRequest, poured, fromSource, fullName, versions, multiple, onePerLine, long, reverse, byTime bool
+	cmd := a.commandFor("list [formula...]", "List installed formulae, or the files of named ones, without network access", cobra.ArbitraryArgs, func(ctx context.Context, names []string) error {
+		var filters []string
+		for _, filter := range []struct {
+			set  bool
+			flag string
+		}{{onRequest, "--installed-on-request"}, {notOnRequest, "--no-installed-on-request"}, {poured, "--poured-from-bottle"}, {fromSource, "--built-from-source"}} {
+			if filter.set {
+				filters = append(filters, "`"+filter.flag+"`")
+			}
+		}
+		if len(names) > 0 && len(filters) > 0 {
+			return usageError{errors.New("cannot use " + strings.Join(filters, ", ") + " with formula arguments")}
 		}
 		e, err := a.getEngine()
 		if err != nil {
@@ -402,23 +489,36 @@ func (a *application) listCommand() *cobra.Command {
 			}
 			named[name] = ok
 		}
-		if len(names) > 0 && !pinned && !versions {
+		if len(names) > 0 && !pinned && !versions && !multiple && !fullName {
 			if missing != nil {
 				return missing
 			}
 			return a.listFiles(snapshot, kegs)
 		}
+		if missing != nil && fullName {
+			return missing
+		}
 		records := make([]model.Record, 0, len(snapshot.Records))
+		statuses := map[string][]string{}
 		for name, record := range snapshot.Records {
-			if pinned && !record.Pinned || onRequest && !record.Requested || notOnRequest && record.Requested || len(names) > 0 && !named[name] {
+			// A prefix keeps one keg per formula, so none has multiple versions.
+			if multiple || pinned && !record.Pinned || len(names) > 0 && !named[name] {
 				continue
+			}
+			if len(filters) > 0 {
+				if statuses[name] = listStatuses(record, onRequest, notOnRequest, poured); len(statuses[name]) == 0 {
+					continue
+				}
 			}
 			records = append(records, record)
 		}
-		slices.SortFunc(records, func(a, b model.Record) int { return strings.Compare(a.Formula.Name, b.Formula.Name) })
+		sortListing(records, byTime, reverse)
 		// Like brew list: names in columns on a terminal, one per line otherwise,
 		// and "name version" lines with --versions.
 		a.setResult(records, func(w io.Writer) error {
+			if long {
+				return a.longListing(ctx, w, filepath.Join(e.Prefix(), "Cellar"), records, reverse, byTime)
+			}
 			names := make([]string, len(records))
 			widths := make([]int, len(records))
 			for i, r := range records {
@@ -426,10 +526,13 @@ func (a *application) listCommand() *cobra.Command {
 				if versions {
 					names[i] += " " + cleanText(r.Formula.PkgVersion())
 				}
+				if len(filters) > 1 {
+					names[i] += ": " + strings.Join(statuses[r.Formula.Name], ", ")
+				}
 				widths[i] = len(names[i])
 			}
 			p := newProgress(w)
-			if versions || onePerLine || !p.tty {
+			if versions || pinned || len(filters) > 0 || onePerLine || !p.tty {
 				for _, name := range names {
 					if _, err := fmt.Fprintln(w, name); err != nil {
 						return err
@@ -445,10 +548,87 @@ func (a *application) listCommand() *cobra.Command {
 	cmd.Flags().BoolVar(&pinned, "pinned", false, "Only show pinned formulae")
 	cmd.Flags().BoolVar(&onRequest, "installed-on-request", false, "Only show formulae installed on request")
 	cmd.Flags().BoolVar(&notOnRequest, "no-installed-on-request", false, "Only show formulae installed as dependencies")
+	cmd.Flags().BoolVar(&poured, "poured-from-bottle", false, "Only show formulae installed from a bottle, which is all of them")
+	cmd.Flags().BoolVar(&fromSource, "built-from-source", false, "Only show formulae compiled from source; gobrew compiles none")
+	cmd.Flags().BoolVar(&fullName, "full-name", false, "Print fully-qualified names (official formulae have no longer one)")
 	cmd.Flags().BoolVar(&versions, "versions", false, "Show the version number of installed formulae")
+	cmd.Flags().BoolVar(&multiple, "multiple", false, "Only show formulae with multiple versions installed; gobrew keeps one keg per formula")
 	cmd.Flags().BoolVarP(&onePerLine, "1", "1", false, "Force output to be one entry per line")
-	cmd.MarkFlagsMutuallyExclusive("installed-on-request", "no-installed-on-request")
+	cmd.Flags().BoolVarP(&long, "l", "l", false, "List formulae in long format")
+	cmd.Flags().BoolVarP(&reverse, "r", "r", false, "Reverse the sort order")
+	cmd.Flags().BoolVarP(&byTime, "t", "t", false, "Sort by time modified, most recent first")
+	// brew list's conflicts.
+	cmd.MarkFlagsMutuallyExclusive("pinned", "multiple")
+	for _, filter := range []string{"installed-on-request", "no-installed-on-request", "poured-from-bottle", "built-from-source"} {
+		for _, flag := range []string{"versions", "multiple", "pinned", "l"} {
+			cmd.MarkFlagsMutuallyExclusive(filter, flag)
+		}
+	}
+	for _, layout := range []string{"1", "l", "r", "t"} {
+		for _, flag := range []string{"versions", "multiple", "pinned"} {
+			cmd.MarkFlagsMutuallyExclusive(layout, flag)
+		}
+	}
+	for _, flag := range []string{"versions", "multiple", "pinned", "l", "r", "t"} {
+		cmd.MarkFlagsMutuallyExclusive("full-name", flag)
+	}
 	return cmd
+}
+
+// listStatuses is why brew list's filters keep a formula: any one is enough.
+// gobrew pours every keg from a bottle.
+func listStatuses(r model.Record, onRequest, notOnRequest, poured bool) []string {
+	var statuses []string
+	if onRequest && r.Requested {
+		statuses = append(statuses, "installed on request")
+	}
+	if notOnRequest && !r.Requested {
+		statuses = append(statuses, "installed as dependency")
+	}
+	if poured {
+		statuses = append(statuses, "poured from bottle")
+	}
+	return statuses
+}
+
+// sortListing orders records by name, or like ls -t by rack modification time
+// with ties by name, and -r reverses either order.
+func sortListing(records []model.Record, byTime, reverse bool) {
+	modified := make(map[string]time.Time, len(records))
+	if byTime {
+		for _, r := range records {
+			if info, err := os.Stat(filepath.Dir(r.Keg)); err == nil {
+				modified[r.Formula.Name] = info.ModTime()
+			}
+		}
+	}
+	slices.SortFunc(records, func(a, b model.Record) int {
+		if c := modified[b.Formula.Name].Compare(modified[a.Formula.Name]); c != 0 {
+			return c
+		}
+		return strings.Compare(a.Formula.Name, b.Formula.Name)
+	})
+	if reverse {
+		slices.Reverse(records)
+	}
+}
+
+// longListing is brew list -l, which also leaves the format to ls.
+func (a *application) longListing(ctx context.Context, w io.Writer, cellar string, records []model.Record, reverse, byTime bool) error {
+	if len(records) == 0 {
+		return nil
+	}
+	args := []string{"-l"}
+	if reverse {
+		args = append(args, "-r")
+	}
+	if byTime {
+		args = append(args, "-t")
+	}
+	cmd := exec.CommandContext(ctx, "/bin/ls", append(args, "--", cellar)...)
+	cmd.Env = slices.DeleteFunc(os.Environ(), func(entry string) bool { return strings.HasPrefix(entry, "CLICOLOR") })
+	cmd.Stdout, cmd.Stderr = w, a.stderr
+	return cmd.Run()
 }
 
 // listFiles is brew list <formula>: every file off a terminal and a summary on
@@ -493,22 +673,52 @@ func (a *application) listFiles(snapshot model.Snapshot, names []string) error {
 // [--topological] [--tree [--prune]] [--for-each] [formula...].
 func (a *application) depsCommand() *cobra.Command {
 	var opts engine.DepsOptions
-	var tree, forEach, fullName bool
+	var tree, graph, dot, forEach, fullName bool
 	cmd := a.commandFor("deps [formula...]", "Show dependencies of formulae (their intersection for several)", cobra.ArbitraryArgs, func(ctx context.Context, names []string) error {
-		if len(names) == 0 && !opts.Installed {
+		if dot && !graph {
+			return usageError{errors.New("`--dot` cannot be passed without `--graph`")}
+		}
+		if opts.Prune && !tree {
+			return usageError{errors.New("`--prune` cannot be passed without `--tree`")}
+		}
+		if (tree || graph) && len(names) == 0 && !opts.Installed {
 			return usageError{errors.New("this command requires a formula argument")}
 		}
 		e, err := a.getEngine()
 		if err != nil {
 			return err
 		}
+		if os.Getenv("GOBREW_NO_ENV_HINTS") == "" {
+			snapshot, _ := e.Installed()
+			allInstalled := !slices.ContainsFunc(names, func(name string) bool {
+				_, ok := snapshot.Records[strings.TrimPrefix(name, "homebrew/core/")]
+				return !ok
+			})
+			if reason := declaredReason(opts, tree, graph, allInstalled); reason != "" {
+				fmt.Fprintf(a.stderr, "Warning: `gobrew deps` is not the actual runtime dependencies because %s!\nThis means dependencies may differ from a formula's declared dependencies.\nHide these hints with `GOBREW_NO_ENV_HINTS=1` (see `gobrew help`).\n", reason)
+			}
+		}
 		switch {
 		case tree:
 			roots, err := e.DepsTree(ctx, names, opts)
 			if roots != nil {
-				a.setResult(roots, func(w io.Writer) error { return renderDepsTree(w, roots) })
+				a.setResult(roots, func(w io.Writer) error { return renderDepsTree(w, roots, opts.Annotate) })
 			}
 			return err
+		case graph:
+			edges, err := e.DepsGraph(ctx, names, opts)
+			if err != nil {
+				return err
+			}
+			a.setResult(edges, func(w io.Writer) error {
+				code := dotCode(edges)
+				if dot {
+					_, err := fmt.Fprintln(w, cleanText(code))
+					return err
+				}
+				return exec.CommandContext(ctx, "/usr/bin/open", graphvizURL(code)).Run()
+			})
+			return nil
 		case forEach || len(names) == 0:
 			each, err := e.DepsEach(ctx, names, opts)
 			if err != nil {
@@ -516,8 +726,7 @@ func (a *application) depsCommand() *cobra.Command {
 			}
 			a.setResult(each, func(w io.Writer) error {
 				for _, item := range each {
-					line := strings.TrimRight(item.Name+": "+strings.Join(item.Dependencies, " "), " ")
-					if _, err := fmt.Fprintln(w, cleanText(line)); err != nil {
+					if _, err := fmt.Fprintln(w, cleanText(item.Name+": "+strings.Join(item.Dependencies, " "))); err != nil {
 						return err
 					}
 				}
@@ -538,6 +747,16 @@ func (a *application) depsCommand() *cobra.Command {
 	cmd.Flags().BoolVarP(&opts.Topological, "topological", "n", false, "Sort dependencies in topological order")
 	cmd.Flags().BoolVar(&tree, "tree", false, "Show dependencies as a tree, one for each formula")
 	cmd.Flags().BoolVar(&opts.Prune, "prune", false, "Prune parts of a tree already seen")
+	cmd.Flags().BoolVar(&graph, "graph", false, "Show dependencies as a directed graph in the browser")
+	cmd.Flags().BoolVar(&dot, "dot", false, "Print the graph in DOT format instead")
+	cmd.Flags().BoolVar(&opts.IncludeBuild, "include-build", false, "Include build dependencies")
+	cmd.Flags().BoolVar(&opts.IncludeTest, "include-test", false, "Include test dependencies (not recursive unless --graph or --tree)")
+	cmd.Flags().BoolVar(&opts.IncludeOptional, "include-optional", false, "Include optional dependencies")
+	cmd.Flags().BoolVar(&opts.IncludeImplicit, "include-implicit", false, "Include dependencies used to unpack source files")
+	cmd.Flags().Bool("include-requirements", false, "Accepted like brew; official formulae list no requirements")
+	cmd.Flags().BoolVar(&opts.SkipRecommended, "skip-recommended", false, "Skip recommended dependencies")
+	cmd.Flags().BoolVar(&opts.Missing, "missing", false, "Show only missing dependencies")
+	cmd.Flags().BoolVar(&opts.Annotate, "annotate", false, "Mark build, test, optional and recommended dependencies")
 	cmd.Flags().BoolVar(&forEach, "for-each", false, "List dependencies one formula per line")
 	cmd.Flags().BoolVar(&fullName, "full-name", false, "List dependencies by full name (official formulae have no longer one)")
 	// brew's other spellings of --direct.
@@ -545,11 +764,81 @@ func (a *application) depsCommand() *cobra.Command {
 		cmd.Flags().BoolVar(&opts.Direct, alias, false, "Show only direct dependencies")
 		_ = cmd.Flags().MarkHidden(alias)
 	}
+	cmd.MarkFlagsMutuallyExclusive("tree", "graph")
+	cmd.MarkFlagsMutuallyExclusive("installed", "missing")
 	return cmd
 }
 
-// renderDepsTree follows brew deps --tree: each tree ends with a blank line.
-func renderDepsTree(w io.Writer, roots []engine.DepNode) error {
+// declaredReason is why brew deps reads declared dependencies, if it does; when
+// several options apply, brew names the last in this order.
+func declaredReason(opts engine.DepsOptions, tree, graph, allInstalled bool) string {
+	reason := ""
+	if !allInstalled && !opts.Installed {
+		reason = "`--installed` was not passed"
+	}
+	for _, option := range []struct {
+		set  bool
+		name string
+	}{
+		{opts.Direct, "direct"}, {tree, "tree"}, {graph, "graph"}, {opts.SkipRecommended, "skip-recommended"}, {opts.Missing, "missing"},
+		{opts.IncludeImplicit, "include-implicit"}, {opts.IncludeBuild, "include-build"}, {opts.IncludeTest, "include-test"}, {opts.IncludeOptional, "include-optional"},
+	} {
+		if option.set {
+			reason = "--" + option.name + " was passed"
+		}
+	}
+	return reason
+}
+
+// dotCode ports brew deps --graph --dot.
+func dotCode(edges []engine.DepEdge) string {
+	lines := make([]string, len(edges))
+	for i, edge := range edges {
+		dep := edge.Dependency
+		var attributes, tags []string
+		if dep.Build {
+			attributes = append(attributes, "style = dotted")
+			tags = append(tags, ":build")
+		}
+		if dep.Test {
+			attributes = append(attributes, "arrowhead = empty")
+			tags = append(tags, ":test")
+		}
+		if dep.Recommended {
+			tags = append(tags, ":recommended")
+		}
+		if dep.Optional {
+			attributes = append(attributes, "color = red")
+			tags = append(tags, ":optional")
+		} else if dep.Recommended {
+			attributes = append(attributes, "color = green")
+		}
+		if dep.Implicit {
+			tags = append(tags, ":implicit")
+		}
+		if dep.NoLinkage {
+			tags = append(tags, ":no_linkage")
+		}
+		lines[i] = fmt.Sprintf("  %q -> %q", edge.From, dep.Name)
+		if len(attributes) > 0 {
+			lines[i] += " [" + strings.Join(attributes, ", ") + "]"
+		}
+		if len(tags) > 0 {
+			lines[i] += " # " + strings.Join(tags, ", ")
+		}
+	}
+	return "digraph {\n" + strings.Join(lines, "\n") + "\n}"
+}
+
+// graphvizURL is where brew deps --graph opens a graph. The code stays in the
+// URL fragment, which browsers do not send to the site.
+func graphvizURL(code string) string {
+	return "https://dreampuf.github.io/GraphvizOnline/#" + strings.ReplaceAll(url.QueryEscape(code), "+", "%20")
+}
+
+// renderDepsTree follows brew deps --tree: each tree ends with a blank line, and
+// --annotate adds a space to every name, tagged or not.
+func renderDepsTree(w io.Writer, roots []engine.DepNode, annotate bool) error {
 	var walk func(nodes []engine.DepNode, prefix string) error
 	walk = func(nodes []engine.DepNode, prefix string) error {
 		for i, node := range nodes {
@@ -563,7 +852,14 @@ func renderDepsTree(w io.Writer, roots []engine.DepNode) error {
 			} else if node.Pruned {
 				mark = " (PRUNED)"
 			}
-			if _, err := fmt.Fprintln(w, cleanText(prefix+branch+node.Name+mark)); err != nil {
+			label := node.Name
+			if annotate {
+				label += " "
+			}
+			for _, tag := range node.Tags {
+				label += " [" + tag + "]"
+			}
+			if _, err := fmt.Fprintln(w, cleanText(prefix+branch+label+mark)); err != nil {
 				return err
 			}
 			if err := walk(node.Dependencies, prefix+indent); err != nil {
@@ -588,21 +884,30 @@ func renderDepsTree(w io.Writer, roots []engine.DepNode) error {
 
 // usesCommand mirrors brew uses [--installed] [--recursive] formula...
 func (a *application) usesCommand() *cobra.Command {
-	var installed, recursive bool
+	var opts engine.DepsOptions
+	var recursive bool
 	cmd := a.commandFor("uses <formula>...", "Show formulae that depend on formulae (their intersection for several)", cobra.MinimumNArgs(1), func(ctx context.Context, names []string) error {
 		e, err := a.getEngine()
 		if err != nil {
 			return err
 		}
-		uses, err := e.Uses(ctx, names, installed, recursive)
+		opts.Direct = !recursive
+		uses, err := e.Uses(ctx, names, opts)
 		if err != nil {
 			return err
 		}
 		a.names(uses, "")
 		return nil
 	})
-	cmd.Flags().BoolVar(&installed, "installed", false, "Only list installed formulae, without network access")
+	cmd.Flags().BoolVar(&opts.Installed, "installed", false, "Only list installed formulae, without network access")
+	cmd.Flags().BoolVar(&opts.Missing, "missing", false, "Only list formulae that are not installed")
 	cmd.Flags().BoolVar(&recursive, "recursive", false, "Resolve more than one level of dependencies")
+	cmd.Flags().BoolVar(&opts.IncludeBuild, "include-build", false, "Include formulae that need it to build")
+	cmd.Flags().BoolVar(&opts.IncludeTest, "include-test", false, "Include formulae that need it to test")
+	cmd.Flags().BoolVar(&opts.IncludeOptional, "include-optional", false, "Include formulae that use it optionally")
+	cmd.Flags().BoolVar(&opts.IncludeImplicit, "include-implicit", false, "Include formulae that need it to unpack source files")
+	cmd.Flags().BoolVar(&opts.SkipRecommended, "skip-recommended", false, "Skip formulae that only recommend it")
+	cmd.MarkFlagsMutuallyExclusive("installed", "missing")
 	return cmd
 }
 

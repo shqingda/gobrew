@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strings"
 	"text/tabwriter"
+	"time"
 	"unicode"
 
 	"github.com/shqingda/gobrew/internal/engine"
@@ -56,11 +57,25 @@ func (a *application) renderInstall(w io.Writer, e *engine.Engine, request model
 		}
 	}
 	for _, name := range result.Succeeded {
+		if !slices.Contains(request.Names, name) {
+			continue
+		}
+		if request.SkipPostInstall {
+			lines = append(lines, "==> Skipping 'post_install' on request", "You can run it manually using:", "  gobrew postinstall "+name)
+		}
+		if request.SkipLink {
+			lines = append(lines, "==> Skipping 'link' on request", "You can run it manually using:", "  gobrew link "+name)
+		}
+	}
+	for _, name := range result.Succeeded {
 		r := records[name]
 		if !r.Requested {
 			continue
 		}
 		var caveats []string
+		if r.Formula.KegOnly && !r.Linked {
+			caveats = append(caveats, a.kegOnlyCaveat(r.Formula, e.Prefix(), r.Keg))
+		}
 		if text := formulaCaveats(r.Formula, e.Prefix()); text != "" {
 			caveats = append(caveats, text)
 		}
@@ -69,6 +84,11 @@ func (a *application) renderInstall(w io.Writer, e *engine.Engine, request model
 		}
 		if len(caveats) > 0 {
 			lines = append(append(lines, "==> Caveats"), caveats...)
+		}
+	}
+	for _, name := range result.Succeeded {
+		if r := records[name]; r.Formula.Deprecated {
+			fmt.Fprintln(a.stderr, cleanText("Warning: "+name+" has been "+r.Formula.DeprecationMessage(time.Now())))
 		}
 	}
 	for _, name := range result.Historic {
@@ -96,7 +116,7 @@ func (a *application) renderInstall(w io.Writer, e *engine.Engine, request model
 			lines = append(lines, group.label+": "+strings.Join(group.names, ", "))
 		}
 	}
-	lines = append(lines, notes...)
+	lines = append(append(lines, a.times.lines()...), notes...)
 	for _, line := range lines {
 		if _, err := fmt.Fprintln(w, cleanText(line)); err != nil {
 			return err

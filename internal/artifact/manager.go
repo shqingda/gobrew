@@ -34,9 +34,10 @@ type Config struct {
 }
 
 type Manager struct {
-	cfg    Config
-	mu     sync.Mutex
-	leases map[string][]func() error
+	cfg         Config
+	retryDelays []time.Duration
+	mu          sync.Mutex
+	leases      map[string][]func() error
 }
 
 func New(cfg Config) *Manager {

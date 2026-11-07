@@ -214,7 +214,7 @@ func TestPreviewLinkedPredictsSetLinkedWithoutTouchingPrefix(t *testing.T) {
 	if err := os.MkdirAll(filepath.Dir(link), 0755); err != nil {
 		t.Fatal(err)
 	}
-	preview, err := i.PreviewLinked(names, true, false)
+	preview, err := i.PreviewLinked(names, true)
 	if err != nil || !slices.Equal(preview[0].Paths, want) {
 		t.Fatalf("preview = %+v, %v", preview, err)
 	}
@@ -225,7 +225,7 @@ func TestPreviewLinkedPredictsSetLinkedWithoutTouchingPrefix(t *testing.T) {
 	if err = os.WriteFile(link, []byte("mine"), 0644); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = i.PreviewLinked(names, true, false); !errors.Is(err, model.ErrConflict) {
+	if _, err = i.PreviewLinked(names, true); !errors.Is(err, model.ErrConflict) {
 		t.Fatalf("preview hid a foreign file: %v", err)
 	}
 	if err = os.Remove(link); err != nil {
@@ -241,7 +241,7 @@ func TestPreviewLinkedPredictsSetLinkedWithoutTouchingPrefix(t *testing.T) {
 		t.Fatalf("second link = %+v, %v", again, err)
 	}
 
-	preview, err = i.PreviewLinked(names, false, false)
+	preview, err = i.PreviewLinked(names, false)
 	if err != nil || !slices.Equal(preview[0].Paths, want) {
 		t.Fatalf("unlink preview = %+v, %v", preview, err)
 	}
@@ -254,5 +254,35 @@ func TestPreviewLinkedPredictsSetLinkedWithoutTouchingPrefix(t *testing.T) {
 	}
 	if _, err = os.Lstat(filepath.Join(prefix, "opt/tool")); err != nil {
 		t.Fatalf("unlink removed the opt link: %v", err)
+	}
+}
+
+func TestKegOnlyLinkNeedsForceUnlessVersioned(t *testing.T) {
+	for _, tc := range []struct {
+		reason     string
+		force      bool
+		needsForce bool
+	}{
+		{":provided_by_macos", false, true},
+		{":provided_by_macos", true, false},
+		{model.KegOnlyVersioned, false, false},
+	} {
+		prefix := t.TempDir()
+		keg, owner := testutil.OwnedKeg(t, prefix, "tool", "1")
+		if err := os.Mkdir(filepath.Join(keg, "bin"), 0755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(keg, "bin/tool"), []byte("x"), 0755); err != nil {
+			t.Fatal(err)
+		}
+		record := model.Record{Formula: model.Formula{Name: "tool", KegOnly: true, KegOnlyReason: tc.reason}, Keg: keg, Owner: owner}
+		s := model.Snapshot{Records: map[string]model.Record{"tool": record}}
+		results, err := (Installer{Prefix: prefix}).changeLinked(&s, []string{"tool"}, true, tc.force)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := results[0]; got.NeedsForce != tc.needsForce || s.Records["tool"].Linked == tc.needsForce || (len(got.Paths) == 0) != tc.needsForce {
+			t.Fatalf("%+v: %+v, linked = %v", tc, got, s.Records["tool"].Linked)
+		}
 	}
 }

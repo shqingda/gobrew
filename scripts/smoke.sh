@@ -42,6 +42,13 @@ python="$prefix/opt/python@3.15/bin/python3.15"
 "${gb[@]}" install hello jq ca-certificates node python@3.15
 "${gb[@]}" pin jq
 "${gb[@]}" unpin jq
+# python@3.15 brings in keg-only sqlite: link only warns without --force.
+"${gb[@]}" link sqlite
+test ! -e "$prefix/bin/sqlite3"
+"${gb[@]}" link --dry-run sqlite | grep -x "$prefix/bin/sqlite3" >/dev/null
+"${gb[@]}" link --force sqlite
+"$prefix/bin/sqlite3" --version
+"${gb[@]}" unlink sqlite
 "${gb[@]}" unlink --dry-run hello | grep -x "$prefix/bin/hello" >/dev/null
 test -e "$prefix/bin/hello"
 "${gb[@]}" unlink hello

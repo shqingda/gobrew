@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"time"
@@ -16,15 +17,25 @@ import (
 )
 
 func (a *application) installCommand(action string) *cobra.Command {
-	var dryRun bool
+	var dryRun, displayTimes, asDependency, onlyDependencies, skipLink, skipPostInstall bool
 	args, use := cobra.MinimumNArgs(1), action+" <formula>..."
 	if action == "upgrade" {
 		args, use = cobra.ArbitraryArgs, "upgrade [formula...]"
 	}
 	cmd := a.commandFor(use, strings.ToUpper(action[:1])+action[1:]+" official core bottles and their dependencies", args, func(ctx context.Context, names []string) error {
-		return a.install(ctx, model.Request{Action: action, Names: names}, dryRun)
+		if displayTimes {
+			a.times = &installTimes{}
+		}
+		return a.install(ctx, model.Request{Action: action, Names: names, AsDependency: asDependency, OnlyDependencies: onlyDependencies, SkipLink: skipLink, SkipPostInstall: skipPostInstall}, dryRun)
 	})
 	cmd.Flags().BoolVarP(&dryRun, "dry-run", "n", false, "Resolve and show the exact plan without installing")
+	cmd.Flags().BoolVar(&displayTimes, "display-times", os.Getenv("GOBREW_DISPLAY_INSTALL_TIMES") != "", "Print install times for each package at the end of the run")
+	if action == "install" {
+		cmd.Flags().BoolVar(&asDependency, "as-dependency", false, "Install but mark as a dependency, not installed on request")
+		cmd.Flags().BoolVar(&onlyDependencies, "only-dependencies", false, "Install the dependencies but not the formula itself")
+		cmd.Flags().BoolVar(&skipLink, "skip-link", false, "Install but skip linking the keg into the prefix")
+		cmd.Flags().BoolVar(&skipPostInstall, "skip-post-install", false, "Install but skip any post-install steps")
+	}
 	if action != "reinstall" {
 		// gobrew never asks for confirmation; accepted for brew scripts.
 		cmd.Flags().BoolP("no-ask", "y", false, "Do not ask for confirmation (gobrew never asks)")
@@ -183,18 +194,24 @@ func (a *application) linkCommand(linked bool) *cobra.Command {
 			return err
 		}
 		if dryRun {
-			results, err := e.PreviewLink(names, linked, force)
+			results, err := e.PreviewLink(names, linked)
 			if err != nil {
 				return err
 			}
-			a.setResult(results, func(w io.Writer) error { return a.renderLinks(w, results, linked, true) })
+			a.setResult(results, func(w io.Writer) error { return a.renderLinks(w, e.Prefix(), results, linked, true) })
 			return nil
 		}
 		results, err := e.Link(ctx, names, linked, force)
 		if err != nil {
 			return err
 		}
-		a.setResult(names, func(w io.Writer) error { return a.renderLinks(w, results, linked, false) })
+		done := make([]string, 0, len(results))
+		for _, r := range results {
+			if !r.NeedsForce {
+				done = append(done, r.Name)
+			}
+		}
+		a.setResult(done, func(w io.Writer) error { return a.renderLinks(w, e.Prefix(), results, linked, false) })
 		return nil
 	})
 	if linked {
@@ -208,14 +225,20 @@ func (a *application) linkCommand(linked bool) *cobra.Command {
 	return cmd
 }
 
-// renderLinks follows brew's link and unlink output. An already linked keg is
-// a warning, with exit status 0, in both real and dry runs.
-func (a *application) renderLinks(w io.Writer, results []model.LinkResult, linked, dryRun bool) error {
+// renderLinks follows brew's link and unlink output. An already linked keg, or
+// a keg-only one without --force, is a warning with exit status 0.
+func (a *application) renderLinks(w io.Writer, prefix string, results []model.LinkResult, linked, dryRun bool) error {
 	for _, r := range results {
 		var lines []string
 		switch {
 		case r.AlreadyLinked:
-			fmt.Fprintln(a.stderr, cleanText("Warning: Already linked: "+r.Keg+"\nTo relink, run:\n  gobrew unlink "+r.Name+" && gobrew link "+r.Name))
+			force := ""
+			if r.KegOnly {
+				force = "--force "
+			}
+			fmt.Fprintln(a.stderr, cleanText("Warning: Already linked: "+r.Keg+"\nTo relink, run:\n  gobrew unlink "+r.Name+" && gobrew link "+force+r.Name))
+		case r.NeedsForce:
+			fmt.Fprintln(a.stderr, cleanText("Warning: "+r.Name+" is keg-only and must be linked with `--force`."))
 		case dryRun && linked:
 			lines = append([]string{"Would link:"}, r.Paths...)
 		case dryRun:
@@ -224,6 +247,9 @@ func (a *application) renderLinks(w io.Writer, results []model.LinkResult, linke
 			lines = []string{fmt.Sprintf("Linking %s... %d symlinks created.", r.Keg, len(r.Paths))}
 		default:
 			lines = []string{fmt.Sprintf("Unlinking %s... %d symlinks removed.", r.Keg, len(r.Paths))}
+		}
+		if r.KegOnly && !r.AlreadyLinked {
+			lines = append(lines, a.pathHint("If you need to have this software first in your PATH instead consider running:", filepath.Join(prefix, "opt", r.Name), r.Keg)...)
 		}
 		for _, line := range lines {
 			if _, err := fmt.Fprintln(w, cleanText(line)); err != nil {
@@ -248,33 +274,79 @@ func (a *application) postinstall(ctx context.Context, names []string) error {
 }
 
 func (a *application) withEvents(run func(chan<- model.Event) error) error {
-	if a.json || a.quiet {
+	show := !a.json && !a.quiet
+	if !show && a.times == nil {
 		return run(nil)
 	}
 	events := make(chan model.Event, 64)
 	done := make(chan error, 1)
 	go func() {
-		p := newProgress(a.stderr)
+		var p *progress
+		if show {
+			p = newProgress(a.stderr)
+		}
 		var writeErr error
 		ticker := time.NewTicker(time.Second)
 		defer ticker.Stop()
 		for open := true; open; {
 			select {
 			case event, ok := <-events:
-				if open = ok; ok && writeErr == nil {
+				if open = ok; ok {
+					a.times.observe(event, time.Now())
+				}
+				if ok && p != nil && writeErr == nil {
 					writeErr = p.event(event)
 				}
 			case <-ticker.C:
-				if writeErr == nil {
+				if p != nil && writeErr == nil {
 					writeErr = p.tick()
 				}
 			}
 		}
-		done <- errors.Join(writeErr, p.clear())
+		if p != nil {
+			writeErr = errors.Join(writeErr, p.clear())
+		}
+		done <- writeErr
 	}()
 	err := run(events)
 	close(events)
 	return errors.Join(err, <-done)
+}
+
+// installTimes follows brew's --display-times. Packages prepare in parallel, so
+// each time runs from the package's first progress event until it is installed
+// and can overlap the others.
+type installTimes struct {
+	started map[string]time.Time
+	order   []string
+	took    map[string]time.Duration
+}
+
+func (t *installTimes) observe(event model.Event, now time.Time) {
+	if t == nil || event.Package == "" {
+		return
+	}
+	if t.started == nil {
+		t.started, t.took = map[string]time.Time{}, map[string]time.Duration{}
+	}
+	if _, ok := t.started[event.Package]; !ok {
+		t.started[event.Package] = now
+	}
+	if _, done := t.took[event.Package]; event.Phase == "installed" && !done {
+		t.took[event.Package] = now.Sub(t.started[event.Package])
+		t.order = append(t.order, event.Package)
+	}
+}
+
+func (t *installTimes) lines() []string {
+	if t == nil || len(t.order) == 0 {
+		return nil
+	}
+	lines := []string{"==> Installation times"}
+	for _, name := range t.order {
+		lines = append(lines, fmt.Sprintf("%-20s %10.3f s", name, t.took[name].Seconds()))
+	}
+	return lines
 }
 
 // afterInstall gathers what to tell the user once packages are in place:

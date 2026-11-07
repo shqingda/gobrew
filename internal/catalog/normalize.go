@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"path"
 	"regexp"
 	"slices"
 	"strconv"
@@ -34,9 +35,18 @@ type rawFormula struct {
 			Files   map[string]model.Bottle `json:"files"`
 		} `json:"stable"`
 	} `json:"bottle"`
+	URLs struct {
+		Stable struct {
+			URL   string `json:"url"`
+			Using any    `json:"using"`
+		} `json:"stable"`
+	} `json:"urls"`
 	Dependencies          []string            `json:"dependencies"`
 	NoLinkageDependencies []string            `json:"no_linkage_dependencies"`
+	Build                 []string            `json:"build_dependencies"`
+	Test                  []string            `json:"test_dependencies"`
 	Recommended           []string            `json:"recommended_dependencies"`
+	Optional              []string            `json:"optional_dependencies"`
 	UsesFromMacOS         []json.RawMessage   `json:"uses_from_macos"`
 	UsesFromMacOSBounds   []map[string]string `json:"uses_from_macos_bounds"`
 	Requirements          []struct {
@@ -45,12 +55,24 @@ type rawFormula struct {
 		Contexts []string        `json:"contexts"`
 		Specs    []string        `json:"specs"`
 	} `json:"requirements"`
-	Conflicts          []string          `json:"conflicts_with"`
-	ConflictReasons    []string          `json:"conflicts_with_reasons"`
-	SourcePath         string            `json:"ruby_source_path"`
-	KegOnly            bool              `json:"keg_only"`
+	Conflicts       []string `json:"conflicts_with"`
+	ConflictReasons []string `json:"conflicts_with_reasons"`
+	SourcePath      string   `json:"ruby_source_path"`
+	KegOnly         bool     `json:"keg_only"`
+	KegOnlyReason   struct {
+		Reason      string `json:"reason"`
+		Explanation string `json:"explanation"`
+	} `json:"keg_only_reason"`
 	Disabled           bool              `json:"disabled"`
 	Deprecated         bool              `json:"deprecated"`
+	DeprecationDate    string            `json:"deprecation_date"`
+	DeprecationReason  string            `json:"deprecation_reason"`
+	DeprecationFormula string            `json:"deprecation_replacement_formula"`
+	DeprecationCask    string            `json:"deprecation_replacement_cask"`
+	DisableDate        string            `json:"disable_date"`
+	DisableReason      string            `json:"disable_reason"`
+	DisableFormula     string            `json:"disable_replacement_formula"`
+	DisableCask        string            `json:"disable_replacement_cask"`
 	Caveats            string            `json:"caveats"`
 	PostInstallDefined bool              `json:"post_install_defined"`
 	Steps              []json.RawMessage `json:"post_install_steps"`
@@ -93,7 +115,7 @@ func normalize(data json.RawMessage, host model.Platform) (model.Formula, error)
 	if !formulaName.MatchString(raw.Name) {
 		return model.Formula{}, fmt.Errorf("unsafe formula name %q", raw.Name)
 	}
-	f := model.Formula{Name: raw.Name, Aliases: raw.Aliases, Description: raw.Description, Homepage: raw.Homepage, License: raw.License, Version: raw.Versions.Stable, Revision: raw.Revision, VersionScheme: raw.VersionScheme, CompatibilityVersion: raw.CompatibilityVersion, BottleRebuild: raw.Bottle.Stable.Rebuild, Bottles: raw.Bottle.Stable.Files, Dependencies: append(raw.Dependencies, raw.Recommended...), NoLinkageDependencies: raw.NoLinkageDependencies, Conflicts: raw.Conflicts, ConflictReasons: raw.ConflictReasons, SourcePath: raw.SourcePath, KegOnly: raw.KegOnly, Disabled: raw.Disabled, Deprecated: raw.Deprecated, Caveats: raw.Caveats, PostInstallDefined: raw.PostInstallDefined, Steps: raw.Steps}
+	f := model.Formula{Name: raw.Name, Aliases: raw.Aliases, Description: raw.Description, Homepage: raw.Homepage, License: raw.License, Version: raw.Versions.Stable, Revision: raw.Revision, VersionScheme: raw.VersionScheme, CompatibilityVersion: raw.CompatibilityVersion, BottleRebuild: raw.Bottle.Stable.Rebuild, Bottles: raw.Bottle.Stable.Files, Dependencies: append(raw.Dependencies, raw.Recommended...), NoLinkageDependencies: raw.NoLinkageDependencies, Conflicts: raw.Conflicts, ConflictReasons: raw.ConflictReasons, SourcePath: raw.SourcePath, KegOnly: raw.KegOnly, KegOnlyReason: raw.KegOnlyReason.Reason, KegOnlyExplanation: raw.KegOnlyReason.Explanation, Disabled: raw.Disabled, Deprecated: raw.Deprecated, DeprecationDate: raw.DeprecationDate, DeprecationReason: raw.DeprecationReason, DeprecationFormula: raw.DeprecationFormula, DeprecationCask: raw.DeprecationCask, DisableDate: raw.DisableDate, DisableReason: raw.DisableReason, DisableFormula: raw.DisableFormula, DisableCask: raw.DisableCask, Caveats: raw.Caveats, PostInstallDefined: raw.PostInstallDefined, Steps: raw.Steps}
 	unsupported := func(reason string) {
 		if f.UnsupportedReason == "" {
 			f.UnsupportedReason = reason
@@ -124,6 +146,7 @@ func normalize(data json.RawMessage, host model.Platform) (model.Formula, error)
 			}
 		}
 	}
+	f.DeclaredDependencies = declaredDependencies(raw)
 	if len(raw.UsesFromMacOSBounds) > 0 && len(raw.UsesFromMacOSBounds) != len(raw.UsesFromMacOS) {
 		unsupported("uses_from_macos bounds do not match dependencies")
 	}
@@ -133,33 +156,41 @@ func normalize(data json.RawMessage, host model.Platform) (model.Formula, error)
 			unsupported(err.Error())
 			continue
 		}
-		if slices.Contains(contexts, "build") || slices.Contains(contexts, "test") {
-			continue
-		}
+		// Only runtime dependencies decide whether a bottle can be installed.
+		buildOrTest := slices.Contains(contexts, "build") || slices.Contains(contexts, "test")
+		runtime := !buildOrTest && !slices.Contains(contexts, "optional")
 		for _, context := range contexts {
-			if context != "recommended" && context != "no_linkage" && context != "optional" {
+			if !buildOrTest && context != "recommended" && context != "no_linkage" && context != "optional" {
 				unsupported("unknown uses_from_macos context: " + context)
 			}
-		}
-		if slices.Contains(contexts, "optional") {
-			continue
 		}
 		useSystem := host.OS == "darwin"
 		if i < len(raw.UsesFromMacOSBounds) {
 			for key, value := range raw.UsesFromMacOSBounds[i] {
-				if key != "since" {
-					unsupported("unknown uses_from_macos bound: " + key)
-					continue
-				}
 				major, ok := macOSNames[value]
-				if !ok {
-					unsupported("unknown macOS dependency version: " + value)
-				} else if host.Major < major {
+				switch {
+				case key != "since":
+					if runtime {
+						unsupported("unknown uses_from_macos bound: " + key)
+					}
+				case !ok:
+					if runtime {
+						unsupported("unknown macOS dependency version: " + value)
+					}
+				case host.Major < major:
 					useSystem = false
 				}
 			}
 		}
-		if !useSystem {
+		if useSystem {
+			continue
+		}
+		f.DeclaredDependencies = append(f.DeclaredDependencies, model.DeclaredDependency{
+			Name: name, Build: slices.Contains(contexts, "build"), Test: slices.Contains(contexts, "test"),
+			Recommended: slices.Contains(contexts, "recommended"), Optional: slices.Contains(contexts, "optional"),
+			NoLinkage: slices.Contains(contexts, "no_linkage"),
+		})
+		if runtime {
 			f.Dependencies = append(f.Dependencies, name)
 		}
 	}
@@ -238,6 +269,54 @@ func normalize(data json.RawMessage, host model.Platform) (model.Formula, error)
 		f.Bottles[tag] = b
 	}
 	return f, nil
+}
+
+// implicitDependencies are what unpacking the source archive needs. They are
+// Homebrew's macOS rules for the download strategies homebrew/core uses; brew
+// checks its fixed system PATH for zstd, which macOS does not ship.
+func implicitDependencies(raw rawFormula) []model.DeclaredDependency {
+	var names []string
+	using, url := raw.URLs.Stable.Using, raw.URLs.Stable.URL
+	if using == "homebrew_curl" {
+		names = append(names, "curl")
+	}
+	if using == nil || using == "homebrew_curl" {
+		if name, ok := map[string]string{".zst": "zstd", ".lha": "lha", ".lzh": "lha", ".lz": "lzip", ".rar": "libarchive", ".7z": "p7zip"}[path.Ext(url)]; ok {
+			names = append(names, name)
+		}
+	}
+	implicit := make([]model.DeclaredDependency, len(names))
+	for i, name := range names {
+		implicit[i] = model.DeclaredDependency{Name: name, Build: true, Test: true, Implicit: true}
+	}
+	return implicit
+}
+
+// declaredDependencies follows Homebrew's API loader: implicit dependencies,
+// plain ones, then each tagged name once, with every tag it has.
+func declaredDependencies(raw rawFormula) []model.DeclaredDependency {
+	seen := map[string]bool{}
+	declared := implicitDependencies(raw)
+	for _, name := range raw.Dependencies {
+		if !seen[name] {
+			seen[name] = true
+			declared = append(declared, model.DeclaredDependency{Name: name, NoLinkage: slices.Contains(raw.NoLinkageDependencies, name)})
+		}
+	}
+	clear(seen)
+	for _, names := range [][]string{raw.Build, raw.Test, raw.Recommended, raw.Optional} {
+		for _, name := range names {
+			if !seen[name] {
+				seen[name] = true
+				declared = append(declared, model.DeclaredDependency{
+					Name: name, Build: slices.Contains(raw.Build, name), Test: slices.Contains(raw.Test, name),
+					Recommended: slices.Contains(raw.Recommended, name), Optional: slices.Contains(raw.Optional, name),
+					NoLinkage: slices.Contains(raw.NoLinkageDependencies, name),
+				})
+			}
+		}
+	}
+	return declared
 }
 
 func macOSDependency(raw json.RawMessage) (string, []string, error) {

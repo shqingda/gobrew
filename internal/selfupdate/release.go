@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/shqingda/gobrew/internal/model"
+	"github.com/shqingda/gobrew/internal/platform"
 )
 
 const repository = "https://github.com/shqingda/gobrew"
@@ -33,7 +34,15 @@ func releaseClient() *http.Client {
 	}}
 }
 
-func get(ctx context.Context, client *http.Client, url string, limit int64) ([]byte, error) {
+func get(ctx context.Context, client *http.Client, url string, limit int64) (body []byte, err error) {
+	err = platform.Retry(ctx, nil, func() error {
+		body, err = getOnce(ctx, client, url, limit)
+		return err
+	})
+	return body, err
+}
+
+func getOnce(ctx context.Context, client *http.Client, url string, limit int64) ([]byte, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return nil, err
@@ -45,7 +54,7 @@ func get(ctx context.Context, client *http.Client, url string, limit int64) ([]b
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("release download: HTTP %d from %s", resp.StatusCode, req.URL.Host)
+		return nil, platform.StatusError(resp.StatusCode, fmt.Sprintf("release download: HTTP %d from %s", resp.StatusCode, req.URL.Host))
 	}
 	body, err := io.ReadAll(io.LimitReader(resp.Body, limit+1))
 	if err == nil && int64(len(body)) > limit {

@@ -160,6 +160,7 @@ func (i Installer) stagePackage(ctx context.Context, j *state.Journal, staging s
 		rec.Pinned = old.Pinned
 		rec.Linked = old.Linked
 	}
+	rec.Linked = rec.Linked && !pkg.SkipLink
 	for n := range rec.Dependencies {
 		rec.Dependencies[n].Name = strings.TrimPrefix(rec.Dependencies[n].Name, "homebrew/core/")
 	}
@@ -178,6 +179,9 @@ func (i Installer) stagePackage(ctx context.Context, j *state.Journal, staging s
 	j.Moves = append(j.Moves, state.Move{From: dest, To: keg, Owner: owner})
 	j.After.Records[f.Name] = rec
 	j.Packages = append(j.Packages, f.Name)
+	if pkg.SkipPostInstall {
+		j.SkipPostInstall = append(j.SkipPostInstall, f.Name)
+	}
 	return nil
 }
 

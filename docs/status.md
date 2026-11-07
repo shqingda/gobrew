@@ -40,13 +40,15 @@
   - 不支持 `link --overwrite`：从不覆盖别人的文件。
   - `cleanup --prune-prefix` 和完整 `cleanup` 只清理指向本 prefix `Cellar`、且没有 record 声明的失效链接，以及链接目录下的空目录；brew 会删除所有失效链接。`etc`、`var` 从不清理。
   - `self` 是 brew 没有的命令，由用户决定保留，见 [0003 决定](decisions/0003-restore-self-command.md)。
+  - 一个 prefix 里每个 Formula 只有一个 keg，旧版本进 `.gobrew/backups` 等待清理，所以 `list --versions` 只显示当前版本，`list --multiple` 总是空的。
+  - 同时标记了 deprecated 和 disabled 的 Formula，gobrew 仍按 disabled 拒绝安装；brew 只给警告。
+  - `install --skip-link` 仍然检查 `conflicts_with`；brew 这时跳过检查。
+  - `--display-times` 的每个包时间从它的第一个进度事件算到安装完成；gobrew 并行准备，所以各包时间会重叠，brew 是逐个计时。
+  - 没有 `doctor --list-checks`：brew 列出的是它自己的 `Diagnostic::Checks` 方法名，gobrew 的检查不是按这些方法组织的。
   - `version-install` 在原名下安装指定版本；brew 会把它提取成个人 tap 中的独立 Formula（如 `uv@0.13.5`）。
 - **尚未实现的参数和输出**：
-  - `info` 没有 `--HEAD` 相关内容、Options、Analytics，也没有 keg-only 的具体原因和编译器提示。Formula 的弃用原因同样没有。
-  - `info` 的 `Required` 把 recommended 依赖合在一起；`deps` 不带名字也不带 `--installed` 时 gobrew 报用法错误，brew 会列出全部 Formula。
-  - `deps` 的 `--graph`、`--dot`、`--missing`、`--annotate`、`--include-*`。
-  - `list --versions` 只显示当前版本，不列出保留的旧 keg；`list` 的 `-l`、`-r`、`-t`、`--multiple`。
-  - `link` 对 keg-only 不加 `--force` 时报错（退出码 3）；brew 只警告并以 0 退出。
+  - `info` 没有 `--HEAD` 相关内容、Options，以及 `--analytics` 的完整表格；摘要形式的 Analytics 已提供，可用 `GOBREW_NO_ANALYTICS` 或 `GOBREW_NO_GITHUB_API` 关闭。
+  - `deps --annotate -1` 里同名依赖同时有带标签和不带标签两项时，并列顺序可能与 brew 不同，因为 brew 用的是不稳定排序。
   - brew 的 `--json=v1/v2` 结构（gobrew 的 `--json` 是自己的格式）。
 
 ## 验证方式
@@ -54,6 +56,7 @@
 - **日常**：在本地运行 `make check`，并交付 dev 构建，由用户安装后测试。
 - **安装行为变更**：另外运行 `scripts/smoke.sh` 和 `scripts/smoke-version.sh`，在隔离目录中验证真实 bottle。
 - **GitHub Actions**：只在用户确认发版后使用，详见 [工程约束](../CONSTRAINTS.md)。
+- **`deps` 对照**：`--include-build`、`--include-optional`、`--skip-recommended` 全量逐行对比 8706 个 Formula，结果一致；`--tree`、`--graph --dot`、`--annotate`、`--include-test`、`--missing` 用单个 Formula 抽样对比。全量模式下 brew 的 `--include-test` 会因内部缓存受遍历顺序影响，所以不用全量结果比较。
 - **性能数据**：每组数据只绑定当时的提交，见 [性能验证记录](performance.md)。
 
 ## 已知限制

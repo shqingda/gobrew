@@ -329,3 +329,57 @@ func TestExactDowngradePreservesInstalledReverseRuntimeMinimum(t *testing.T) {
 		}
 	}
 }
+
+func TestAsDependencyLeavesFormulaeUnrequested(t *testing.T) {
+	catalog := map[string]model.Formula{"a": formula("a", "1"), "b": formula("b", "1")}
+	state := model.Snapshot{Records: map[string]model.Record{"b": {Formula: formula("b", "1"), Status: model.Ready}}}
+	plan, err := Build(model.Request{Action: "install", Names: []string{"a", "b"}, AsDependency: true}, "snapshot", catalog, state, host, "/opt/gobrew")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(plan.Packages) != 1 || plan.Packages[0].Requested || len(plan.Promote) != 0 {
+		t.Fatalf("named formulae were marked requested: %+v", plan)
+	}
+}
+
+func TestOnlyDependenciesLeavesOutTheNamedFormula(t *testing.T) {
+	catalog := map[string]model.Formula{"a": formula("a", "1", "b"), "b": formula("b", "1"), "c": formula("c", "1", "a")}
+	names := func(plan model.Plan) string {
+		var got []string
+		for _, pkg := range plan.Packages {
+			if pkg.Requested {
+				t.Fatalf("dependency marked requested: %+v", pkg)
+			}
+			got = append(got, pkg.Formula.Name)
+		}
+		return strings.Join(got, " ")
+	}
+	plan, err := Build(model.Request{Action: "install", Names: []string{"a"}, OnlyDependencies: true}, "snapshot", catalog, model.Snapshot{}, host, "/opt/gobrew")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := names(plan); got != "b" {
+		t.Fatalf("packages = %q", got)
+	}
+	for _, order := range [][]string{{"a", "c"}, {"c", "a"}} {
+		plan, err = Build(model.Request{Action: "install", Names: order, OnlyDependencies: true}, "snapshot", catalog, model.Snapshot{}, host, "/opt/gobrew")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := names(plan); got != "b a" {
+			t.Fatalf("names %v: a dependency of another named formula was dropped: %q", order, got)
+		}
+	}
+}
+
+func TestSkipOptionsApplyToNamedFormulaeOnly(t *testing.T) {
+	catalog := map[string]model.Formula{"a": formula("a", "1", "b"), "b": formula("b", "1")}
+	plan, err := Build(model.Request{Action: "install", Names: []string{"a"}, SkipLink: true, SkipPostInstall: true}, "snapshot", catalog, model.Snapshot{}, host, "/opt/gobrew")
+	if err != nil {
+		t.Fatal(err)
+	}
+	dep, named := plan.Packages[0], plan.Packages[1]
+	if dep.SkipLink || dep.SkipPostInstall || !named.SkipLink || !named.SkipPostInstall {
+		t.Fatalf("skip options reached the wrong package: %+v", plan.Packages)
+	}
+}

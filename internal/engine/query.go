@@ -3,11 +3,13 @@ package engine
 import (
 	"cmp"
 	"context"
+	"errors"
 	"maps"
 	"slices"
 	"strings"
 	"time"
 
+	"github.com/shqingda/gobrew/internal/catalog"
 	"github.com/shqingda/gobrew/internal/model"
 	"github.com/shqingda/gobrew/internal/resolver"
 )
@@ -48,36 +50,67 @@ func (e *Engine) Outdated(ctx context.Context) ([]Outdated, error) {
 }
 
 // Uses lists formulae that depend on every named formula, like brew uses.
-// Installed reads installed receipts instead of the catalog; Recursive also
-// follows dependents of dependents.
-func (e *Engine) Uses(ctx context.Context, names []string, installed, recursive bool) ([]string, error) {
+// Direct stops at declared dependencies, so a caller sets it unless --recursive
+// was given. Installed reads installed receipts, unless the options ask for
+// dependencies receipts do not record; Missing keeps formulae not installed.
+func (e *Engine) Uses(ctx context.Context, names []string, opts DepsOptions) ([]string, error) {
+	snap, err := e.Installed()
+	if err != nil && opts.Installed {
+		return nil, err
+	}
+	if opts.Installed && !opts.scoped() {
+		return runtimeUses(names, snap.Records, !opts.Direct), nil
+	}
+	cat, err := e.Catalog(ctx)
+	if err != nil {
+		return nil, err
+	}
+	for i, name := range names {
+		f, err := cat.Lookup(name)
+		if err != nil {
+			return nil, err
+		}
+		names[i] = f.Name
+	}
+	return declaredUses(cat, snap.Records, names, opts)
+}
+
+// declaredUses tests each candidate like brew's select_used_dependents.
+func declaredUses(cat catalog.Snapshot, records map[string]model.Record, names []string, opts DepsOptions) ([]string, error) {
+	candidates := slices.Sorted(maps.Keys(cat.Formulae))
+	if opts.Installed {
+		candidates = slices.Sorted(maps.Keys(records))
+	}
+	walk := opts
+	walk.Installed, walk.Missing = false, false
+	source := declaredDeps(cat, records, walk)
+	result := []string{}
+	for _, candidate := range candidates {
+		if _, installed := records[candidate]; installed && opts.Missing {
+			continue
+		}
+		deps, err := dependencyOrder(candidate, source, walk, nil)
+		if errors.Is(err, model.ErrNotFound) {
+			continue
+		}
+		if err != nil {
+			return nil, err
+		}
+		if !slices.ContainsFunc(names, func(name string) bool {
+			return !slices.ContainsFunc(deps, func(dep model.DeclaredDependency) bool { return dep.Name == name })
+		}) {
+			result = append(result, candidate)
+		}
+	}
+	return result, nil
+}
+
+// runtimeUses reads the dependencies recorded by installed formulae.
+func runtimeUses(names []string, records map[string]model.Record, recursive bool) []string {
 	edges := map[string][]string{}
-	if installed {
-		snap, err := e.Installed()
-		if err != nil {
-			return nil, err
-		}
-		for n, r := range snap.Records {
-			for _, dep := range r.Dependencies {
-				edges[strings.TrimPrefix(dep.Name, "homebrew/core/")] = append(edges[strings.TrimPrefix(dep.Name, "homebrew/core/")], n)
-			}
-		}
-	} else {
-		cat, err := e.Catalog(ctx)
-		if err != nil {
-			return nil, err
-		}
-		for i, name := range names {
-			f, err := cat.Lookup(name)
-			if err != nil {
-				return nil, err
-			}
-			names[i] = f.Name
-		}
-		for n, item := range cat.Formulae {
-			for _, dep := range item.Dependencies {
-				edges[dep] = append(edges[dep], n)
-			}
+	for n, r := range records {
+		for _, dep := range r.Dependencies {
+			edges[strings.TrimPrefix(dep.Name, "homebrew/core/")] = append(edges[strings.TrimPrefix(dep.Name, "homebrew/core/")], n)
 		}
 	}
 	var result []string
@@ -102,11 +135,11 @@ func (e *Engine) Uses(ctx context.Context, names []string, installed, recursive 
 	if result == nil {
 		result = []string{}
 	}
-	return result, nil
+	return result
 }
 
 // combine folds one name list into the running result, keeping its order.
-func combine(result, names []string, first, union bool) []string {
+func combine[T comparable](result, names []T, first, union bool) []T {
 	switch {
 	case first:
 		return names
@@ -118,7 +151,7 @@ func combine(result, names []string, first, union bool) []string {
 		}
 		return result
 	default:
-		return slices.DeleteFunc(result, func(n string) bool { return !slices.Contains(names, n) })
+		return slices.DeleteFunc(result, func(n T) bool { return !slices.Contains(names, n) })
 	}
 }
 
@@ -134,6 +167,15 @@ func (e *Engine) Available(names []string) (map[string]model.Formula, error) {
 		return nil, err
 	}
 	return cat.Formulae, nil
+}
+
+// FormulaAnalytics reads the formulae.brew.sh install counts brew info shows.
+func (e *Engine) FormulaAnalytics(ctx context.Context, name string) ([]model.Analytics, error) {
+	client, err := e.client()
+	if err != nil {
+		return nil, err
+	}
+	return client.FormulaAnalytics(ctx, name)
 }
 
 // CatalogFetched reports when the local catalog was last refreshed.

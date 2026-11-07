@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/shqingda/gobrew/internal/model"
+	"github.com/shqingda/gobrew/internal/platform"
 )
 
 // History resolves one explicitly requested older version of a core formula.
@@ -31,6 +32,8 @@ type History struct {
 	Token    string // optional GitHub API token for higher rate limits
 	// Base URLs default to the official hosts; tests point them elsewhere.
 	GHCR, API, Raw string
+
+	retryDelays []time.Duration
 }
 
 const (
@@ -166,7 +169,7 @@ func (h History) Formula(ctx context.Context, current model.Formula, version str
 		SHA256: ghcr[best].digest,
 		Cellar: cellar,
 	}}
-	f.Dependencies, f.NoLinkageDependencies, f.RuntimeDependencies = deps, nil, nil
+	f.Dependencies, f.NoLinkageDependencies, f.DeclaredDependencies, f.RuntimeDependencies = deps, nil, nil, nil
 	f.KegOnly = kegOnly.MatchString(recipe)
 	f.Disabled, f.Deprecated, f.PostInstallDefined, f.Steps, f.UnsupportedReason = false, false, false, nil, ""
 	return f, nil
@@ -339,7 +342,15 @@ func (h History) getJSON(ctx context.Context, u, auth, accept string, v any) err
 	return json.Unmarshal(body, v)
 }
 
-func (h History) get(ctx context.Context, u, auth, accept string) ([]byte, error) {
+func (h History) get(ctx context.Context, u, auth, accept string) (body []byte, err error) {
+	err = platform.Retry(ctx, h.retryDelays, func() error {
+		body, err = h.getOnce(ctx, u, auth, accept)
+		return err
+	})
+	return body, err
+}
+
+func (h History) getOnce(ctx context.Context, u, auth, accept string) ([]byte, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
 	if err != nil {
 		return nil, err
@@ -361,7 +372,7 @@ func (h History) get(ctx context.Context, u, auth, accept string) ([]byte, error
 	}
 	defer res.Body.Close()
 	if res.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("%s returned HTTP %s", req.URL.Host, res.Status)
+		return nil, platform.StatusError(res.StatusCode, req.URL.Host+" returned HTTP "+res.Status)
 	}
 	body, err := io.ReadAll(io.LimitReader(res.Body, maxHistoryBody+1))
 	if err != nil {

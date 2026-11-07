@@ -160,7 +160,7 @@ func Build(req model.Request, generation string, formulae map[string]model.Formu
 		delete(visiting, name)
 		delete(unchanged, name)
 		delete(runtimeChecks, name)
-		selected[name] = model.Package{Formula: f, Bottle: bottle, Requested: requested[name] || record.Requested}
+		selected[name] = model.Package{Formula: f, Bottle: bottle, Requested: requested[name] && req.MarksRequested() || record.Requested, SkipLink: requested[name] && req.SkipLink, SkipPostInstall: requested[name] && req.SkipPostInstall}
 		return nil
 	}
 	for _, name := range roots {
@@ -177,6 +177,19 @@ func Build(req model.Request, generation string, formulae map[string]model.Formu
 		}
 		if err := visit(name, req.Action == "reinstall"); err != nil {
 			return plan, err
+		}
+	}
+	if req.OnlyDependencies {
+		// Decide every root before removing any, so the order of names does
+		// not matter.
+		var leave []string
+		for _, root := range roots {
+			if !neededBy(root, selected, canonical) {
+				leave = append(leave, root)
+			}
+		}
+		for _, root := range leave {
+			delete(selected, root)
 		}
 	}
 	// Old receipt edges remain authoritative for the reverse graph, even if
@@ -336,7 +349,7 @@ func Build(req model.Request, generation string, formulae map[string]model.Formu
 		}
 	}
 	for name := range requested {
-		if rec, ok := state.Records[name]; ok && !rec.Requested {
+		if rec, ok := state.Records[name]; ok && !rec.Requested && req.MarksRequested() {
 			if _, changed := selected[name]; !changed {
 				plan.Promote = append(plan.Promote, name)
 			}
@@ -385,4 +398,17 @@ func ValidateRuntime(plan model.Plan, prepared []model.PreparedPackage, state mo
 		}
 	}
 	return nil
+}
+
+// neededBy reports whether another selected package depends on name, which
+// keeps a named formula that is also a dependency of another named one.
+func neededBy(name string, selected map[string]model.Package, canonical func(string) (string, error)) bool {
+	for other, pkg := range selected {
+		for _, dep := range pkg.Formula.Dependencies {
+			if resolved, err := canonical(dep); err == nil && resolved == name && other != name {
+				return true
+			}
+		}
+	}
+	return false
 }
