@@ -47,10 +47,11 @@ func (a *application) installCommand(action string) *cobra.Command {
 		cmd.Flags().StringVar(&minimum, "minimum-version", "", "Only upgrade a named formula if its installed version is below the given minimum version")
 		cmd.Flags().StringVar(&minimumAlias, "min-version", "", "Alias of --minimum-version")
 	}
-	if action != "reinstall" {
-		// gobrew never asks for confirmation; accepted for brew scripts.
-		cmd.Flags().BoolP("no-ask", "y", false, "Do not ask for confirmation (gobrew never asks)")
-	}
+	// gobrew never asks for confirmation and only pours bottles; these are
+	// accepted so brew scripts keep working.
+	cmd.Flags().BoolP("no-ask", "y", false, "Do not ask for confirmation (gobrew never asks)")
+	cmd.Flags().Bool("yes", false, "Alias of --no-ask")
+	cmd.Flags().Bool("force-bottle", false, "Install from a bottle (gobrew always does)")
 	cmd.Example = map[string]string{
 		"install":   "  gobrew install jq\n  gobrew install --dry-run node",
 		"reinstall": "  gobrew reinstall jq",

@@ -335,3 +335,14 @@ func TestUpgradeMinimumVersionSkipsFormulaeAtOrAboveIt(t *testing.T) {
 		t.Fatalf("no formula: exit=%d", code)
 	}
 }
+
+func TestCompatibilityFlagsAreAccepted(t *testing.T) {
+	t.Setenv("GOBREW_NO_AUTO_UPDATE", "1")
+	for _, action := range []string{"install", "reinstall", "upgrade"} {
+		a, requests, _ := updateApp(t)
+		var stdout bytes.Buffer
+		if code := a.run(context.Background(), []string{action, "demo", "--dry-run", "--json", "-y", "--yes", "--force-bottle"}, &stdout, BuildInfo{}); code != 0 || requests.calls != 0 {
+			t.Fatalf("%s: exit=%d requests=%d stdout=%s stderr=%s", action, code, requests.calls, &stdout, a.stderr)
+		}
+	}
+}
