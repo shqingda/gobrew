@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -134,6 +135,7 @@ func (a *application) run(ctx context.Context, args []string, stdout io.Writer, 
 		args = append([]string{"search"}, args[1:]...)
 	}
 	root := a.root()
+	args = pathCommand(root, args)
 	root.SetArgs(args)
 	root.SetOut(stdout)
 	root.SetErr(stderr)
@@ -141,11 +143,14 @@ func (a *application) run(ctx context.Context, args []string, stdout io.Writer, 
 	if a.command == "" {
 		a.command = "gobrew"
 		if cmd != nil {
-			a.command = cmd.Name()
+			a.command = commandName(cmd)
 		}
 	}
 	if err != nil && !a.started && !errors.Is(err, context.Canceled) {
 		err = usageError{err}
+	}
+	if conflict := flagConflict(err); conflict != nil {
+		err = conflict
 	}
 	code, kind := classify(err)
 	// Cobra can reject an unknown command before parsing persistent flags.
@@ -175,7 +180,10 @@ func (a *application) run(ctx context.Context, args []string, stdout io.Writer, 
 		if code == 2 {
 			path := "gobrew"
 			if cmd != nil && cmd.HasParent() {
-				path = "gobrew " + strings.TrimPrefix(cmd.CommandPath(), cmd.Root().Name()+" ")
+				path = "gobrew " + commandName(cmd)
+				if cmd.Parent() != cmd.Root() {
+					path = "gobrew " + strings.TrimPrefix(cmd.CommandPath(), cmd.Root().Name()+" ")
+				}
 			}
 			fmt.Fprintf(stderr, "Run '%s --help' for usage.\n", path)
 		}
@@ -212,6 +220,29 @@ func classify(err error) (int, string) {
 	default:
 		return 1, "failed"
 	}
+}
+
+// cobraConflict is cobra's message for flags marked mutually exclusive.
+var cobraConflict = regexp.MustCompile(`^if any flags in the group \[([^\]]+)\] are set none of the others can be; \[([^\]]+)\] were all set$`)
+
+// flagConflict rewrites cobra's mutually exclusive flags error as brew's
+// OptionConflictError: the options passed, in the order the group names them.
+func flagConflict(err error) error {
+	if err == nil {
+		return nil
+	}
+	m := cobraConflict.FindStringSubmatch(err.Error())
+	if m == nil {
+		return nil
+	}
+	set := strings.Fields(m[2])
+	var passed []string
+	for _, name := range strings.Fields(m[1]) {
+		if slices.Contains(set, name) {
+			passed = append(passed, "--"+name)
+		}
+	}
+	return usageError{fmt.Errorf("Options %s are mutually exclusive.", strings.Join(passed, " and "))}
 }
 
 var versionPattern = regexp.MustCompile(`^v[0-9]+\.[0-9]+\.[0-9]+$`)

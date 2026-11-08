@@ -17,7 +17,7 @@ func (a *application) root() *cobra.Command {
 		SilenceErrors: true, SilenceUsage: true,
 		Args: cobra.NoArgs,
 		PersistentPreRunE: func(cmd *cobra.Command, _ []string) error {
-			a.started, a.command = true, cmd.Name()
+			a.started, a.command = true, commandName(cmd)
 			return cmd.Context().Err()
 		},
 		RunE: func(cmd *cobra.Command, _ []string) error {
@@ -43,8 +43,8 @@ func (a *application) root() *cobra.Command {
 		if description == "" {
 			description = cmd.Short
 		}
-		usage := cmd.UsageString()
-		a.command = cmd.Name()
+		usage := strings.ReplaceAll(cmd.UsageString(), "gobrew __", "gobrew --")
+		a.command = commandName(cmd)
 		a.setResult(map[string]string{"description": description, "usage": usage}, func(w io.Writer) error {
 			_, err := fmt.Fprintf(w, "%s\n\n%s", description, usage)
 			return err
@@ -105,12 +105,14 @@ func (a *application) root() *cobra.Command {
 	root.AddCommand(a.commandFor("postinstall <formula>...", "Explicitly retry supported post-install initialization", cobra.MinimumNArgs(1), a.postinstall))
 	root.AddCommand(a.depsCommand(), a.usesCommand())
 	root.AddCommand(a.shellenvCommand(), a.selfCommand())
+	root.AddCommand(a.pathCommands()...)
 	for _, command := range root.Commands() {
 		command.Aliases = brewAliases[command.Name()]
 		// gobrew has only formulae, so brew's --formula changes nothing.
 		if brewFormulaFlag[command.Name()] && command.Flags().Lookup("formula") == nil {
 			command.Flags().Bool("formula", false, "Treat all named arguments as formulae (gobrew has only formulae)")
 		}
+		addCaskFlags(command)
 	}
 	return root
 }

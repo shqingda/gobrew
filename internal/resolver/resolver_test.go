@@ -443,3 +443,21 @@ func TestIncludeTestAddsOnlyTheNamedFormulaeTestDependencies(t *testing.T) {
 		t.Fatalf("installed: %+v, %v", plan.Packages, err)
 	}
 }
+
+func TestBottleTagsFollowHomebrew(t *testing.T) {
+	for tag, want := range map[string]string{"arm64_sonoma": "arm64_sonoma", "sonoma": "sonoma", "x86_64_sonoma": "sonoma", "x86_64_linux": "x86_64_linux", "foo": "x86_64_foo"} {
+		if got := NormalizeTag(tag); got != want {
+			t.Errorf("NormalizeTag(%q) = %q, want %q", tag, got, want)
+		}
+	}
+	f := model.Formula{Name: "x", Bottles: map[string]model.Bottle{"arm64_sonoma": {}, "ventura": {}, "x86_64_linux": {}}}
+	for _, tc := range []struct{ tag, want string }{
+		{"arm64_tahoe", "arm64_sonoma"}, {"arm64_ventura", ""}, {"sequoia", "ventura"}, {"x86_64_linux", "x86_64_linux"}, {"arm64_linux", ""},
+	} {
+		arch, major := TagTarget(tc.tag)
+		b, ok := BottleFor(f, tc.tag, arch, major)
+		if ok != (tc.want != "") || b.Tag != tc.want {
+			t.Errorf("BottleFor(%q) = %q, %v; want %q", tc.tag, b.Tag, ok, tc.want)
+		}
+	}
+}

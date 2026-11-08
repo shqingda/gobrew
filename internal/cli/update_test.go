@@ -346,3 +346,33 @@ func TestCompatibilityFlagsAreAccepted(t *testing.T) {
 		}
 	}
 }
+
+func TestCaskOnlyFlagsAreIgnoredLikeHomebrew(t *testing.T) {
+	t.Setenv("GOBREW_NO_AUTO_UPDATE", "1")
+	for _, args := range [][]string{
+		{"install", "demo", "--dry-run", "--appdir=/Applications", "--language", "zh", "--zap", "--adopt", "--no-binaries", "--require-sha", "--skip-cask-deps", "--fetch-HEAD"},
+		{"reinstall", "demo", "--dry-run", "--fontdir=/x", "--binaries", "--adopt"},
+		{"upgrade", "demo", "--dry-run", "-g", "--greedy-latest", "--greedy-auto-updates", "--no-quit", "--fetch-HEAD", "--vst3-plugindir", "/x"},
+		{"outdated", "--formula", "-g", "--greedy-latest", "--greedy-auto-updates", "--fetch-HEAD"},
+	} {
+		a, requests, _ := updateApp(t)
+		var stdout bytes.Buffer
+		if code := a.run(context.Background(), args, &stdout, BuildInfo{}); code != 0 || requests.calls != 0 {
+			t.Fatalf("%q: exit=%d requests=%d stdout=%s stderr=%s", args, code, requests.calls, &stdout, a.stderr)
+		}
+	}
+	for args, want := range map[string]string{
+		"install demo --dry-run --formula --appdir=/x": "Options --formula and --appdir are mutually exclusive.",
+		"upgrade demo --dry-run --greedy --formula":    "Options --formula and --greedy are mutually exclusive.",
+		"uninstall demo --zap --formula":               "Options --formula and --zap are mutually exclusive.",
+		"install demo --dry-run --adopt -f":            "Options --adopt and --force are mutually exclusive.",
+		"search --pull-request --closed --open x":      "Options --open and --closed are mutually exclusive.",
+	} {
+		a, _, _ := updateApp(t)
+		var stdout bytes.Buffer
+		code := a.run(context.Background(), strings.Fields(args), &stdout, BuildInfo{})
+		if stderr := a.stderr.(*bytes.Buffer).String(); code != 2 || !strings.HasPrefix(stderr, "Error: "+want+"\n") {
+			t.Errorf("%s: exit=%d stderr=%q", args, code, stderr)
+		}
+	}
+}

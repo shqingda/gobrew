@@ -18,6 +18,9 @@ import (
 	"github.com/shqingda/gobrew/internal/platform"
 )
 
+// BlobPath is where a verified bottle download with the given SHA-256 lives.
+func BlobPath(cacheDir, sha string) string { return filepath.Join(cacheDir, "blobs", sha) }
+
 func (m *Manager) download(ctx context.Context, p model.Package, events chan<- model.Event) (string, error) {
 	sha := p.Bottle.SHA256
 	unlock, err := platform.AcquireLock(ctx, filepath.Join(m.cfg.CacheDir, "locks", "blob-"+sha))
@@ -31,7 +34,7 @@ func (m *Manager) download(ctx context.Context, p model.Package, events chan<- m
 // downloadLocked is called while the blob lease spans download and extraction.
 func (m *Manager) downloadLocked(ctx context.Context, p model.Package, events chan<- model.Event) (string, error) {
 	sha := p.Bottle.SHA256
-	path := filepath.Join(m.cfg.CacheDir, "blobs", sha)
+	path := BlobPath(m.cfg.CacheDir, sha)
 	if info, err := os.Lstat(path); err == nil && info.Mode().IsRegular() {
 		// Published blobs were verified while downloading. A local user's own
 		// cache is trusted; doctor/re-download is the explicit integrity scan.

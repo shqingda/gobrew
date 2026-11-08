@@ -127,6 +127,7 @@ gobrew unlink sqlite
 gobrew autoremove --dry-run
 gobrew cleanup
 gobrew doctor
+gobrew --prefix jq
 eval "$(gobrew shellenv zsh)"
 ```
 
@@ -143,6 +144,8 @@ eval "$(gobrew shellenv zsh)"
 `deps` 查询传递依赖，多个 Formula 时取交集（`--union` 取并集），`-1` 只看直接依赖，`--installed` 只列已安装的（不带名字时覆盖全部已安装软件），不带名字也不带 `--installed` 时列出目录里的全部 Formula，`--tree` 显示依赖树（`--prune` 省略重复子树），`--graph --dot` 输出 DOT 图（只加 `--graph` 时在浏览器打开），`-n` 按拓扑排序，`--include-build`／`--include-test`／`--include-optional`／`--include-implicit` 和 `--skip-recommended` 调整依赖范围，`--missing` 只列缺失的，`--annotate` 标出依赖类型；`uses` 查询直接反向依赖，`--recursive` 递归，`--installed` 使用本机安装记录，`--missing` 只列未安装的，`--include-*` 和 `--skip-recommended` 与 `deps` 含义相同。keg-only 默认只提供 `opt` 路径；`link --force` 可显式公开其命令，但不会覆盖别人的文件。与 brew 一样，不加 `--force` 时只警告并以 0 退出，`python@3.13` 这类版本化 Formula 不需要 `--force`。`link`／`unlink` 的 `-n` 只列出将要创建或移除的链接，遇到冲突时同样报错。`pin` 约束升级，不是绕过依赖检查。
 
 Formula 安装类命令支持 `--dry-run`：只规划，不自动更新目录或替换 CLI，不初始化、提权、安装、清理或修改 shell 配置。如果本地没有规划所需的目录快照，仍会获取它并写入目录缓存，因此 dry-run 不等于离线模式。`gobrew --help` 列出 prefix、cache、并发与缓存容量选项。
+
+与 brew 一样，`gobrew --prefix`、`--cellar`、`--cache` 单独使用时打印路径：`--prefix jq` 打印 `opt/jq`（`--installed` 只打印已安装的，有未安装的就以 1 退出；`--unbrewed` 列出 prefix 里不属于任何包的普通文件），`--cellar jq` 打印 `Cellar/jq`，`--cache jq` 打印本机 bottle 在下载缓存里的文件（按 SHA-256 命名，`--bottle-tag` 可换其他平台）。`--prefix` 后面跟绝对路径，或路径后面跟着命令时，仍是指定安装目录的选项，如 `gobrew --prefix /tmp/gb.x install jq`。
 
 ### 环境变量
 

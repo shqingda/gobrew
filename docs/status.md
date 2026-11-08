@@ -27,14 +27,18 @@
   - Homebrew JSON 格式兼容。
   - 第三方 tap、`services`、Cask、漏洞查询。
 
+brew 只对 Cask 或 HEAD 安装起作用的参数（`--appdir` 等目标目录、`--language`、`--zap`、`--adopt`、`--[no-]binaries`、`--require-sha`、`--skip-cask-deps`、`--no-quit`、`--greedy*`、`--fetch-HEAD`）会被接受并忽略，与 brew 只给 Formula 时一样；与 `--formula` 同用时和 brew 一样报 `Options --formula and --appdir are mutually exclusive.`。所有互斥参数的报错都用 brew 的这句文案，按用法错误以 2 退出。
+
 ## 与 brew 的尚存差异
 
 2026-11-01 对照 [Homebrew 手册](https://docs.brew.sh/Manpage) 逐条检查后，以下差异仍然存在：
 
-- **待决定（涉及产品形态）**：
-  - 全局参数 `--prefix DIR`、`--cache-dir` 等是 gobrew 的配置项；brew 的 `--prefix`、`--cache`、`--cellar` 是打印路径的命令。
-  - `doctor --repair` 和 `reinstall --dry-run` 是 brew 没有的参数。
 - **因正确性或安全约束有意保留**：
+  - `doctor --repair` 和 `reinstall --dry-run` 是 brew 没有的参数，由用户决定保留。
+  - `--prefix DIR`（绝对路径，或后面跟着命令）仍是 gobrew 指定安装目录的选项，`--cache-dir` 也是；其余用法与 brew 一样打印路径。
+  - `--cache jq` 打印 gobrew 下载缓存里按 bottle SHA-256 命名的文件，brew 的文件名是 URL 哈希加版本；没有 `-s`、`--HEAD`、`--cask`、`--os`、`--arch`，因为 gobrew 不从源码构建，也不缓存其他平台的 bottle。没有可用 bottle 时只警告，brew 会改为打印源码包路径。
+  - `--cache --bottle-tag` 按完整 catalog 找 bottle；brew 本地的 API 数据只含本机平台的 bottle，所以别的 tag 常显示不可用。
+  - `--prefix --unbrewed` 按字典序列出；brew 用 `find`，顺序取决于文件系统。
   - 不支持 `uninstall --ignore-dependencies` 与 `--force`：仍被依赖的软件不能卸载。
   - 升级依赖会破坏被 pin 的依赖方时，gobrew 在切换前拒绝；brew 会直接升级。
   - 不支持 `link --overwrite`：从不覆盖别人的文件。

@@ -6,7 +6,6 @@ import (
 	"net/url"
 	"path"
 	"path/filepath"
-	"sort"
 	"strings"
 	"time"
 
@@ -14,6 +13,70 @@ import (
 )
 
 var macOSVersions = map[string]int{"big_sur": 11, "monterey": 12, "ventura": 13, "sonoma": 14, "sequoia": 15, "tahoe": 26, "golden_gate": 27}
+
+// HostTag is the bottle tag of an Apple Silicon host, such as
+// arm64_sequoia, or "" for a macOS version this build does not name.
+func HostTag(host model.Platform) string {
+	for name, major := range macOSVersions {
+		if major == host.Major {
+			return "arm64_" + name
+		}
+	}
+	return ""
+}
+
+// NormalizeTag spells a --bottle-tag the way brew's Utils::Bottles::Tag does:
+// an Intel macOS tag has no architecture, any other tag without one is Intel.
+func NormalizeTag(tag string) string {
+	if rest, ok := strings.CutPrefix(tag, "x86_64_"); ok && macOSVersions[rest] > 0 {
+		return rest
+	}
+	if strings.HasPrefix(tag, "arm64_") || strings.HasPrefix(tag, "x86_64_") || macOSVersions[tag] > 0 {
+		return tag
+	}
+	return "x86_64_" + tag
+}
+
+// TagTarget is the architecture and macOS major version of a bottle tag; the
+// version is 0 for a tag that is not macOS, such as x86_64_linux.
+func TagTarget(tag string) (arch string, major int) {
+	arch, name := "x86_64", tag
+	if rest, ok := strings.CutPrefix(tag, "arm64_"); ok {
+		arch, name = "arm64", rest
+	} else if rest, ok := strings.CutPrefix(tag, "x86_64_"); ok {
+		name = rest
+	}
+	return arch, macOSVersions[name]
+}
+
+// BottleFor follows brew's bottle_for_tag: the tag itself or a bottle for
+// that macOS version, then a platform-independent bottle, then the newest
+// older macOS bottle for the architecture. Newer macOS versions are never
+// guessed. Its tag field names the bottle chosen.
+func BottleFor(f model.Formula, tag, arch string, major int) (model.Bottle, bool) {
+	best, rank := "", -1
+	for candidate := range f.Bottles {
+		r := -1
+		a, m := TagTarget(candidate)
+		switch {
+		case candidate == tag, major > 0 && a == arch && m == major:
+			r = 1000
+		case candidate == "all":
+			r = 100
+		case major > 0 && a == arch && m > 0 && m < major:
+			r = m
+		}
+		if r > rank {
+			best, rank = candidate, r
+		}
+	}
+	if rank < 0 {
+		return model.Bottle{}, false
+	}
+	b := f.Bottles[best]
+	b.Tag = best
+	return b, true
+}
 
 // selectBottle prefers the host tag, then a platform-independent bottle, then
 // the newest older compatible macOS tag. Future or foreign-architecture tags
@@ -35,35 +98,11 @@ func selectBottle(f model.Formula, host model.Platform, prefix string, allowDisa
 	if f.PostInstallDefined {
 		return model.Bottle{}, fmt.Errorf("%w: %s uses a Ruby post-install hook", model.ErrUnsupported, f.Name)
 	}
-	type candidate struct {
-		tag  string
-		rank int
-	}
-	var candidates []candidate
-	for tag := range f.Bottles {
-		if tag == "all" {
-			candidates = append(candidates, candidate{tag, 100})
-			continue
-		}
-		if !strings.HasPrefix(tag, "arm64_") {
-			continue
-		}
-		major, ok := macOSVersions[strings.TrimPrefix(tag, "arm64_")]
-		if !ok || major > host.Major {
-			continue
-		}
-		rank := major
-		if major == host.Major {
-			rank = 1000
-		}
-		candidates = append(candidates, candidate{tag, rank})
-	}
-	sort.Slice(candidates, func(i, j int) bool { return candidates[i].rank > candidates[j].rank })
-	if len(candidates) == 0 {
+	tag := HostTag(host)
+	b, ok := BottleFor(f, tag, "arm64", host.Major)
+	if !ok {
 		return model.Bottle{}, fmt.Errorf("%w: no compatible bottle for %s on macOS %d arm64", model.ErrUnsupported, f.Name, host.Major)
 	}
-	b := f.Bottles[candidates[0].tag]
-	b.Tag = candidates[0].tag
 	hash, err := hex.DecodeString(b.SHA256)
 	if err != nil || len(hash) != 32 {
 		return model.Bottle{}, fmt.Errorf("%w: invalid bottle checksum for %s", model.ErrUnsupported, f.Name)
