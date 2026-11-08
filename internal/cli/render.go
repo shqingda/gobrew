@@ -87,7 +87,7 @@ func (a *application) renderInstall(w io.Writer, e *engine.Engine, request model
 		}
 	}
 	for _, name := range result.Succeeded {
-		if r := records[name]; r.Formula.Deprecated {
+		if r := records[name]; r.Formula.Deprecated || r.Formula.Disabled {
 			fmt.Fprintln(a.stderr, cleanText("Warning: "+name+" has been "+r.Formula.DeprecationMessage(time.Now())))
 		}
 	}

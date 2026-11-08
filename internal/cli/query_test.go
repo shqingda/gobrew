@@ -5,12 +5,14 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/shqingda/gobrew/internal/engine"
 	"github.com/shqingda/gobrew/internal/model"
+	"github.com/shqingda/gobrew/internal/platform"
 )
 
 func TestDepsTreeMatchesHomebrewLayout(t *testing.T) {
@@ -373,5 +375,76 @@ func TestInstallTimesFollowHomebrewLayout(t *testing.T) {
 	want := []string{"==> Installation times", "oniguruma                 1.500 s", "jq                        2.250 s"}
 	if got := times.lines(); !slices.Equal(got, want) {
 		t.Fatalf("lines = %q", got)
+	}
+}
+
+func TestAnalyticsTableFollowsHomebrew(t *testing.T) {
+	period := model.AnalyticsPeriod{Days: 30, Count: 64196, Results: []model.AnalyticsCount{{Name: "jq", Count: 64149}, {Name: "jq --HEAD", Count: 47}}}
+	want := []string{
+		"Index | Name (with options)                                  |  Count |  Percent",
+		"-----:|------------------------------------------------------|-------:|--------:",
+		"1     | jq                                                   | 64,149 |   99.93%",
+		"2     | jq --HEAD                                            |     47 |    0.07%",
+		"Total |                                                      | 64,196 |  100.00%",
+	}
+	if got := analyticsTable(period, 80, "Name (with options)"); !slices.Equal(got, want) {
+		t.Fatalf("table:\n%s", strings.Join(got, "\n"))
+	}
+	single := analyticsTable(model.AnalyticsPeriod{Days: 30, Count: 1, Results: []model.AnalyticsCount{{Name: "a-very-long-formula-name", Count: 1}}}, 40, "Name (with options)")
+	if want := "1     | a-very-long-f |     1 |  100.00%"; len(single) != 3 || single[2] != want {
+		t.Fatalf("a single row has no total and a narrow name column truncates: %q", single)
+	}
+	if got := filterAnalytics([]model.Analytics{{Category: "install", Periods: []model.AnalyticsPeriod{{Days: 30}, {Days: 90}}}, {Category: "build-error"}}, "90", "install"); len(got) != 1 || len(got[0].Periods) != 1 || got[0].Periods[0].Days != 90 {
+		t.Fatalf("filter = %#v", got)
+	}
+	for _, c := range []struct {
+		analytics      bool
+		days, category string
+		named          bool
+		ok             bool
+	}{{false, "30", "", true, false}, {false, "", "install", true, false}, {true, "7", "", true, false}, {true, "30", "os-version", true, false}, {true, "", "", false, true}, {true, "", "os-version", false, true}, {true, "", "bogus", false, false}, {true, "365", "build-error", true, true}} {
+		if err := analyticsUsage(c.analytics, c.days, c.category, c.named); (err == nil) != c.ok {
+			t.Fatalf("%+v: %v", c, err)
+		}
+	}
+}
+
+func TestSizeLinesFollowHomebrew(t *testing.T) {
+	got := sizeLines([]formulaSize{{Name: "lz4", Bytes: 827644}, {Name: "hello", Bytes: 0}})
+	want := []string{"lz4   827.6KB", "hello      0B", "Total 827.6KB"}
+	if !slices.Equal(got, want) {
+		t.Fatalf("sizes = %q", got)
+	}
+	if got := githubURL(model.Formula{SourcePath: "Formula/j/jq.rb"}); got != "https://github.com/Homebrew/homebrew-core/blob/HEAD/Formula/j/jq.rb" {
+		t.Fatalf("github = %q", got)
+	}
+}
+
+func TestFormComponentMatchesRuby(t *testing.T) {
+	in := "a b~c*d-e.f_g/h?i&j=k+l%m 中"
+	if got, want := platform.FormComponent(in), "a+b%7Ec*d-e.f_g%2Fh%3Fi%26j%3Dk%2Bl%25m+%E4%B8%AD"; got != want {
+		t.Fatalf("formComponent = %q, want %q", got, want)
+	}
+	if got := strings.ReplaceAll(searchDatabases[7].url, "%s", platform.FormComponent("libfoo dev")); got != "https://packages.debian.org/search?keywords=libfoo+dev&searchon=names&suite=all&section=all" {
+		t.Fatalf("debian = %q", got)
+	}
+}
+
+func TestPullRequestsRenderLikeHomebrew(t *testing.T) {
+	prs := []model.PullRequest{{Title: "a", URL: "u0", State: "open"}}
+	for i := range 21 {
+		prs = append(prs, model.PullRequest{Title: "c" + strconv.Itoa(i), URL: "u", State: "closed"})
+	}
+	var got bytes.Buffer
+	if err := renderPullRequests(&got, prs, "q"); err != nil {
+		t.Fatal(err)
+	}
+	lines := strings.Split(strings.TrimSuffix(got.String(), "\n"), "\n")
+	if len(lines) != 25 || lines[0] != "==> Open pull requests" || lines[1] != "a (u0)" || lines[2] != "" || lines[3] != "==> Closed pull requests" || lines[23] != "c19 (u)" || lines[24] != "..." {
+		t.Fatalf("output:\n%s", &got)
+	}
+	got.Reset()
+	if err := renderPullRequests(&got, nil, `say "hi"`); err != nil || got.String() != "No pull requests found for \"say \\\"hi\\\"\"\n" {
+		t.Fatalf("none = %q, %v", got.String(), err)
 	}
 }

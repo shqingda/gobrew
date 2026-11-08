@@ -18,7 +18,8 @@ var macOSVersions = map[string]int{"big_sur": 11, "monterey": 12, "ventura": 13,
 // selectBottle prefers the host tag, then a platform-independent bottle, then
 // the newest older compatible macOS tag. Future or foreign-architecture tags
 // are never guessed. Prefix length is measured in bytes, as Mach-O requires.
-func selectBottle(f model.Formula, host model.Platform, prefix string) (model.Bottle, error) {
+// allowDisabled is --force: a disabled formula's bottle is still signed.
+func selectBottle(f model.Formula, host model.Platform, prefix string, allowDisabled bool) (model.Bottle, error) {
 	if host.OS != "darwin" || host.Arch != "arm64" || host.Major < 15 {
 		return model.Bottle{}, fmt.Errorf("%w: installation requires Apple Silicon macOS 15+", model.ErrUnsupported)
 	}
@@ -28,7 +29,7 @@ func selectBottle(f model.Formula, host model.Platform, prefix string) (model.Bo
 	if f.UnsupportedReason != "" {
 		return model.Bottle{}, fmt.Errorf("%w: %s: %s", model.ErrUnsupported, f.Name, f.UnsupportedReason)
 	}
-	if f.Disabled {
+	if f.Disabled && !allowDisabled {
 		return model.Bottle{}, fmt.Errorf("%w: %s has been %s", model.ErrUnsupported, f.Name, f.DeprecationMessage(time.Now()))
 	}
 	if f.PostInstallDefined {

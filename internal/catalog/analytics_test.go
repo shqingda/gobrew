@@ -32,8 +32,11 @@ func TestFormulaAnalyticsKeepsAPIOrderAndCachesForAnHour(t *testing.T) {
 	defer server.Close()
 	c := Client{Dir: t.TempDir(), HTTP: server.Client(), URL: server.URL + "/api/formula.jws.json"}
 	want := []model.Analytics{
-		{Category: "install-on-request", Periods: []model.AnalyticsPeriod{{Days: 90, Count: 7}, {Days: 30, Count: 1}}},
-		{Category: "install", Periods: []model.AnalyticsPeriod{{Days: 30, Count: 1234}}},
+		{Category: "install-on-request", Periods: []model.AnalyticsPeriod{
+			{Days: 90, Count: 7, Results: []model.AnalyticsCount{{Name: "jq", Count: 3}, {Name: "jq --HEAD", Count: 4}}},
+			{Days: 30, Count: 1, Results: []model.AnalyticsCount{{Name: "jq", Count: 1}}},
+		}},
+		{Category: "install", Periods: []model.AnalyticsPeriod{{Days: 30, Count: 1234, Results: []model.AnalyticsCount{{Name: "jq", Count: 1000}, {Name: "jq --HEAD", Count: 234}}}}},
 		{Category: "build-error", Periods: []model.AnalyticsPeriod{}},
 	}
 	for range 2 {
@@ -80,5 +83,35 @@ func TestFormulaAnalyticsWithoutCounts(t *testing.T) {
 	}
 	if _, err := c.FormulaAnalytics(context.Background(), "../etc"); err == nil {
 		t.Fatal("an unsafe name was accepted")
+	}
+}
+
+func TestGlobalAnalyticsReadsRankingRows(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/analytics/install/30d.json":
+			_, _ = w.Write([]byte(`{"items":[{"number":1,"formula":"b","count":"1,234,567"},{"number":2,"formula":"a --HEAD","count":"7"},{"number":3,"formula":"b","count":"9"}]}`))
+		case "/analytics/os-version/90d.json":
+			_, _ = w.Write([]byte(`{"items":[{"number":1,"os_version":"macOS Golden Gate (27)","count":"12"}]}`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+	c := Client{Dir: t.TempDir(), HTTP: server.Client(), URL: server.URL + "/formula.jws.json"}
+	got, err := c.GlobalAnalytics(context.Background(), "install", 30)
+	want := []model.AnalyticsCount{{Name: "b", Count: 9}, {Name: "a --HEAD", Count: 7}}
+	if err != nil || !reflect.DeepEqual(got, want) {
+		t.Fatalf("install = %#v, %v", got, err)
+	}
+	got, err = c.GlobalAnalytics(context.Background(), "os-version", 90)
+	if err != nil || !reflect.DeepEqual(got, []model.AnalyticsCount{{Name: "macOS Golden Gate (27)", Count: 12}}) {
+		t.Fatalf("os-version = %#v, %v", got, err)
+	}
+	if _, err = c.GlobalAnalytics(context.Background(), "../x", 30); err == nil {
+		t.Fatal("an unsafe category was accepted")
+	}
+	if _, err = c.GlobalAnalytics(context.Background(), "build-error", 365); err == nil {
+		t.Fatal("a missing ranking returned no error")
 	}
 }

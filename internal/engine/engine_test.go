@@ -374,3 +374,34 @@ func TestExplicitInstallPromotesDependencyLocally(t *testing.T) {
 		t.Fatal("already-requested install wrote state")
 	}
 }
+
+func TestOutdatedBelowComparesPkgVersions(t *testing.T) {
+	prefix := t.TempDir()
+	s := state.Store{Prefix: prefix}
+	if err := s.Initialize(); err != nil {
+		t.Fatal(err)
+	}
+	rec := ownedRecord(t, prefix, "demo")
+	rec.Formula.Version, rec.Formula.Revision, rec.Pinned = "1.11.0", 0, true
+	if err := s.WithLock(context.Background(), func(tx *state.Session) error {
+		return tx.Save(model.Snapshot{Records: map[string]model.Record{"demo": rec}})
+	}); err != nil {
+		t.Fatal(err)
+	}
+	e := New(Config{Prefix: prefix, CacheDir: filepath.Join(t.TempDir(), "missing"), HTTP: &http.Client{Transport: noNetwork{t}}})
+	for minimum, below := range map[string]bool{"99": true, "1.11.0_1": true, "1.11.0": false, "1.11": false, "1.10.9": false} {
+		got, err := e.OutdatedBelow("demo", minimum)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if want := below; (len(got) == 1) != want {
+			t.Fatalf("%s: %#v", minimum, got)
+		}
+		if below && got[0] != (Outdated{"demo", "1.11.0", minimum, true}) {
+			t.Fatalf("%s: %#v", minimum, got[0])
+		}
+	}
+	if _, err := e.OutdatedBelow("other", "1"); !errors.Is(err, model.ErrNotFound) {
+		t.Fatalf("a formula that is not installed: %v", err)
+	}
+}

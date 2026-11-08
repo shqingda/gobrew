@@ -268,6 +268,15 @@ and 403, 404 and 429 replies fail at once. Every attempt starts over, bottles in
 a new temporary file, and is verified in full, so a retry never resumes
 unverified bytes. Waiting holds the blob lease but not the prefix lock.
 
+`info` also shows formulae.brew.sh install counts. They are unsigned display
+data, read by nothing else: `catalog.Client.FormulaAnalytics` makes one attempt,
+reuses a response under `catalog/analytics` for an hour like brew's unsigned API
+files, and falls back to an older one when the API cannot be reached.
+`info --analytics` without a formula, or with a name the catalog lacks, reads
+a whole ranking through `GlobalAnalytics`, uncached like brew's. Like brew,
+`GOBREW_NO_ANALYTICS` and `GOBREW_NO_GITHUB_API` turn off only a formula's own
+counts, and a failed request leaves its part of the output empty.
+
 Explicit older versions (`version-install formula[@version] [version]`, as in
 Homebrew) are the one source outside the signed snapshot. As in Homebrew,
 plain `install` never splits names at "@".

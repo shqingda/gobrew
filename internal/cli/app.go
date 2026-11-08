@@ -90,6 +90,8 @@ type application struct {
 	render    func(io.Writer) error
 	// times records brew's --display-times for the current install, if asked.
 	times *installTimes
+	// minimumVersion is upgrade --minimum-version for its one named formula.
+	minimumVersion string
 	// systemPrefix is the only prefix the privileged helper may create.
 	// Tests point it, terminal and elevate at temporary fakes so that no test
 	// runs sudo or touches /opt.

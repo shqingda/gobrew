@@ -1,29 +1,56 @@
 package cli
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/shqingda/gobrew/internal/engine"
 	"github.com/shqingda/gobrew/internal/model"
+	"github.com/shqingda/gobrew/internal/platform"
 	"github.com/shqingda/gobrew/internal/shellconfig"
 	"github.com/spf13/cobra"
 )
 
 // searchCommand mirrors brew search [--formula] [--desc] text|/regex/.
 func (a *application) searchCommand() *cobra.Command {
-	var descriptions, formulaOnly bool
+	var descriptions, formulaOnly, pullRequest, open, closed bool
+	databases := make([]bool, len(searchDatabases))
 	cmd := a.commandFor("search [text|/regex/]", "Search formula names, or descriptions with --desc; list all without text", cobra.ArbitraryArgs, func(ctx context.Context, args []string) error {
+		for _, flag := range []struct {
+			name string
+			set  bool
+		}{{"open", open}, {"closed", closed}} {
+			if flag.set && !pullRequest {
+				return usageError{fmt.Errorf("`--%s` cannot be passed without `--pull-request`", flag.name)}
+			}
+		}
+		if pullRequest {
+			only := ""
+			if open && !closed {
+				only = "open"
+			} else if closed && !open {
+				only = "closed"
+			}
+			return a.searchPullRequests(ctx, args, only)
+		}
+		for i, on := range databases {
+			if on {
+				return a.searchDatabase(ctx, searchDatabases[i], args)
+			}
+		}
 		e, err := a.getEngine()
 		if err != nil {
 			return err
@@ -50,8 +77,115 @@ func (a *application) searchCommand() *cobra.Command {
 	})
 	cmd.Flags().BoolVar(&descriptions, "desc", false, "Search descriptions instead of names")
 	cmd.Flags().BoolVar(&formulaOnly, "formula", false, "Search only formulae (gobrew has no casks)")
+	cmd.Flags().BoolVar(&pullRequest, "pull-request", false, "Search for GitHub pull requests containing text")
+	cmd.Flags().BoolVar(&open, "open", false, "Search for only open GitHub pull requests")
+	cmd.Flags().BoolVar(&closed, "closed", false, "Search for only closed GitHub pull requests")
+	cmd.MarkFlagsMutuallyExclusive("desc", "pull-request")
+	cmd.MarkFlagsMutuallyExclusive("open", "closed")
+	names := make([]string, len(searchDatabases))
+	for i, db := range searchDatabases {
+		names[i] = db.name
+		cmd.Flags().BoolVar(&databases[i], db.name, false, "Search for text in the given database")
+	}
+	cmd.MarkFlagsMutuallyExclusive(names...)
 	cmd.Example = "  gobrew search jq\n  gobrew search --desc json\n  gobrew search '/^python@/'"
 	return cmd
+}
+
+// searchDatabases are brew search's PACKAGE_MANAGERS, in its order.
+var searchDatabases = []struct{ name, url string }{
+	{"alpine", "https://pkgs.alpinelinux.org/packages?name=%s"},
+	{"repology", "https://repology.org/projects/?search=%s"},
+	{"macports", "https://ports.macports.org/search/?q=%s"},
+	{"fink", "https://pdb.finkproject.org/pdb/browse.php?summary=%s"},
+	{"opensuse", "https://software.opensuse.org/search?q=%s"},
+	{"fedora", "https://packages.fedoraproject.org/search?query=%s"},
+	{"archlinux", "https://archlinux.org/packages/?q=%s"},
+	{"debian", "https://packages.debian.org/search?keywords=%s&searchon=names&suite=all&section=all"},
+	{"ubuntu", "https://packages.ubuntu.com/search?keywords=%s&searchon=names&suite=all&section=all"},
+}
+
+// searchPullRequests ports GitHub.print_pull_requests_matching: open pull
+// requests, then at most 20 closed ones.
+func (a *application) searchPullRequests(ctx context.Context, args []string, only string) error {
+	if len(args) == 0 {
+		return usageError{errors.New("this command requires at least 1 text or regex argument")}
+	}
+	e, err := a.getEngine()
+	if err != nil {
+		return err
+	}
+	query := strings.Join(args, " ")
+	prs, err := e.PullRequests(ctx, query, only)
+	if err != nil {
+		return err
+	}
+	a.setResult(prs, func(w io.Writer) error { return renderPullRequests(w, prs, query) })
+	return nil
+}
+
+// renderPullRequests prints open pull requests, then at most 20 closed ones.
+func renderPullRequests(w io.Writer, prs []model.PullRequest, query string) error {
+	p := newProgress(w)
+	write := func(lines []string) error {
+		for _, line := range lines {
+			if _, err := fmt.Fprintln(w, cleanText(line)); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	var open, closed []string
+	for _, pr := range prs {
+		line := pr.Title + " (" + pr.URL + ")"
+		if pr.State == "open" {
+			open = append(open, line)
+		} else {
+			closed = append(closed, line)
+		}
+	}
+	if len(open) > 0 {
+		if err := p.title("Open pull requests"); err != nil {
+			return err
+		}
+		if err := write(open); err != nil {
+			return err
+		}
+	}
+	if len(closed) > 0 {
+		if len(open) > 0 {
+			if err := write([]string{""}); err != nil {
+				return err
+			}
+		}
+		if err := p.title("Closed pull requests"); err != nil {
+			return err
+		}
+		shown := closed[:min(len(closed), 20)]
+		if len(closed) > 20 {
+			shown = append(slices.Clone(shown), "...")
+		}
+		if err := write(shown); err != nil {
+			return err
+		}
+	}
+	if len(open) == 0 && len(closed) == 0 {
+		return write([]string{"No pull requests found for " + strconv.Quote(query)})
+	}
+	return nil
+}
+
+// searchDatabase opens another package database's search page for the text,
+// like brew search --debian.
+func (a *application) searchDatabase(ctx context.Context, db struct{ name, url string }, args []string) error {
+	if len(args) == 0 {
+		return usageError{errors.New("this command requires at least 1 text or regex argument")}
+	}
+	u := fmt.Sprintf(db.url, platform.FormComponent(strings.Join(args, " ")))
+	a.setResult(u, func(io.Writer) error {
+		return exec.CommandContext(ctx, "/usr/bin/open", u).Run()
+	})
+	return nil
 }
 
 // renderSearch lists matches in Homebrew's layout: columns on a terminal,
@@ -130,11 +264,24 @@ func columns(items []string, widths []int, width int) string {
 }
 
 func (a *application) infoCommand() *cobra.Command {
-	var installed bool
+	var installed, analytics, sizes, github bool
+	var days, category string
 	cmd := a.commandFor("info [formula...]", "Show formula details and compatibility information, or installation statistics", cobra.ArbitraryArgs, func(ctx context.Context, names []string) error {
+		if err := analyticsUsage(analytics, days, category, len(names) > 0); err != nil {
+			return err
+		}
 		e, err := a.getEngine()
 		if err != nil {
 			return err
+		}
+		// brew info checks --sizes, then --analytics, then --github.
+		switch {
+		case sizes:
+			return a.infoSizes(ctx, e, names)
+		case analytics:
+			return a.infoAnalytics(ctx, e, names, days, category)
+		case github:
+			return a.infoGitHub(ctx, e, names)
 		}
 		if len(names) == 0 {
 			return a.infoStatistics(e)
@@ -193,7 +340,315 @@ func (a *application) infoCommand() *cobra.Command {
 		return nil
 	})
 	cmd.Flags().BoolVar(&installed, "installed", false, "Read installed metadata without opening the catalog")
+	cmd.Flags().BoolVar(&analytics, "analytics", false, "List installation and build error data for formula (unless GOBREW_NO_ANALYTICS or GOBREW_NO_GITHUB_API is set)")
+	cmd.Flags().StringVar(&days, "days", "", "How many days of analytics data to show: 30, 90 or 365")
+	cmd.Flags().StringVar(&category, "category", "", "Which analytics to show: install, install-on-request or build-error")
+	cmd.Flags().BoolVar(&sizes, "sizes", false, "Show the size of installed formulae")
+	cmd.Flags().BoolVar(&github, "github", false, "Open the GitHub source page for formula in a browser")
 	return cmd
+}
+
+// formulaSize is one row of brew info --sizes.
+type formulaSize struct {
+	Name  string `json:"name"`
+	Bytes int64  `json:"bytes"`
+}
+
+// infoSizes ports brew info --sizes: the disk usage of every installed
+// formula, or of the named ones, largest first, with a total.
+func (a *application) infoSizes(ctx context.Context, e *engine.Engine, names []string) error {
+	snapshot, err := e.Installed()
+	if err != nil {
+		return err
+	}
+	if len(names) == 0 {
+		names = slices.Sorted(maps.Keys(snapshot.Records))
+	} else {
+		cat, err := e.Catalog(ctx)
+		if err != nil {
+			return err
+		}
+		canonical := make([]string, 0, len(names))
+		for _, name := range names {
+			f, err := cat.Lookup(name)
+			if err != nil {
+				return err
+			}
+			// brew lists a formula named twice once.
+			if !slices.Contains(canonical, f.Name) {
+				canonical = append(canonical, f.Name)
+			}
+		}
+		names = canonical
+	}
+	rows := make([]formulaSize, 0, len(names))
+	for _, name := range names {
+		row := formulaSize{Name: name}
+		if r, ok := snapshot.Records[name]; ok {
+			_, row.Bytes = diskUsage(r.Keg)
+		}
+		rows = append(rows, row)
+	}
+	slices.SortStableFunc(rows, func(x, y formulaSize) int { return cmp.Compare(y.Bytes, x.Bytes) })
+	a.setResult(rows, func(w io.Writer) error {
+		if len(rows) == 0 {
+			return nil
+		}
+		if err := newProgress(w).title("Formulae sizes:"); err != nil {
+			return err
+		}
+		for _, line := range sizeLines(rows) {
+			if _, err := fmt.Fprintln(w, cleanText(line)); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	return nil
+}
+
+// sizeLines is brew's print_sizes_table without its heading.
+func sizeLines(rows []formulaSize) []string {
+	var total int64
+	nameWidth, sizeWidth := len("Total"), 0
+	for _, r := range rows {
+		total += r.Bytes
+		nameWidth = max(nameWidth, len(r.Name))
+		sizeWidth = max(sizeWidth, len(humanBytes(r.Bytes)))
+	}
+	sizeWidth = max(sizeWidth, len(humanBytes(total)))
+	lines := make([]string, 0, len(rows)+1)
+	for _, r := range rows {
+		lines = append(lines, fmt.Sprintf("%-*s %*s", nameWidth, r.Name, sizeWidth, humanBytes(r.Bytes)))
+	}
+	return append(lines, fmt.Sprintf("%-*s %*s", nameWidth, "Total", sizeWidth, humanBytes(total)))
+}
+
+// infoGitHub ports brew info --github: one browser call for the source
+// pages of every named formula.
+func (a *application) infoGitHub(ctx context.Context, e *engine.Engine, names []string) error {
+	if len(names) == 0 {
+		return usageError{errors.New("this command requires a formula argument")}
+	}
+	cat, err := e.Catalog(ctx)
+	if err != nil {
+		return err
+	}
+	urls := make([]string, 0, len(names))
+	for _, name := range names {
+		f, err := cat.Lookup(name)
+		if err != nil {
+			return err
+		}
+		if f.SourcePath == "" {
+			return fmt.Errorf("%w: the catalog lists no source file for %s", model.ErrNotFound, f.Name)
+		}
+		urls = append(urls, githubURL(f))
+	}
+	a.setResult(urls, func(io.Writer) error {
+		return exec.CommandContext(ctx, "/usr/bin/open", urls...).Run()
+	})
+	return nil
+}
+
+// githubURL is brew's github_info for a homebrew/core formula.
+func githubURL(f model.Formula) string {
+	return "https://github.com/Homebrew/homebrew-core/blob/HEAD/" + f.SourcePath
+}
+
+// analyticsUsage applies brew info's checks on --analytics, --days and
+// --category.
+func analyticsUsage(analytics bool, days, category string, named bool) error {
+	for _, flag := range []struct{ name, value string }{{"days", days}, {"category", category}} {
+		if flag.value != "" && !analytics {
+			return usageError{fmt.Errorf("`--%s` cannot be passed without `--analytics`", flag.name)}
+		}
+	}
+	if !analytics {
+		return nil
+	}
+	if days != "" && !slices.Contains([]string{"30", "90", "365"}, days) {
+		return usageError{errors.New("`--days` must be one of 30, 90, 365")}
+	}
+	formulaCategories := []string{"install", "install-on-request", "build-error"}
+	if category != "" && named && !slices.Contains(formulaCategories, category) {
+		return usageError{errors.New("`--category` must be one of " + strings.Join(formulaCategories, ", ") + " when querying formulae")}
+	}
+	if all := append(formulaCategories, "cask-install", "os-version"); category != "" && !slices.Contains(all, category) {
+		return usageError{errors.New("`--category` must be one of " + strings.Join(all, ", "))}
+	}
+	return nil
+}
+
+// analyticsResult is one part of brew info --analytics: a formula's own
+// tables, or a ranking, whole or filtered to a name the catalog does not have.
+type analyticsResult struct {
+	Name      string            `json:"name,omitempty"`
+	Analytics []model.Analytics `json:"analytics"`
+	ranking   bool
+	found     bool
+}
+
+// infoAnalytics is brew info --analytics. Named formulae show an Analytics
+// section of tables filtered by --days and --category; without names, or for
+// a name the catalog lacks, it shows the ranking for --category (default
+// install) over --days (default 30).
+func (a *application) infoAnalytics(ctx context.Context, e *engine.Engine, names []string, days, category string) error {
+	results := make([]analyticsResult, 0, max(len(names), 1))
+	var formulae []model.Formula
+	if len(names) > 0 {
+		cat, err := e.Catalog(ctx)
+		if err != nil {
+			return err
+		}
+		for _, name := range names {
+			f, err := cat.Lookup(name)
+			switch {
+			case errors.Is(err, model.ErrNotFound):
+				results = append(results, analyticsResult{Name: name, ranking: true})
+			case err != nil:
+				return err
+			default:
+				formulae = append(formulae, f)
+				results = append(results, analyticsResult{Name: f.Name})
+			}
+		}
+	} else {
+		results = append(results, analyticsResult{ranking: true})
+	}
+	counts := formulaAnalytics(ctx, e, formulae)
+	rankingCategory, rankingDays := cmp.Or(category, "install"), cmp.Or(days, "30")
+	var ranking []model.AnalyticsCount
+	var rankingErr error
+	fetched := false
+	for i, r := range results {
+		if !r.ranking {
+			// formulaAnalytics returns nil when analytics are turned off.
+			if counts != nil {
+				f := counts[0]
+				counts = counts[1:]
+				results[i].found = f != nil
+				results[i].Analytics = filterAnalytics(f, days, category)
+			}
+			continue
+		}
+		// Like brew, GOBREW_NO_ANALYTICS turns off only a formula's own
+		// counts, not the rankings asked for here.
+		if !fetched {
+			n, _ := strconv.Atoi(rankingDays)
+			ranking, rankingErr = e.GlobalAnalytics(ctx, rankingCategory, n)
+			fetched = true
+		}
+		if rankingErr != nil || len(ranking) == 0 {
+			continue
+		}
+		period := model.AnalyticsPeriod{Results: []model.AnalyticsCount{}}
+		period.Days, _ = strconv.Atoi(rankingDays)
+		for _, row := range ranking {
+			if r.Name == "" || row.Name == r.Name || strings.HasPrefix(row.Name, r.Name+" ") {
+				period.Results = append(period.Results, row)
+				period.Count += row.Count
+			}
+		}
+		results[i].found = true
+		results[i].Analytics = []model.Analytics{{Category: rankingCategory, Periods: []model.AnalyticsPeriod{period}}}
+	}
+	if results == nil {
+		results = []analyticsResult{}
+	}
+	a.setResult(results, func(w io.Writer) error {
+		p := newProgress(w)
+		width := p.width
+		if !p.tty {
+			width = 80
+			if columns, err := strconv.Atoi(os.Getenv("COLUMNS")); err == nil && columns > 0 {
+				width = columns
+			}
+		}
+		for i, r := range results {
+			if i > 0 {
+				if _, err := fmt.Fprintln(w); err != nil {
+					return err
+				}
+			}
+			if !r.found {
+				continue
+			}
+			if r.ranking && r.Name != "" && len(r.Analytics[0].Periods[0].Results) == 0 {
+				fmt.Fprintf(a.stderr, "Error: No results matching `%s` found!\n", cleanText(r.Name))
+				continue
+			}
+			if !r.ranking {
+				if err := p.title("Analytics"); err != nil {
+					return err
+				}
+			}
+			for _, analytics := range r.Analytics {
+				header := map[string]string{"os-version": "macOS Version", "cask-install": "Token"}[analytics.Category]
+				for _, period := range analytics.Periods {
+					if err := p.title(fmt.Sprintf("%s (%d days)", analytics.Category, period.Days)); err != nil {
+						return err
+					}
+					for _, line := range analyticsTable(period, width, cmp.Or(header, "Name (with options)")) {
+						if _, err := fmt.Fprintln(w, cleanText(line)); err != nil {
+							return err
+						}
+					}
+				}
+			}
+		}
+		return nil
+	})
+	return nil
+}
+
+func filterAnalytics(analytics []model.Analytics, days, category string) []model.Analytics {
+	result := []model.Analytics{}
+	for _, a := range analytics {
+		if category != "" && a.Category != category {
+			continue
+		}
+		kept := model.Analytics{Category: a.Category, Periods: []model.AnalyticsPeriod{}}
+		for _, p := range a.Periods {
+			if days == "" || strconv.Itoa(p.Days) == days {
+				kept.Periods = append(kept.Periods, p)
+			}
+		}
+		result = append(result, kept)
+	}
+	return result
+}
+
+// analyticsTable ports Utils::Analytics.table_output for one period.
+func analyticsTable(period model.AnalyticsPeriod, width int, header string) []string {
+	total, totalPercent := readableNumber(int(period.Count)), "100.00"
+	maxIndex := len(strconv.Itoa(len(period.Results)))
+	indexWidth := max(len("Index"), len("Total"), maxIndex)
+	countWidth := max(len("Count"), len(total))
+	percentWidth := max(len("Percent"), len(totalPercent))
+	nameWidth := max(width-indexWidth-countWidth-percentWidth-10, 1)
+	name := func(s string) string {
+		if r := []rune(s); len(r) > nameWidth {
+			s = string(r[:nameWidth])
+		}
+		return fmt.Sprintf("%-*s", nameWidth, s)
+	}
+	lines := []string{
+		fmt.Sprintf("%*s | %s | %*s |  %*s", indexWidth, "Index", name(header), countWidth, "Count", percentWidth, "Percent"),
+		strings.Repeat("-", indexWidth) + ":|-" + strings.Repeat("-", nameWidth) + "-|-" + strings.Repeat("-", countWidth) + ":|-" + strings.Repeat("-", percentWidth) + ":",
+	}
+	for i, r := range period.Results {
+		percent := "0.00"
+		if period.Count != 0 {
+			percent = fmt.Sprintf("%.2f", float64(r.Count*100)/float64(period.Count))
+		}
+		index := fmt.Sprintf("%0*d", maxIndex, i+1)
+		lines = append(lines, fmt.Sprintf("%-*s | %s | %*s | %*s%%", indexWidth, index, name(r.Name), countWidth, readableNumber(int(r.Count)), percentWidth, percent))
+	}
+	if len(period.Results) > 1 {
+		lines = append(lines, fmt.Sprintf("%-*s | %s | %*s | %*s%%", indexWidth, "Total", name(""), countWidth, total, percentWidth, totalPercent))
+	}
+	return lines
 }
 
 // formulaAnalytics fetches every formula's install counts at once. Like brew,
@@ -310,7 +765,7 @@ func (a *application) renderInfo(w io.Writer, f model.Formula, prefix string, re
 		lines = append(lines, strings.TrimRight("Needs post-install: "+r.PostInstallError, ": "))
 	}
 	if f.SourcePath != "" {
-		lines = append(lines, "From: https://github.com/Homebrew/homebrew-core/blob/HEAD/"+f.SourcePath)
+		lines = append(lines, "From: "+githubURL(f))
 	}
 	if f.License != "" {
 		lines = append(lines, "License: "+f.License)

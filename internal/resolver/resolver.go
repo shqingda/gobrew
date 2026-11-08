@@ -143,12 +143,22 @@ func Build(req model.Request, generation string, formulae map[string]model.Formu
 		if installed && Compare(record.Formula, f) > 0 && !exact[name] {
 			return fmt.Errorf("%w: refusing to downgrade %s", model.ErrConflict, name)
 		}
-		bottle, err := selectBottle(f, host, prefix)
+		bottle, err := selectBottle(f, host, prefix, req.Force)
 		if err != nil {
 			return err
 		}
 		visiting[name] = true
-		for _, depName := range f.Dependencies {
+		deps := slices.Clone(f.Dependencies)
+		if req.IncludeTest && requested[name] {
+			// brew keeps a test dependency only when its dependent is a named
+			// formula; what it needs at runtime follows as usual.
+			for _, dep := range f.DeclaredDependencies {
+				if dep.Test && !slices.Contains(deps, dep.Name) {
+					deps = append(deps, dep.Name)
+				}
+			}
+		}
+		for _, depName := range deps {
 			dep, err := canonical(depName)
 			if err != nil {
 				return fmt.Errorf("%s dependency: %w", name, err)

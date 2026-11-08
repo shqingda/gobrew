@@ -2,6 +2,7 @@ package resolver
 
 import (
 	"errors"
+	"slices"
 	"strings"
 	"testing"
 
@@ -103,7 +104,7 @@ func TestCompatibleOutdatedDependentIsNotUpgradedIncidentally(t *testing.T) {
 func TestBottleNeverFallsForwardOrAcrossArchitecture(t *testing.T) {
 	f := formula("a", "1")
 	f.Bottles = map[string]model.Bottle{"arm64_tahoe": {Tag: "arm64_tahoe"}, "sequoia": {Tag: "sequoia"}}
-	if _, err := selectBottle(f, host, "/opt/gobrew"); !errors.Is(err, model.ErrUnsupported) {
+	if _, err := selectBottle(f, host, "/opt/gobrew", false); !errors.Is(err, model.ErrUnsupported) {
 		t.Fatalf("unexpected bottle selection: %v", err)
 	}
 }
@@ -381,5 +382,64 @@ func TestSkipOptionsApplyToNamedFormulaeOnly(t *testing.T) {
 	dep, named := plan.Packages[0], plan.Packages[1]
 	if dep.SkipLink || dep.SkipPostInstall || !named.SkipLink || !named.SkipPostInstall {
 		t.Fatalf("skip options reached the wrong package: %+v", plan.Packages)
+	}
+}
+
+func TestForceInstallsDisabledFormulae(t *testing.T) {
+	old := formula("old", "1")
+	old.Disabled, old.DisableReason = true, "unmaintained"
+	tool := formula("tool", "1", "old")
+	catalog := map[string]model.Formula{"old": old, "tool": tool}
+	for _, name := range []string{"old", "tool"} {
+		if _, err := Build(model.Request{Action: "install", Names: []string{name}}, "snapshot", catalog, model.Snapshot{}, host, "/opt/gobrew"); !errors.Is(err, model.ErrUnsupported) {
+			t.Fatalf("%s without --force: %v", name, err)
+		}
+		plan, err := Build(model.Request{Action: "install", Names: []string{name}, Force: true}, "snapshot", catalog, model.Snapshot{}, host, "/opt/gobrew")
+		if err != nil || len(plan.Packages) == 0 {
+			t.Fatalf("%s with --force: %+v, %v", name, plan.Packages, err)
+		}
+	}
+}
+
+func TestIncludeTestAddsOnlyTheNamedFormulaeTestDependencies(t *testing.T) {
+	tool := formula("tool", "1", "lib")
+	tool.DeclaredDependencies = []model.DeclaredDependency{{Name: "lib"}, {Name: "checker", Test: true}, {Name: "builder", Build: true}}
+	lib := formula("lib", "1")
+	lib.DeclaredDependencies = []model.DeclaredDependency{{Name: "libtest", Test: true}}
+	checker := formula("checker", "1", "runtime")
+	names := func(plan model.Plan) string {
+		var got []string
+		for _, pkg := range plan.Packages {
+			got = append(got, pkg.Formula.Name)
+		}
+		return strings.Join(got, " ")
+	}
+	catalog := map[string]model.Formula{"tool": tool, "lib": lib, "checker": checker, "runtime": formula("runtime", "1"), "libtest": formula("libtest", "1"), "builder": formula("builder", "1")}
+	plan, err := Build(model.Request{Action: "install", Names: []string{"tool"}}, "snapshot", catalog, model.Snapshot{}, host, "/opt/gobrew")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := names(plan); got != "lib tool" {
+		t.Fatalf("without --include-test: %q", got)
+	}
+	plan, err = Build(model.Request{Action: "install", Names: []string{"tool"}, IncludeTest: true}, "snapshot", catalog, model.Snapshot{}, host, "/opt/gobrew")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := strings.Fields(names(plan))
+	slices.Sort(got)
+	if want := []string{"checker", "lib", "runtime", "tool"}; !slices.Equal(got, want) {
+		t.Fatalf("with --include-test: %v", got)
+	}
+	for _, p := range plan.Packages {
+		if p.Requested != (p.Formula.Name == "tool") {
+			t.Fatalf("%s requested = %v", p.Formula.Name, p.Requested)
+		}
+	}
+	// Like brew, an installed, current formula installs nothing, tests included.
+	installed := model.Snapshot{Records: map[string]model.Record{"tool": {Formula: tool, Status: model.Ready, Requested: true}, "lib": {Formula: lib, Status: model.Ready}}}
+	plan, err = Build(model.Request{Action: "install", Names: []string{"tool"}, IncludeTest: true}, "snapshot", catalog, installed, host, "/opt/gobrew")
+	if err != nil || len(plan.Packages) != 0 {
+		t.Fatalf("installed: %+v, %v", plan.Packages, err)
 	}
 }

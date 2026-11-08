@@ -49,9 +49,10 @@ func (e *Engine) Plan(ctx context.Context, req model.Request) (model.Plan, error
 		names = append(names, name)
 	}
 	var cat catalog.Snapshot
-	if len(req.Versions) > 0 {
-		// A historical recipe can need dependencies absent from today's closure.
-		// Load one complete generation before replacing its private recipe copy.
+	if len(req.Versions) > 0 || req.IncludeTest {
+		// A historical recipe can need dependencies absent from today's closure,
+		// and test dependencies are outside the runtime closure LoadForPlan
+		// follows. Load one complete generation instead.
 		cat, err = client.Load()
 	} else {
 		cat, err = client.LoadForPlan(names)

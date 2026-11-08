@@ -163,6 +163,7 @@ Formula 安装类命令支持 `--dry-run`：只规划，不自动更新目录或
 | `GOBREW_NO_MODIFY_PATH` | 未设置 | 禁用自动添加 PATH 配置，改为给出手动配置指引。 |
 | `GOBREW_NO_PATH_SHADOW_CHECK` | 未设置 | 禁用 install/info 的 PATH 遮蔽 Caveats，不禁用 doctor 的共存诊断。 |
 | `GOBREW_NO_ENV_HINTS` | 未设置 | 隐藏自动更新、清理和 PATH 遮蔽提示中的环境变量说明。 |
+| `GOBREW_NO_ANALYTICS`、`GOBREW_NO_GITHUB_API` | 未设置 | `info` 不再读取和显示 Formula 的安装统计。 |
 | `GOBREW_NO_EMOJI` | 未设置 | 交互式 search 以 `(installed)` 替代已安装项的勾选标记。 |
 
 ### 安装指定版本

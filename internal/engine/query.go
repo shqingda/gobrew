@@ -4,8 +4,11 @@ import (
 	"cmp"
 	"context"
 	"errors"
+	"fmt"
 	"maps"
+	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -46,6 +49,39 @@ func (e *Engine) Outdated(ctx context.Context) ([]Outdated, error) {
 		}
 		return 0
 	})
+	return result, nil
+}
+
+var pkgVersion = regexp.MustCompile(`^(.+?)(?:_([0-9]+))?$`)
+
+// OutdatedBelow ports brew outdated --minimum-version for one installed
+// formula: it is listed when its version scheme is older than the catalog's,
+// or, under the same scheme, its version and revision are below minimum.
+func (e *Engine) OutdatedBelow(name, minimum string) ([]Outdated, error) {
+	snap, err := e.Installed()
+	if err != nil {
+		return nil, err
+	}
+	r, ok := snap.Records[name]
+	if !ok {
+		return nil, fmt.Errorf("%w: %s is not installed", model.ErrNotFound, name)
+	}
+	scheme := r.Formula.VersionScheme
+	if available, err := e.Available([]string{name}); err == nil {
+		if f, ok := available[name]; ok {
+			scheme = f.VersionScheme
+		}
+	}
+	m := pkgVersion.FindStringSubmatch(minimum)
+	if m == nil {
+		return nil, fmt.Errorf("invalid `--minimum-version`: %s", minimum)
+	}
+	revision, _ := strconv.Atoi(m[2])
+	below := model.Formula{Version: m[1], Revision: revision, VersionScheme: r.Formula.VersionScheme}
+	result := []Outdated{}
+	if r.Formula.VersionScheme < scheme || r.Formula.VersionScheme == scheme && resolver.Compare(r.Formula, below) < 0 {
+		result = append(result, Outdated{name, r.Formula.PkgVersion(), minimum, r.Pinned})
+	}
 	return result, nil
 }
 
@@ -176,6 +212,25 @@ func (e *Engine) FormulaAnalytics(ctx context.Context, name string) ([]model.Ana
 		return nil, err
 	}
 	return client.FormulaAnalytics(ctx, name)
+}
+
+// GlobalAnalytics reads a formulae.brew.sh ranking for brew info --analytics.
+func (e *Engine) GlobalAnalytics(ctx context.Context, category string, days int) ([]model.AnalyticsCount, error) {
+	client, err := e.client()
+	if err != nil {
+		return nil, err
+	}
+	return client.GlobalAnalytics(ctx, category, days)
+}
+
+// PullRequests searches Homebrew's GitHub pull requests, like brew search
+// --pull-request; only is "", "open" or "closed".
+func (e *Engine) PullRequests(ctx context.Context, query, only string) ([]model.PullRequest, error) {
+	host, err := e.Host()
+	if err != nil {
+		return nil, err
+	}
+	return catalog.History{HTTP: e.config.HTTP, Platform: host, Token: e.config.GitHubToken}.PullRequests(ctx, query, only)
 }
 
 // CatalogFetched reports when the local catalog was last refreshed.

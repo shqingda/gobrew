@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -17,7 +18,8 @@ import (
 )
 
 func (a *application) installCommand(action string) *cobra.Command {
-	var dryRun, displayTimes, asDependency, onlyDependencies, skipLink, skipPostInstall bool
+	var dryRun, displayTimes, asDependency, onlyDependencies, skipLink, skipPostInstall, force, includeTest bool
+	var minimum, minimumAlias string
 	args, use := cobra.MinimumNArgs(1), action+" <formula>..."
 	if action == "upgrade" {
 		args, use = cobra.ArbitraryArgs, "upgrade [formula...]"
@@ -26,15 +28,24 @@ func (a *application) installCommand(action string) *cobra.Command {
 		if displayTimes {
 			a.times = &installTimes{}
 		}
-		return a.install(ctx, model.Request{Action: action, Names: names, AsDependency: asDependency, OnlyDependencies: onlyDependencies, SkipLink: skipLink, SkipPostInstall: skipPostInstall}, dryRun)
+		if a.minimumVersion = cmp.Or(minimum, minimumAlias); a.minimumVersion != "" && len(names) != 1 {
+			return usageError{errors.New("`--minimum-version` requires exactly one formula argument")}
+		}
+		return a.install(ctx, model.Request{Action: action, Names: names, AsDependency: asDependency, OnlyDependencies: onlyDependencies, SkipLink: skipLink, SkipPostInstall: skipPostInstall, Force: force, IncludeTest: includeTest}, dryRun)
 	})
 	cmd.Flags().BoolVarP(&dryRun, "dry-run", "n", false, "Resolve and show the exact plan without installing")
+	cmd.Flags().BoolVarP(&force, "force", "f", false, "Install disabled formulae with a warning instead of refusing them")
 	cmd.Flags().BoolVar(&displayTimes, "display-times", os.Getenv("GOBREW_DISPLAY_INSTALL_TIMES") != "", "Print install times for each package at the end of the run")
 	if action == "install" {
 		cmd.Flags().BoolVar(&asDependency, "as-dependency", false, "Install but mark as a dependency, not installed on request")
 		cmd.Flags().BoolVar(&onlyDependencies, "only-dependencies", false, "Install the dependencies but not the formula itself")
 		cmd.Flags().BoolVar(&skipLink, "skip-link", false, "Install but skip linking the keg into the prefix")
 		cmd.Flags().BoolVar(&skipPostInstall, "skip-post-install", false, "Install but skip any post-install steps")
+		cmd.Flags().BoolVar(&includeTest, "include-test", false, "Also install the test dependencies of the named formulae")
+	}
+	if action == "upgrade" {
+		cmd.Flags().StringVar(&minimum, "minimum-version", "", "Only upgrade a named formula if its installed version is below the given minimum version")
+		cmd.Flags().StringVar(&minimumAlias, "min-version", "", "Alias of --minimum-version")
 	}
 	if action != "reinstall" {
 		// gobrew never asks for confirmation; accepted for brew scripts.
@@ -89,6 +100,21 @@ func (a *application) install(ctx context.Context, request model.Request, dryRun
 	if action == "install" {
 		request.NoInstallUpgrade = os.Getenv("GOBREW_NO_INSTALL_UPGRADE") != ""
 	}
+	if action == "upgrade" && a.minimumVersion != "" {
+		skip, err := a.notBelowMinimum(ctx, e, request.Names[0])
+		if err != nil {
+			return err
+		}
+		if skip {
+			// Like brew, the warning is all a skipped run prints.
+			var data any = model.Result{}
+			if dryRun {
+				data = model.Plan{Request: request}
+			}
+			a.setResult(data, func(io.Writer) error { return nil })
+			return nil
+		}
+	}
 	if dryRun {
 		plan, err := e.Plan(ctx, request)
 		if err != nil {
@@ -114,6 +140,25 @@ func (a *application) install(ctx context.Context, request model.Request, dryRun
 		return errors.Join(err, a.pinnedUpgrade(e, result.Held, len(request.Names) > 0))
 	}
 	return errors.Join(err, heldError(e, result.Held))
+}
+
+// notBelowMinimum is brew upgrade --minimum-version: an outdated formula whose
+// installed version is not below the minimum stays as it is, with a warning.
+// Every other case upgrades as usual.
+func (a *application) notBelowMinimum(ctx context.Context, e *engine.Engine, name string) (bool, error) {
+	name = strings.TrimPrefix(name, "homebrew/core/")
+	outdated, err := e.Outdated(ctx)
+	if err != nil || !slices.ContainsFunc(outdated, func(o engine.Outdated) bool { return o.Name == name }) {
+		return false, err
+	}
+	below, err := e.OutdatedBelow(name, a.minimumVersion)
+	if err != nil || len(below) > 0 {
+		return false, err
+	}
+	if !a.quiet {
+		fmt.Fprintln(a.stderr, cleanText("Warning: Not upgrading "+name+", the installed version is not below the minimum version "+a.minimumVersion))
+	}
+	return true, nil
 }
 
 // pinnedUpgrade reports, like brew upgrade, outdated pinned formulae that were

@@ -305,3 +305,33 @@ func TestAutoUpdateRunsOnlyWhenStaleAndNeverBlocksTheCommand(t *testing.T) {
 		t.Fatalf("custom interval ignored: %v %q", err, stderr)
 	}
 }
+
+func TestUpgradeMinimumVersionSkipsFormulaeAtOrAboveIt(t *testing.T) {
+	t.Setenv("GOBREW_NO_AUTO_UPDATE", "1")
+	a, requests, _ := updateAppWithCatalog(t, "2")
+	var stdout bytes.Buffer
+	code := a.run(context.Background(), []string{"upgrade", "demo", "--min-version", "1"}, &stdout, BuildInfo{})
+	if want := "Warning: Not upgrading demo, the installed version is not below the minimum version 1\n"; code != 0 || requests.calls != 0 || a.stderr.(*bytes.Buffer).String() != want {
+		t.Fatalf("skip: exit=%d requests=%d stdout=%q stderr=%q", code, requests.calls, &stdout, a.stderr)
+	}
+	a, _, _ = updateAppWithCatalog(t, "2")
+	stdout.Reset()
+	code = a.run(context.Background(), []string{"upgrade", "demo", "--dry-run", "--json", "--minimum-version", "1.5"}, &stdout, BuildInfo{})
+	var result struct {
+		Data model.Plan `json:"data"`
+	}
+	if err := json.Unmarshal(stdout.Bytes(), &result); code != 0 || err != nil || len(result.Data.Packages) != 1 {
+		t.Fatalf("below the minimum: exit=%d stdout=%s stderr=%s", code, &stdout, a.stderr)
+	}
+	a, _, _ = updateAppWithCatalog(t, "2")
+	stdout.Reset()
+	code = a.run(context.Background(), []string{"upgrade", "demo", "--dry-run", "--json", "--min-version", "1"}, &stdout, BuildInfo{})
+	result.Data = model.Plan{}
+	if err := json.Unmarshal(stdout.Bytes(), &result); code != 0 || err != nil || result.Data.Request.Action != "upgrade" || len(result.Data.Packages) != 0 {
+		t.Fatalf("skipped dry-run: exit=%d stdout=%s", code, &stdout)
+	}
+	a, _, _ = updateAppWithCatalog(t, "2")
+	if code = a.run(context.Background(), []string{"upgrade", "--min-version", "1"}, &bytes.Buffer{}, BuildInfo{}); code != 2 {
+		t.Fatalf("no formula: exit=%d", code)
+	}
+}

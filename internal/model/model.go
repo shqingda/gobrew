@@ -227,6 +227,12 @@ type Request struct {
 	// SkipLink and SkipPostInstall apply to the named formulae, not dependencies.
 	SkipLink        bool `json:"skip_link,omitempty"`
 	SkipPostInstall bool `json:"skip_post_install,omitempty"`
+	// Force is brew's --force for bottles: disabled formulae install with a
+	// warning instead of an error. conflicts_with is still checked.
+	Force bool `json:"force,omitempty"`
+	// IncludeTest also installs the test dependencies the named formulae
+	// declare, like brew install --include-test.
+	IncludeTest bool `json:"include_test,omitempty"`
 }
 
 // MarksRequested reports whether the named formulae become requested roots.
@@ -350,8 +356,23 @@ type Analytics struct {
 	Periods  []AnalyticsPeriod `json:"periods"`
 }
 
-// AnalyticsPeriod is the total count over a number of days.
+// AnalyticsPeriod is the count over a number of days: the total, and each
+// formula variant ("jq --HEAD") in the order the API lists them.
 type AnalyticsPeriod struct {
-	Days  int   `json:"days"`
-	Count int64 `json:"count"`
+	Days    int              `json:"days"`
+	Count   int64            `json:"count"`
+	Results []AnalyticsCount `json:"results"`
+}
+
+// AnalyticsCount is one row of an analytics table.
+type AnalyticsCount struct {
+	Name  string `json:"name"`
+	Count int64  `json:"count"`
+}
+
+// PullRequest is one result of gobrew search --pull-request.
+type PullRequest struct {
+	Title string `json:"title"`
+	URL   string `json:"url"`
+	State string `json:"state"`
 }

@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -199,14 +200,21 @@ func (a *application) installCLI(ctx context.Context, binDir string) (cliUpdate,
 // outdatedCommand mirrors brew outdated [--verbose] [formula...].
 func (a *application) outdatedCommand() *cobra.Command {
 	var verbose bool
+	var minimum, minimumAlias string
 	cmd := a.commandFor("outdated [formula...]", "List installed formulae with available updates", cobra.ArbitraryArgs, func(ctx context.Context, names []string) error {
-		return a.outdated(ctx, names, verbose)
+		minimum = cmp.Or(minimum, minimumAlias)
+		if minimum != "" && len(names) != 1 {
+			return usageError{errors.New("`--minimum-version` requires exactly one formula argument")}
+		}
+		return a.outdated(ctx, names, verbose, minimum)
 	})
 	cmd.Flags().BoolVarP(&verbose, "verbose", "v", false, "Include detailed version information")
+	cmd.Flags().StringVar(&minimum, "minimum-version", "", "Only list a named formula with an installed version below the given minimum version")
+	cmd.Flags().StringVar(&minimumAlias, "min-version", "", "Alias of --minimum-version")
 	return cmd
 }
 
-func (a *application) outdated(ctx context.Context, names []string, verbose bool) error {
+func (a *application) outdated(ctx context.Context, names []string, verbose bool, minimum string) error {
 	e, err := a.getEngine()
 	if err != nil {
 		return err
@@ -214,9 +222,12 @@ func (a *application) outdated(ctx context.Context, names []string, verbose bool
 	if err = a.autoUpdate(ctx, e, false); err != nil {
 		return err
 	}
-	items, err := e.Outdated(ctx)
-	if err != nil {
-		return err
+	var items []engine.Outdated
+	if minimum == "" {
+		items, err = e.Outdated(ctx)
+		if err != nil {
+			return err
+		}
 	}
 	if len(names) > 0 {
 		snapshot, err := e.Installed()
@@ -230,6 +241,11 @@ func (a *application) outdated(ctx context.Context, names []string, verbose bool
 			}
 		}
 		items = slices.DeleteFunc(items, func(item engine.Outdated) bool { return !slices.Contains(names, item.Name) })
+		if minimum != "" {
+			if items, err = e.OutdatedBelow(names[0], minimum); err != nil {
+				return err
+			}
+		}
 	}
 	// Like brew: versions on a terminal or with --verbose, names otherwise
 	// (and always with --quiet).

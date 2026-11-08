@@ -13,6 +13,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 
@@ -24,6 +25,8 @@ const (
 	// analyticsStale is brew's UNSIGNED_API_STALE_SECONDS: one hour.
 	analyticsStale   = time.Hour
 	maxAnalyticsBody = 4 << 20
+	// A ranking lists every formula, so it is far larger than one formula.
+	maxGlobalAnalyticsBody = 32 << 20
 )
 
 // FormulaAnalytics reads the install counts brew info shows. They are display
@@ -63,11 +66,29 @@ func (c Client) FormulaAnalytics(ctx context.Context, name string) ([]model.Anal
 // fetchAnalytics makes one attempt, so an unreachable API does not hold up
 // info, and returns the raw analytics object.
 func (c Client) fetchAnalytics(ctx context.Context, name string) ([]byte, error) {
+	body, err := c.apiGet(ctx, "formula/"+name+".json", maxAnalyticsBody)
+	if err != nil {
+		return nil, err
+	}
+	var formula struct {
+		Analytics json.RawMessage `json:"analytics"`
+	}
+	if err := json.Unmarshal(body, &formula); err != nil {
+		return nil, fmt.Errorf("decode analytics: %w", err)
+	}
+	if len(formula.Analytics) == 0 || formula.Analytics[0] != '{' {
+		return []byte("{}"), nil
+	}
+	return formula.Analytics, nil
+}
+
+// apiGet makes one GET of an unsigned file next to the catalog index.
+func (c Client) apiGet(ctx context.Context, endpoint string, limit int64) ([]byte, error) {
 	base, err := url.Parse(cmp.Or(c.URL, defaultURL))
 	if err != nil {
 		return nil, err
 	}
-	base.Path = path.Join(path.Dir(base.Path), "formula", name+".json")
+	base.Path = path.Join(path.Dir(base.Path), endpoint)
 	base.RawQuery = ""
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, base.String(), nil)
 	if err != nil {
@@ -86,27 +107,19 @@ func (c Client) fetchAnalytics(ctx context.Context, name string) ([]byte, error)
 	if res.StatusCode != http.StatusOK {
 		return nil, errors.New("download analytics: HTTP " + res.Status)
 	}
-	body, err := io.ReadAll(io.LimitReader(res.Body, maxAnalyticsBody+1))
+	body, err := io.ReadAll(io.LimitReader(res.Body, limit+1))
 	if err != nil {
 		return nil, err
 	}
-	if len(body) > maxAnalyticsBody {
+	if int64(len(body)) > limit {
 		return nil, errors.New("analytics exceed size limit")
 	}
-	var formula struct {
-		Analytics json.RawMessage `json:"analytics"`
-	}
-	if err = json.Unmarshal(body, &formula); err != nil {
-		return nil, fmt.Errorf("decode analytics: %w", err)
-	}
-	if len(formula.Analytics) == 0 || formula.Analytics[0] != '{' {
-		return []byte("{}"), nil
-	}
-	return formula.Analytics, nil
+	return body, nil
 }
 
 // parseAnalytics follows brew's output_analytics: each period's count is the
-// sum over its formula variants, and "30d" counts as 30 days.
+// sum over its formula variants, and "30d" counts as 30 days. Every level
+// keeps the API's order.
 func parseAnalytics(data []byte) ([]model.Analytics, error) {
 	categories, err := orderedObject(data)
 	if err != nil {
@@ -120,13 +133,18 @@ func parseAnalytics(data []byte) ([]model.Analytics, error) {
 		}
 		a := model.Analytics{Category: strings.ReplaceAll(category.key, "_", "-"), Periods: []model.AnalyticsPeriod{}}
 		for _, period := range periods {
-			var counts map[string]int64
-			if err = json.Unmarshal(period.value, &counts); err != nil {
-				return nil, fmt.Errorf("decode analytics: %w", err)
+			counts, err := orderedObject(period.value)
+			if err != nil {
+				return nil, err
 			}
-			p := model.AnalyticsPeriod{Days: leadingInt(period.key)}
-			for _, n := range counts {
+			p := model.AnalyticsPeriod{Days: leadingInt(period.key), Results: make([]model.AnalyticsCount, 0, len(counts))}
+			for _, count := range counts {
+				var n int64
+				if err = json.Unmarshal(count.value, &n); err != nil {
+					return nil, fmt.Errorf("decode analytics: %w", err)
+				}
 				p.Count += n
+				p.Results = append(p.Results, model.AnalyticsCount{Name: count.key, Count: n})
 			}
 			a.Periods = append(a.Periods, p)
 		}
@@ -172,4 +190,44 @@ func leadingInt(s string) int {
 		n = n*10 + int(r-'0')
 	}
 	return n
+}
+
+var analyticsCategory = regexp.MustCompile(`^[a-z][a-z-]*$`)
+
+// GlobalAnalytics reads one formulae.brew.sh ranking, such as install over 30
+// days, like brew's Analytics.fetch: one attempt and no cache. Rows keep the
+// API's order; a name listed twice keeps its first place and its last count,
+// as a Ruby hash does.
+func (c Client) GlobalAnalytics(ctx context.Context, category string, days int) ([]model.AnalyticsCount, error) {
+	if !analyticsCategory.MatchString(category) || days <= 0 {
+		return nil, fmt.Errorf("unsafe analytics category %q or days %d", category, days)
+	}
+	data, err := c.apiGet(ctx, fmt.Sprintf("analytics/%s/%dd.json", category, days), maxGlobalAnalyticsBody)
+	if err != nil {
+		return nil, err
+	}
+	var ranking struct {
+		Items []map[string]any `json:"items"`
+	}
+	if err = json.Unmarshal(data, &ranking); err != nil {
+		return nil, fmt.Errorf("decode analytics: %w", err)
+	}
+	key := map[string]string{"os-version": "os_version", "cask-install": "cask"}[category]
+	if key == "" {
+		key = "formula"
+	}
+	rows := []model.AnalyticsCount{}
+	index := map[string]int{}
+	for _, item := range ranking.Items {
+		name, _ := item[key].(string)
+		count, _ := item["count"].(string)
+		n := int64(leadingInt(strings.ReplaceAll(count, ",", "")))
+		if i, seen := index[name]; seen {
+			rows[i].Count = n
+			continue
+		}
+		index[name] = len(rows)
+		rows = append(rows, model.AnalyticsCount{Name: name, Count: n})
+	}
+	return rows, nil
 }
