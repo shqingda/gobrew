@@ -178,7 +178,7 @@ func (e *Engine) explicitVersions(ctx context.Context, req model.Request, formul
 		}
 		current, known := formulae[name]
 		if !known {
-			return req, nil, fmt.Errorf("%w: formula %s", model.ErrNotFound, name)
+			return req, nil, model.FormulaUnavailable(name, maps.Keys(formulae))
 		}
 		out.Exact = append(out.Exact, name)
 		if version == current.Version || version == current.PkgVersion() {

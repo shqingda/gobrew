@@ -67,7 +67,21 @@ func (s Snapshot) Lookup(name string) (model.Formula, error) {
 	if found != nil {
 		return *found, nil
 	}
-	return model.Formula{}, fmt.Errorf("%w: formula %s", model.ErrNotFound, name)
+	return model.Formula{}, model.FormulaUnavailable(name, s.names)
+}
+
+// names yields every formula name and alias, for "Did you mean" suggestions.
+func (s Snapshot) names(yield func(string) bool) {
+	for name, f := range s.Formulae {
+		if !yield(name) {
+			return
+		}
+		for _, alias := range f.Aliases {
+			if !yield(alias) {
+				return
+			}
+		}
+	}
 }
 
 // Search follows brew search. By default it matches formula names and

@@ -115,7 +115,7 @@ func (i Installer) changeLinked(s *model.Snapshot, names []string, linked, allow
 	for _, name := range names {
 		rec, ok := s.Records[name]
 		if !ok {
-			return nil, fmt.Errorf("%w: %s", model.ErrNotFound, name)
+			return nil, fmt.Errorf("%w: No such keg: %s", model.ErrNotFound, filepath.Join(i.Prefix, "Cellar", name))
 		}
 		result := model.LinkResult{Name: name, Keg: rec.Keg, Paths: []string{}, AlreadyLinked: linked && rec.Linked}
 		result.KegOnly = linked && rec.Formula.KegOnly && rec.Formula.KegOnlyReason != model.KegOnlyVersioned

@@ -3,9 +3,11 @@
 package model
 
 import (
+	"cmp"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 )
@@ -391,4 +393,78 @@ func MacOSName(major int) string {
 		}
 	}
 	return name
+}
+
+// FormulaUnavailable is brew's FormulaUnavailableError text, with its "Did you
+// mean" suggestions drawn from known (names and aliases).
+func FormulaUnavailable(name string, known func(yield func(string) bool)) error {
+	return fmt.Errorf("%w: No available formula with the name %q.%s", ErrNotFound, name, didYouMean(name, known))
+}
+
+// didYouMean suggests names within a small edit distance, closest first, the
+// way Ruby's DidYouMean bounds Levenshtein distance by a quarter of the input.
+func didYouMean(name string, known func(yield func(string) bool)) string {
+	if known == nil || name == "" {
+		return ""
+	}
+	limit := max(1, (len(name)+3)/4)
+	type match struct {
+		name     string
+		distance int
+	}
+	var found []match
+	seen := map[string]bool{}
+	for candidate := range known {
+		if seen[candidate] || candidate == name {
+			continue
+		}
+		seen[candidate] = true
+		if d := levenshtein(name, candidate, limit); d <= limit {
+			found = append(found, match{candidate, d})
+		}
+	}
+	if len(found) == 0 {
+		return ""
+	}
+	slices.SortFunc(found, func(a, b match) int {
+		return cmp.Or(cmp.Compare(a.distance, b.distance), strings.Compare(a.name, b.name))
+	})
+	names := make([]string, 0, min(len(found), 3))
+	for _, m := range found[:min(len(found), 3)] {
+		names = append(names, m.name)
+	}
+	if len(names) == 1 {
+		return " Did you mean " + names[0] + "?"
+	}
+	return " Did you mean " + strings.Join(names[:len(names)-1], ", ") + " or " + names[len(names)-1] + "?"
+}
+
+// levenshtein returns the edit distance of a and b, or limit+1 once it is
+// certain to exceed limit.
+func levenshtein(a, b string, limit int) int {
+	if d := len(a) - len(b); d > limit || -d > limit {
+		return limit + 1
+	}
+	previous := make([]int, len(b)+1)
+	current := make([]int, len(b)+1)
+	for j := range previous {
+		previous[j] = j
+	}
+	for i := 1; i <= len(a); i++ {
+		current[0] = i
+		best := current[0]
+		for j := 1; j <= len(b); j++ {
+			cost := 1
+			if a[i-1] == b[j-1] {
+				cost = 0
+			}
+			current[j] = min(previous[j]+1, current[j-1]+1, previous[j-1]+cost)
+			best = min(best, current[j])
+		}
+		if best > limit {
+			return limit + 1
+		}
+		previous, current = current, previous
+	}
+	return previous[len(b)]
 }

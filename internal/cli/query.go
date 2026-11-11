@@ -71,7 +71,7 @@ func (a *application) searchCommand() *cobra.Command {
 			return notFound(fmt.Sprintf("No formulae found for %q.", query))
 		}
 		if newProgress(a.stderr).tty && !strings.HasPrefix(query, "/") && strings.ContainsAny(query, `\|()[]{}^$*+?`) {
-			fmt.Fprintln(a.stderr, "Warning: Did you mean to perform a regular expression search?\nSurround your query with /slashes/ to search locally by regex.")
+			a.warn("Did you mean to perform a regular expression search?\nSurround your query with /slashes/ to search locally by regex.")
 		}
 		return nil
 	})
@@ -128,12 +128,7 @@ func (a *application) searchPullRequests(ctx context.Context, args []string, onl
 func renderPullRequests(w io.Writer, prs []model.PullRequest, query string) error {
 	p := newProgress(w)
 	write := func(lines []string) error {
-		for _, line := range lines {
-			if _, err := fmt.Fprintln(w, cleanText(line)); err != nil {
-				return err
-			}
-		}
-		return nil
+		return writeLines(w, lines)
 	}
 	var open, closed []string
 	for _, pr := range prs {
@@ -715,12 +710,7 @@ func (a *application) renderInfo(w io.Writer, f model.Formula, prefix string, re
 	r, installed := records[f.Name]
 	p := newProgress(w)
 	write := func(lines ...string) error {
-		for _, line := range lines {
-			if _, err := fmt.Fprintln(w, cleanText(line)); err != nil {
-				return err
-			}
-		}
-		return nil
+		return writeLines(w, lines)
 	}
 	spec := "stable " + f.Version
 	if installed && r.Formula.PkgVersion() != f.PkgVersion() {
@@ -849,6 +839,11 @@ func conflictLines(f model.Formula) []string {
 // dependencyLines marks each dependency on a terminal, as brew does, and flags
 // a missing one only for an installed formula, which needs it.
 func dependencyLines(f model.Formula, r model.Record, installed bool, records map[string]model.Record, tty bool) []string {
+	// brew's ✔ and ✘; GOBREW_NO_EMOJI (HOMEBREW_NO_EMOJI) spells them out.
+	installedMark, missingMark := "\u2714", "\u2718"
+	if os.Getenv("GOBREW_NO_EMOJI") != "" {
+		installedMark, missingMark = "(installed)", "(missing)"
+	}
 	required, recommended, optional := declaredGroups(f)
 	var lines []string
 	for _, group := range []struct {
@@ -863,9 +858,9 @@ func dependencyLines(f model.Formula, r model.Record, installed bool, records ma
 		for i, name := range group.names {
 			names[i] = name
 			if _, ok := records[strings.TrimPrefix(name, "homebrew/core/")]; tty && ok {
-				names[i] += " \u2714"
+				names[i] += " " + installedMark
 			} else if tty && installed && group.need {
-				names[i] += " \u2718"
+				names[i] += " " + missingMark
 			}
 		}
 		lines = append(lines, fmt.Sprintf("%s (%d): %s", group.label, len(names), strings.Join(names, ", ")))
@@ -877,9 +872,9 @@ func dependencyLines(f model.Formula, r model.Record, installed bool, records ma
 				present++
 			}
 		}
-		status := "all installed \u2714"
+		status := "all installed " + installedMark
 		if missing := len(r.Dependencies) - present; missing > 0 {
-			status = fmt.Sprintf("%d installed \u2714, %d missing \u2718", present, missing)
+			status = fmt.Sprintf("%d installed %s, %d missing %s", present, installedMark, missing, missingMark)
 		}
 		lines = append(lines, fmt.Sprintf("Recursive Runtime (%d): %s", len(r.Dependencies), status))
 	}
@@ -940,7 +935,7 @@ func (a *application) listCommand() *cobra.Command {
 			if !ok {
 				missing = notFound("No such keg: " + filepath.Join(e.Prefix(), "Cellar", name))
 			} else if pinned && !r.Pinned {
-				fmt.Fprintln(a.stderr, cleanText("Warning: "+name+" not pinned"))
+				a.warn(name + " not pinned")
 			}
 			named[name] = ok
 		}
@@ -1150,7 +1145,7 @@ func (a *application) depsCommand() *cobra.Command {
 				return !ok
 			})
 			if reason := declaredReason(opts, tree, graph, allInstalled); reason != "" {
-				fmt.Fprintf(a.stderr, "Warning: `gobrew deps` is not the actual runtime dependencies because %s!\nThis means dependencies may differ from a formula's declared dependencies.\nHide these hints with `GOBREW_NO_ENV_HINTS=1` (see `gobrew help`).\n", reason)
+				a.warn(fmt.Sprintf("`gobrew deps` is not the actual runtime dependencies because %s!\nThis means dependencies may differ from a formula's declared dependencies.\nHide these hints with `GOBREW_NO_ENV_HINTS=1` (see `gobrew help`).", reason))
 			}
 		}
 		switch {

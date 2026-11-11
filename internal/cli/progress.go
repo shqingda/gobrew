@@ -36,11 +36,19 @@ func newProgress(w io.Writer) *progress {
 	if f, ok := w.(*os.File); ok {
 		if size, err := unix.IoctlGetWinsize(int(f.Fd()), unix.TIOCGWINSZ); err == nil {
 			p.tty, p.width = true, int(size.Col)
-			p.color = os.Getenv("NO_COLOR") == "" && os.Getenv("TERM") != "dumb"
+			p.color = colorAllowed()
 		}
 	}
 	return p
 }
+
+// colorAllowed follows NO_COLOR, Homebrew's HOMEBREW_NO_COLOR and TERM=dumb.
+func colorAllowed() bool {
+	return os.Getenv("NO_COLOR") == "" && os.Getenv("HOMEBREW_NO_COLOR") == "" && os.Getenv("GOBREW_NO_COLOR") == "" && os.Getenv("TERM") != "dumb"
+}
+
+// colorful reports whether w is a terminal that may receive color.
+func colorful(w io.Writer) bool { return newProgress(w).color }
 
 func (p *progress) event(event model.Event) error {
 	name := cleanText(event.Package)

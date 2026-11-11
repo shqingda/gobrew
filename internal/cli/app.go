@@ -187,7 +187,10 @@ func (a *application) run(ctx context.Context, args []string, stdout io.Writer, 
 	}
 	if err != nil && err.Error() != "" {
 		// Homebrew's error prefix; usage errors keep the --help pointer below.
-		fmt.Fprintf(stderr, "Error: %s\n", cleanText(err.Error()))
+		fmt.Fprintf(stderr, "%s: %s\n", label(stderr, "Error", "31"), cleanText(userMessage(err)))
+		if hint := errorHint(err, a.command); hint != "" {
+			fmt.Fprintln(stderr, hint)
+		}
 		if code == 2 {
 			path := "gobrew"
 			if cmd != nil && cmd.HasParent() {
@@ -200,6 +203,39 @@ func (a *application) run(ctx context.Context, args []string, stdout io.Writer, 
 		}
 	}
 	return code
+}
+
+// categories are model's error kinds. Messages built as "%w: detail" start
+// with the kind's own text ("not found: jq"), which suits the JSON code but
+// not a person; text output drops it. JSON keeps the full message.
+var categories = []error{model.ErrUnsupported, model.ErrNotFound, model.ErrConflict, model.ErrBusy}
+
+// userMessage is the text shown after "Error: ".
+func userMessage(err error) string {
+	switch {
+	case errors.Is(err, context.Canceled):
+		return "Interrupted. gobrew stops only between safe steps, and the next command finishes any interrupted change."
+	case errors.Is(err, model.ErrStalePlan):
+		return "Another gobrew command changed the installation while this one was running; run it again."
+	}
+	message := err.Error()
+	for _, category := range categories {
+		if errors.Is(err, category) {
+			message = strings.Replace(message, category.Error()+": ", "", 1)
+		}
+	}
+	return message
+}
+
+// errorHint suggests the next command for failures a user can act on.
+func errorHint(err error, command string) string {
+	switch {
+	case errors.Is(err, model.ErrRecoveryRequired):
+		return "Run `gobrew doctor --repair` to recover the interrupted operation."
+	case errors.Is(err, model.ErrNeedsRepair) && command != "doctor":
+		return "Run `gobrew doctor` to see what needs repair."
+	}
+	return ""
 }
 
 func classify(err error) (int, string) {
@@ -297,6 +333,20 @@ func (a *application) getEngine() (*engine.Engine, error) {
 	a.config.CacheDir = filepath.Clean(a.config.CacheDir)
 	a.engine = engine.New(a.config)
 	return a.engine, nil
+}
+
+// warn is brew's opoo: a "Warning:" line on stderr, never on stdout.
+func (a *application) warn(text string) {
+	fmt.Fprintf(a.stderr, "%s: %s\n", label(a.stderr, "Warning", "33"), cleanText(text))
+}
+
+// label underlines and colors "Error" (red, 31) or "Warning" (yellow, 33) on a
+// color terminal, as Homebrew's Formatter does.
+func label(w io.Writer, text, color string) string {
+	if colorful(w) {
+		return "\033[4;" + color + "m" + text + "\033[0m"
+	}
+	return text
 }
 
 func (a *application) setResult(data any, render func(io.Writer) error) {

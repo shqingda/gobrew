@@ -104,12 +104,7 @@ func (a *application) update(ctx context.Context, _ []string) error {
 		}
 		lines = append(lines, fmt.Sprintf("Updated formula catalog: %d formulae.", report.Formulae))
 		lines = append(lines, outdatedLines(report.Outdated)...)
-		for _, line := range lines {
-			if _, err := fmt.Fprintln(w, cleanText(line)); err != nil {
-				return err
-			}
-		}
-		return nil
+		return writeLines(w, lines)
 	})
 	if cliErr != nil {
 		return fmt.Errorf("could not update gobrew: %w", cliErr)
@@ -151,7 +146,7 @@ func (a *application) autoUpdate(ctx context.Context, e *engine.Engine, listOutd
 		return nil
 	}
 	if err = errors.Join(cliErr, err); err != nil {
-		fmt.Fprintln(a.stderr, "Warning: auto-update failed: "+cleanText(err.Error()))
+		a.warn("auto-update failed: " + err.Error())
 		return nil
 	}
 	if report.CLI.Changed {

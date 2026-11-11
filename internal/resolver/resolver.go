@@ -45,7 +45,18 @@ func Build(req model.Request, generation string, formulae map[string]model.Formu
 			}
 			return alias, nil
 		}
-		return "", fmt.Errorf("%w: formula %s", model.ErrNotFound, name)
+		return "", model.FormulaUnavailable(name, func(yield func(string) bool) {
+			for known := range formulae {
+				if !yield(known) {
+					return
+				}
+			}
+			for alias := range aliases {
+				if !yield(alias) {
+					return
+				}
+			}
+		})
 	}
 	requested := map[string]bool{}
 	exact := map[string]bool{}

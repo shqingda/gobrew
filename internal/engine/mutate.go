@@ -3,7 +3,10 @@ package engine
 import (
 	"context"
 	"fmt"
+	"maps"
+	"path/filepath"
 	"slices"
+	"strings"
 
 	"github.com/shqingda/gobrew/internal/model"
 )
@@ -16,7 +19,7 @@ func (e *Engine) Pin(ctx context.Context, names []string, pinned bool) error {
 		for _, name := range names {
 			r, ok := s.Records[name]
 			if !ok {
-				return fmt.Errorf("%w: %s", model.ErrNotFound, name)
+				return fmt.Errorf("%w: %s not installed", model.ErrNotFound, name)
 			}
 			r.Pinned = pinned
 			s.Records[name] = r
@@ -52,19 +55,34 @@ func (e *Engine) Uninstall(ctx context.Context, names []string) ([]string, error
 		removing := make(map[string]bool)
 		for _, n := range names {
 			if _, ok := s.Records[n]; !ok {
-				return fmt.Errorf("%w: %s", model.ErrNotFound, n)
+				return fmt.Errorf("%w: No such keg: %s", model.ErrNotFound, filepath.Join(e.config.Prefix, "Cellar", n))
 			}
 			removing[n] = true
 		}
+		// Like brew, name every installed dependent of each refused formula.
+		dependents := map[string][]string{}
 		for name, r := range s.Records {
 			if removing[name] {
 				continue
 			}
 			for _, dep := range r.Dependencies {
 				if removing[dep.Name] {
-					return fmt.Errorf("%w: %s still requires %s", model.ErrConflict, name, dep.Name)
+					dependents[dep.Name] = append(dependents[dep.Name], name)
 				}
 			}
+		}
+		if len(dependents) > 0 {
+			var refusals []string
+			for _, required := range slices.Sorted(maps.Keys(dependents)) {
+				users := dependents[required]
+				slices.Sort(users)
+				verb := "is"
+				if len(users) > 1 {
+					verb = "are"
+				}
+				refusals = append(refusals, fmt.Sprintf("Refusing to uninstall %s because it is required by %s, which %s currently installed.", required, strings.Join(users, ", "), verb))
+			}
+			return fmt.Errorf("%w: %s\nUninstall the formulae that require it first, or keep it; gobrew never leaves an installed formula without its dependencies.", model.ErrConflict, strings.Join(refusals, "\n"))
 		}
 		for _, n := range names {
 			delete(s.Records, n)

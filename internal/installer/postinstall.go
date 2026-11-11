@@ -30,7 +30,7 @@ func (i Installer) PostInstall(ctx context.Context, names []string, events chan<
 		for _, name := range names {
 			rec, ok := snap.Records[name]
 			if !ok {
-				return fmt.Errorf("%w: %s", model.ErrNotFound, name)
+				return fmt.Errorf("%w: No such keg: %s", model.ErrNotFound, filepath.Join(i.Prefix, "Cellar", name))
 			}
 			if !owns(rec.Keg, rec.Owner) {
 				return fmt.Errorf("%w: invalid keg %s", model.ErrNeedsRepair, name)

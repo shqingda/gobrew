@@ -23,6 +23,7 @@ import (
 var bucket = []byte("state-v1")
 
 type Store struct{ Prefix string }
+
 // Session is a writer's access while it holds writer.lock. Each call opens the
 // database for one transaction and closes it again.
 type Session struct{ store Store }

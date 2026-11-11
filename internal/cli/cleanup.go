@@ -27,7 +27,25 @@ func (a *application) autoremoveCommand() *cobra.Command {
 		if err != nil {
 			return err
 		}
-		a.names(names, "No unused dependencies.")
+		if names == nil {
+			names = []string{}
+		}
+		// brew's headings: "==> Autoremoving 2 unneeded formulae:", or
+		// "Would autoremove" for a dry run, then one name per line.
+		a.setResult(names, func(w io.Writer) error {
+			if len(names) == 0 {
+				return writeLines(w, []string{"No unused dependencies."})
+			}
+			noun := "formulae"
+			if len(names) == 1 {
+				noun = "formula"
+			}
+			verb := "Autoremoving"
+			if dryRun {
+				verb = "Would autoremove"
+			}
+			return writeLines(w, append([]string{fmt.Sprintf("==> %s %d unneeded %s:", verb, len(names), noun)}, names...))
+		})
 		return nil
 	})
 	cmd.Flags().BoolVarP(&dryRun, "dry-run", "n", false, "List unused dependencies without removing them")
@@ -112,12 +130,7 @@ func (a *application) cleanupCommand() *cobra.Command {
 				}
 				lines = append(lines, "==> This operation "+verb+" approximately "+humanBytes(total)+" of disk space.")
 			}
-			for _, line := range lines {
-				if _, err := fmt.Fprintln(w, cleanText(line)); err != nil {
-					return err
-				}
-			}
-			return nil
+			return writeLines(w, lines)
 		})
 		return err
 	})

@@ -37,23 +37,23 @@ func (e *Engine) Doctor(ctx context.Context, repair bool) ([]Finding, error) {
 	}
 	findings := make([]Finding, 0)
 	if snap.RecoveryRequired {
-		findings = append(findings, Finding{Problem: "interrupted operation requires recovery; run gobrew doctor --repair"})
+		findings = append(findings, Finding{Problem: "an interrupted operation needs recovery; run `gobrew doctor --repair`"})
 	}
 	for name, r := range snap.Records {
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
 		if err := e.installer().ValidateState(model.Prepared{Plan: model.Plan{Unchanged: []string{name}}}, snap); err != nil {
-			problem := err.Error()
+			problem := strings.TrimPrefix(err.Error(), model.ErrNeedsRepair.Error()+": ")
 			if r.PostInstallError != "" {
-				problem += ": " + r.PostInstallError
+				problem += " (last attempt: " + r.PostInstallError + ")"
 			}
 			findings = append(findings, Finding{Package: name, Problem: problem})
 		}
 		for rel, want := range r.Links {
 			got, err := os.Readlink(filepath.Join(e.config.Prefix, rel))
 			if err != nil || got != want {
-				findings = append(findings, Finding{Package: name, Problem: "missing or changed link " + rel})
+				findings = append(findings, Finding{Package: name, Problem: "link " + rel + " is missing or was changed; run `gobrew reinstall " + name + "`"})
 			}
 		}
 	}

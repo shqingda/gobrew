@@ -108,7 +108,10 @@ func (i Installer) ValidateState(prepared model.Prepared, snap model.Snapshot) e
 		seen[name] = true
 		rec, ok := snap.Records[name]
 		if !ok {
-			return fmt.Errorf("%w: missing installed dependency %s", model.ErrNeedsRepair, name)
+			return fmt.Errorf("%w: dependency %s is not installed; run `gobrew install %s`", model.ErrNeedsRepair, name, name)
+		}
+		if rec.Status == model.NeedsPostInstall {
+			return fmt.Errorf("%w: %s has not finished its post-install steps; run `gobrew postinstall %s`", model.ErrNeedsRepair, name, name)
 		}
 		if rec.Status != model.Ready {
 			return fmt.Errorf("%w: %s has status %s", model.ErrNeedsRepair, name, rec.Status)
@@ -120,7 +123,7 @@ func (i Installer) ValidateState(prepared model.Prepared, snap model.Snapshot) e
 			return fmt.Errorf("%w: %s: %v", model.ErrNeedsRepair, name, err)
 		}
 		if !owns(rec.Keg, rec.Owner) {
-			return fmt.Errorf("%w: missing or unowned keg for %s", model.ErrNeedsRepair, name)
+			return fmt.Errorf("%w: the keg of %s is missing or was changed outside gobrew; run `gobrew reinstall %s`", model.ErrNeedsRepair, name, name)
 		}
 		if len(rec.Dependencies) == 0 {
 			names = append(names, rec.Formula.Dependencies...)

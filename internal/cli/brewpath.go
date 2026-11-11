@@ -3,7 +3,6 @@ package cli
 import (
 	"context"
 	"errors"
-	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -69,9 +68,6 @@ func namedFormulae(ctx context.Context, e *engine.Engine, names []string) ([]mod
 	formulae := make([]model.Formula, 0, len(names))
 	for _, name := range names {
 		f, err := cat.Lookup(name)
-		if errors.Is(err, model.ErrNotFound) {
-			return nil, notFound(fmt.Sprintf("No available formula with the name %q.", name))
-		}
 		if err != nil {
 			return nil, err
 		}
@@ -82,12 +78,7 @@ func namedFormulae(ctx context.Context, e *engine.Engine, names []string) ([]mod
 
 func (a *application) lines(lines []string) {
 	a.setResult(lines, func(w io.Writer) error {
-		for _, line := range lines {
-			if _, err := fmt.Fprintln(w, cleanText(line)); err != nil {
-				return err
-			}
-		}
-		return nil
+		return writeLines(w, lines)
 	})
 }
 
@@ -204,7 +195,7 @@ func (a *application) pathCommands() []*cobra.Command {
 				if !ok {
 					// gobrew has no source builds, so where brew would name
 					// the source download this only warns.
-					fmt.Fprintln(a.stderr, cleanText("Warning: Bottle for tag :"+wanted+" is unavailable."))
+					a.warn("Bottle for tag :" + wanted + " is unavailable.")
 					continue
 				}
 				paths = append(paths, path)

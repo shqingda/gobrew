@@ -157,7 +157,7 @@ func (a *application) notBelowMinimum(ctx context.Context, e *engine.Engine, nam
 		return false, err
 	}
 	if !a.quiet {
-		fmt.Fprintln(a.stderr, cleanText("Warning: Not upgrading "+name+", the installed version is not below the minimum version "+a.minimumVersion))
+		a.warn("Not upgrading " + name + ", the installed version is not below the minimum version " + a.minimumVersion)
 	}
 	return true, nil
 }
@@ -184,7 +184,7 @@ func (a *application) pinnedUpgrade(e *engine.Engine, held []string, named bool)
 	if named {
 		return heldUpgrade(message)
 	}
-	fmt.Fprintln(a.stderr, "Warning: "+message)
+	a.warn(message)
 	return nil
 }
 
@@ -215,13 +215,12 @@ func (a *application) uninstall(ctx context.Context, names []string) error {
 		if len(unused) == 1 {
 			label = "dependency"
 		}
-		if _, err := fmt.Fprintf(w, "==> Autoremoved %d unused %s:\n", len(unused), label); err != nil {
-			return err
-		}
+		lines := []string{fmt.Sprintf("==> Autoremoved %d unused %s:", len(unused), label)}
 		for _, name := range unused {
-			if _, err := fmt.Fprintf(w, "Uninstalled %s\n", cleanText(name)); err != nil {
-				return err
-			}
+			lines = append(lines, "Uninstalled "+name)
+		}
+		if err := writeLines(w, lines); err != nil {
+			return err
 		}
 		return nil
 	})
@@ -282,9 +281,9 @@ func (a *application) renderLinks(w io.Writer, prefix string, results []model.Li
 			if r.KegOnly {
 				force = "--force "
 			}
-			fmt.Fprintln(a.stderr, cleanText("Warning: Already linked: "+r.Keg+"\nTo relink, run:\n  gobrew unlink "+r.Name+" && gobrew link "+force+r.Name))
+			a.warn("Already linked: " + r.Keg + "\nTo relink, run:\n  gobrew unlink " + r.Name + " && gobrew link " + force + r.Name)
 		case r.NeedsForce:
-			fmt.Fprintln(a.stderr, cleanText("Warning: "+r.Name+" is keg-only and must be linked with `--force`."))
+			a.warn(r.Name + " is keg-only and must be linked with `--force`.")
 		case dryRun && linked:
 			lines = append([]string{"Would link:"}, r.Paths...)
 		case dryRun:

@@ -24,7 +24,11 @@ func renderPlan(w io.Writer, plan model.Plan) error {
 		}
 		rows = append(rows, []string{p.Formula.Name, p.Formula.PkgVersion(), p.Bottle.Tag, kind})
 	}
-	if err := table(w, []string{"FORMULA", "VERSION", "BOTTLE", "REASON"}, rows); err != nil {
+	if len(rows) == 0 && len(plan.Promote) == 0 {
+		if _, err := fmt.Fprintln(w, "Nothing to install or upgrade."); err != nil {
+			return err
+		}
+	} else if err := table(w, []string{"FORMULA", "VERSION", "BOTTLE", "REASON"}, rows); err != nil {
 		return err
 	}
 	if len(plan.Unchanged) > 0 {
@@ -88,7 +92,7 @@ func (a *application) renderInstall(w io.Writer, e *engine.Engine, request model
 	}
 	for _, name := range result.Succeeded {
 		if r := records[name]; r.Formula.Deprecated || r.Formula.Disabled {
-			fmt.Fprintln(a.stderr, cleanText("Warning: "+name+" has been "+r.Formula.DeprecationMessage(time.Now())))
+			a.warn(name + " has been " + r.Formula.DeprecationMessage(time.Now()))
 		}
 	}
 	for _, name := range result.Historic {
@@ -96,8 +100,8 @@ func (a *application) renderInstall(w io.Writer, e *engine.Engine, request model
 		if r, ok := records[name]; ok {
 			version = " " + r.Formula.PkgVersion()
 		}
-		fmt.Fprintln(a.stderr, cleanText("Warning: "+name+version+" is not covered by Homebrew's signed metadata; its bottle was verified against GHCR and homebrew-core history.\n"+
-			"gobrew upgrade will replace it with the current version. To keep it: gobrew pin "+name))
+		a.warn(name + version + " is not covered by Homebrew's signed metadata; its bottle was verified against GHCR and homebrew-core history.\n" +
+			"gobrew upgrade will replace it with the current version. To keep it: gobrew pin " + name)
 	}
 	// Homebrew warns only about the formulae the user named.
 	for _, name := range result.Unchanged {
@@ -106,7 +110,7 @@ func (a *application) renderInstall(w io.Writer, e *engine.Engine, request model
 			continue
 		}
 		version := r.Formula.PkgVersion()
-		fmt.Fprintf(a.stderr, "Warning: %s %s is already installed.\nTo reinstall %s, run:\n  gobrew reinstall %s\n", name, version, version, name)
+		a.warn(fmt.Sprintf("%s %s is already installed.\nTo reinstall %s, run:\n  gobrew reinstall %s", name, version, version, name))
 	}
 	for _, group := range []struct {
 		label string
@@ -117,12 +121,7 @@ func (a *application) renderInstall(w io.Writer, e *engine.Engine, request model
 		}
 	}
 	lines = append(append(lines, a.times.lines()...), notes...)
-	for _, line := range lines {
-		if _, err := fmt.Fprintln(w, cleanText(line)); err != nil {
-			return err
-		}
-	}
-	return nil
+	return writeLines(w, lines)
 }
 
 // formulaCaveats expands the placeholders Homebrew's API uses for local paths.
@@ -149,6 +148,24 @@ func table(w io.Writer, headers []string, rows [][]string) error {
 		}
 	}
 	return tw.Flush()
+}
+
+// writeLines prints result lines, styling "==> " titles the way progress
+// titles are styled on a color terminal.
+func writeLines(w io.Writer, lines []string) error {
+	color := colorful(w)
+	for _, line := range lines {
+		line = cleanText(line)
+		if text, ok := strings.CutPrefix(line, "==> "); ok && color {
+			line = "\033[34;1m==>\033[0m \033[1m" + text + "\033[0m"
+		} else if text, ok := strings.CutPrefix(line, "Warning: "); ok && color {
+			line = "\033[4;33mWarning\033[0m: " + text
+		}
+		if _, err := fmt.Fprintln(w, line); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func cleanText(s string) string {
