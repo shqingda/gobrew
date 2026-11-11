@@ -68,6 +68,7 @@ func (notFound) Unwrap() error   { return model.ErrNotFound }
 // names cannot start with a dash.
 var brewAliases = map[string][]string{
 	"list":        {"ls"},
+	"home":        {"homepage"},
 	"update":      {"up"},
 	"link":        {"ln"},
 	"install":     {"instal"},
@@ -81,6 +82,7 @@ var brewAliases = map[string][]string{
 var brewFormulaFlag = map[string]bool{
 	"deps": true, "info": true, "install": true, "link": true, "list": true, "outdated": true, "pin": true,
 	"reinstall": true, "search": true, "uninstall": true, "unlink": true, "unpin": true, "upgrade": true, "uses": true,
+	"desc": true, "home": true,
 }
 
 type application struct {

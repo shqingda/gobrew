@@ -118,6 +118,7 @@ func (a *application) root() *cobra.Command {
 	root.AddCommand(a.commandFor("postinstall <formula>...", "Explicitly retry supported post-install initialization", cobra.MinimumNArgs(1), a.postinstall))
 	root.AddCommand(a.depsCommand(), a.usesCommand())
 	root.AddCommand(a.shellenvCommand(), a.selfCommand())
+	root.AddCommand(a.configCommand(), a.leavesCommand(), a.descCommand(), a.homeCommand())
 	root.AddCommand(a.pathCommands()...)
 	for _, command := range root.Commands() {
 		command.Aliases = brewAliases[command.Name()]

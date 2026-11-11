@@ -194,6 +194,17 @@ func (p Profile) Ensure(env Env) (bool, error) {
 	return true, write(target, next, mode)
 }
 
+// Check reports, without changing anything, a startup file that Ensure and
+// Remove would refuse: damaged gobrew markers or a file gobrew may not edit.
+func (p Profile) Check() error {
+	target, data, _, err := p.read()
+	if err != nil || p.Whole {
+		return err
+	}
+	_, _, _, err = markers(data, target)
+	return err
+}
+
 // Remove deletes only the managed block (or the wholly owned file).
 func (p Profile) Remove() (bool, error) {
 	target, data, mode, err := p.read()

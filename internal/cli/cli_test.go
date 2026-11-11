@@ -26,6 +26,8 @@ func TestOfflineCommandsDoNotCreateState(t *testing.T) {
 		{"version-flag", []string{"--version", "--json"}, `"command":"version"`},
 		{"list", []string{"list", "--json"}, `"data":[]`},
 		{"shellenv", []string{"shellenv"}, "GOBREW_PREFIX="},
+		{"config", []string{"config", "--json"}, `"installed":0`},
+		{"leaves", []string{"leaves", "--json"}, `"data":[]`},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			dir := t.TempDir()
@@ -207,5 +209,16 @@ func TestHelpEnvironmentListsEveryVariable(t *testing.T) {
 				t.Errorf("%s reads %s, which `gobrew help environment` does not list", source, m[1])
 			}
 		}
+	}
+}
+
+func TestConfigNeverPrintsTokens(t *testing.T) {
+	t.Setenv("HOMEBREW_GITHUB_API_TOKEN", "secret-token-value")
+	var stdout, stderr bytes.Buffer
+	if code := Run(context.Background(), []string{"--prefix", t.TempDir(), "--cache-dir", t.TempDir(), "config"}, &stdout, &stderr, BuildInfo{}); code != 0 {
+		t.Fatalf("exit = %d, stderr = %s", code, &stderr)
+	}
+	if strings.Contains(stdout.String(), "secret-token-value") || !strings.Contains(stdout.String(), "HOMEBREW_GITHUB_API_TOKEN: set") {
+		t.Fatalf("config = %s", &stdout)
 	}
 }

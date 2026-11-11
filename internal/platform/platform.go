@@ -20,6 +20,9 @@ import (
 	"golang.org/x/sys/unix"
 )
 
+// SystemVersion is the macOS product version, such as 15.4.1.
+func SystemVersion() (string, error) { return systemVersion() }
+
 func Detect() (model.Platform, error) {
 	p := model.Platform{OS: runtime.GOOS, Arch: runtime.GOARCH}
 	if p.OS != "darwin" || p.Arch != "arm64" {

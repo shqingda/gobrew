@@ -4,8 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 
 	"github.com/shqingda/gobrew/internal/model"
 	"github.com/shqingda/gobrew/internal/state"
@@ -150,4 +152,57 @@ func (i Installer) changeLinked(s *model.Snapshot, names []string, linked, allow
 		results = append(results, result)
 	}
 	return results, nil
+}
+
+// RestoreLinks recreates links that installed records claim but that are
+// missing from the prefix, through the same ownership journal as linking.
+// A changed or foreign file at a claimed path is left alone for the user.
+func (i Installer) RestoreLinks(ctx context.Context) ([]string, error) {
+	var restored []string
+	err := (state.Store{Prefix: i.Prefix}).WithLock(ctx, func(tx *state.Session) error {
+		if err := i.recover(tx); err != nil {
+			return err
+		}
+		snap, err := tx.Load()
+		if err != nil {
+			return err
+		}
+		var changes []state.LinkChange
+		for _, rec := range snap.Records {
+			if !owns(rec.Keg, rec.Owner) {
+				continue
+			}
+			for rel, target := range rec.Links {
+				path, err := state.SecurePath(i.Prefix, rel)
+				if err != nil {
+					return err
+				}
+				if _, err := os.Lstat(path); !errors.Is(err, os.ErrNotExist) {
+					continue
+				}
+				changes = append(changes, state.LinkChange{Path: rel, After: &target})
+			}
+		}
+		if len(changes) == 0 {
+			return nil
+		}
+		slices.SortFunc(changes, func(a, b state.LinkChange) int { return strings.Compare(a.Path, b.Path) })
+		// The records already claim these links, so the snapshot is unchanged;
+		// undoing an interrupted restore only removes what it created.
+		j := &state.Journal{ID: newID(), Phase: "switching", Before: snap, After: snap, Links: changes}
+		if err = tx.WriteJournal(j); err != nil {
+			return err
+		}
+		if err = i.switchFiles(j); err != nil {
+			return errors.Join(err, i.recover(tx))
+		}
+		if err = tx.WriteJournal(nil); err != nil {
+			return err
+		}
+		for _, c := range changes {
+			restored = append(restored, filepath.Join(i.Prefix, c.Path))
+		}
+		return nil
+	})
+	return restored, err
 }

@@ -85,14 +85,24 @@ func TestDoctorPathWarningsKeepAHealthyExitStatus(t *testing.T) {
 	}
 	t.Setenv("PATH", filepath.Join(os.Getenv("HOMEBREW_PREFIX"), "bin")+":"+filepath.Join(prefix, "bin"))
 	var stdout, stderr bytes.Buffer
-	if code := Run(context.Background(), []string{"--prefix", prefix, "doctor", "--json"}, &stdout, &stderr, BuildInfo{}); code != 0 {
+	if code := Run(context.Background(), []string{"--prefix", prefix, "--cache-dir", t.TempDir(), "doctor", "--json"}, &stdout, &stderr, BuildInfo{}); code != 0 {
 		t.Fatalf("exit = %d: %s %s", code, &stdout, &stderr)
 	}
 	var out struct {
 		Data []struct{ Problem, Severity string } `json:"data"`
 	}
-	if err := json.Unmarshal(stdout.Bytes(), &out); err != nil || len(out.Data) != 1 || out.Data[0].Severity != "warning" || !strings.Contains(out.Data[0].Problem, "precedes") {
+	if err := json.Unmarshal(stdout.Bytes(), &out); err != nil || len(out.Data) == 0 || !strings.Contains(out.Data[0].Problem, "precedes") {
 		t.Fatalf("doctor = %s (%v)", &stdout, err)
+	}
+	// The environment checks are warnings too: a missing catalog and an
+	// unmanaged test executable leave the installation healthy.
+	for _, f := range out.Data {
+		if f.Severity != "warning" {
+			t.Fatalf("doctor = %s", &stdout)
+		}
+	}
+	if !strings.Contains(stdout.String(), "no formula catalog") {
+		t.Fatalf("doctor did not report the missing catalog: %s", &stdout)
 	}
 }
 

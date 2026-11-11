@@ -368,6 +368,12 @@ func (c Client) Fetched() (time.Time, error) {
 	return info.ModTime(), nil
 }
 
+// Generation names the current catalog without opening it.
+func (c Client) Generation() (string, error) {
+	current, err := os.ReadFile(filepath.Join(c.Dir, "CURRENT"))
+	return strings.TrimSpace(string(current)), err
+}
+
 func (c Client) Load() (Snapshot, error) {
 	return c.load(nil, false)
 }

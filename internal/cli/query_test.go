@@ -448,3 +448,24 @@ func TestPullRequestsRenderLikeHomebrew(t *testing.T) {
 		t.Fatalf("none = %q, %v", got.String(), err)
 	}
 }
+
+func TestLeavesAreFormulaeNothingInstalledDependsOn(t *testing.T) {
+	records := map[string]model.Record{
+		"jq":        {Requested: true, Dependencies: []model.RuntimeDependency{{Name: "oniguruma"}}},
+		"oniguruma": {},
+		"orphan":    {},
+		"wget":      {Requested: true},
+	}
+	for _, tc := range []struct {
+		onRequest, asDependency bool
+		want                    []string
+	}{
+		{false, false, []string{"jq", "orphan", "wget"}},
+		{true, false, []string{"jq", "wget"}},
+		{false, true, []string{"orphan"}},
+	} {
+		if got := leaves(records, tc.onRequest, tc.asDependency); !slices.Equal(got, tc.want) {
+			t.Errorf("leaves(%v, %v) = %v, want %v", tc.onRequest, tc.asDependency, got, tc.want)
+		}
+	}
+}

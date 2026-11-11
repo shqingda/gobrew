@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"testing"
 
@@ -284,5 +285,70 @@ func TestKegOnlyLinkNeedsForceUnlessVersioned(t *testing.T) {
 		if got := results[0]; got.NeedsForce != tc.needsForce || s.Records["tool"].Linked == tc.needsForce || (len(got.Paths) == 0) != tc.needsForce {
 			t.Fatalf("%+v: %+v, linked = %v", tc, got, s.Records["tool"].Linked)
 		}
+	}
+}
+
+func TestRestoreLinksRecreatesOnlyMissingClaimedLinks(t *testing.T) {
+	prefix := t.TempDir()
+	store := state.Store{Prefix: prefix}
+	if err := store.Initialize(); err != nil {
+		t.Fatal(err)
+	}
+	keg, owner := testutil.OwnedKeg(t, prefix, "tool", "1")
+	if err := os.Mkdir(filepath.Join(keg, "bin"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"tool", "other"} {
+		if err := os.WriteFile(filepath.Join(keg, "bin", name), []byte("#!/bin/sh\n"), 0755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.MkdirAll(filepath.Join(prefix, "opt"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(keg, filepath.Join(prefix, "opt/tool")); err != nil {
+		t.Fatal(err)
+	}
+	i := Installer{Prefix: prefix}
+	record := model.Record{Formula: model.Formula{Name: "tool", Version: "1"}, Keg: keg, Owner: owner, Status: model.Ready, Links: map[string]string{"opt/tool": keg}}
+	if err := store.WithLock(context.Background(), func(tx *state.Session) error {
+		return tx.Save(model.Snapshot{Records: map[string]model.Record{"tool": record}})
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := i.SetLinked(context.Background(), []string{"tool"}, true, false); err != nil {
+		t.Fatal(err)
+	}
+	// The user deleted one link and replaced another with their own file.
+	if err := os.Remove(filepath.Join(prefix, "bin/tool")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(filepath.Join(prefix, "bin/other")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(prefix, "bin/other"), []byte("mine"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	before, err := store.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	restored, err := i.RestoreLinks(context.Background())
+	if err != nil || !slices.Equal(restored, []string{filepath.Join(prefix, "bin/tool")}) {
+		t.Fatalf("restored = %v, %v", restored, err)
+	}
+	if got, _ := os.Readlink(filepath.Join(prefix, "bin/tool")); got != filepath.Join(keg, "bin/tool") {
+		t.Fatalf("bin/tool -> %q", got)
+	}
+	if b, _ := os.ReadFile(filepath.Join(prefix, "bin/other")); string(b) != "mine" {
+		t.Fatal("replaced the user's file")
+	}
+	after, err := store.Load()
+	if err != nil || after.RecoveryRequired || !reflect.DeepEqual(after.Records, before.Records) {
+		t.Fatalf("restore changed the records: %+v, %v", after, err)
+	}
+	if again, err := i.RestoreLinks(context.Background()); err != nil || len(again) != 0 {
+		t.Fatalf("second restore = %v, %v", again, err)
 	}
 }

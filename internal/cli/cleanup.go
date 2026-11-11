@@ -63,13 +63,14 @@ func (a *application) doctorCommand() *cobra.Command {
 		if err != nil {
 			return err
 		}
-		unhealthy := len(findings) > 0
+		unhealthy := slices.ContainsFunc(findings, func(f engine.Finding) bool { return f.Severity == "" })
 		if snapshot, err := e.Installed(); err == nil {
 			findings = append(findings, a.pathFindings(e, snapshot.Records)...)
 		}
+		findings = append(findings, a.environmentFindings(e)...)
 		a.setResult(findings, func(w io.Writer) error {
 			if len(findings) == 0 {
-				_, err := fmt.Fprintln(w, "No installation problems found.")
+				_, err := fmt.Fprintln(w, "Your system is ready to brew.")
 				return err
 			}
 			rows := make([][]string, 0, len(findings))
@@ -87,7 +88,7 @@ func (a *application) doctorCommand() *cobra.Command {
 		}
 		return nil
 	})
-	cmd.Flags().BoolVar(&repair, "repair", false, "Recover interrupted filesystem transactions before checking; does not replay post-install")
+	cmd.Flags().BoolVar(&repair, "repair", false, "Recover interrupted filesystem transactions and restore missing links before checking; does not replay post-install")
 	return cmd
 }
 

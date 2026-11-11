@@ -242,6 +242,15 @@ func (e *Engine) CatalogFetched() (time.Time, error) {
 	return client.Fetched()
 }
 
+// CatalogGeneration names the current catalog without opening or fetching it.
+func (e *Engine) CatalogGeneration() (string, error) {
+	client, err := e.client()
+	if err != nil {
+		return "", err
+	}
+	return client.Generation()
+}
+
 // Search runs brew search over the local catalog (fetching it if missing) and
 // orders results like Homebrew: by base name, unversioned formulae first, then
 // versioned ones such as python@3.13 by version.

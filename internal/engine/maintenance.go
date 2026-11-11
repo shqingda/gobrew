@@ -18,11 +18,13 @@ type Finding struct {
 	Package string `json:"package,omitempty"`
 	Problem string `json:"problem"`
 	// Severity is "warning" for environment advice that does not make the
-	// installation unhealthy; empty means a problem that needs repair.
+	// installation unhealthy, "fixed" for what --repair corrected; empty
+	// means a problem that needs repair.
 	Severity string `json:"severity,omitempty"`
 }
 
 func (e *Engine) Doctor(ctx context.Context, repair bool) ([]Finding, error) {
+	findings := make([]Finding, 0)
 	if repair {
 		if err := e.checkMutation(); err != nil {
 			return nil, err
@@ -30,12 +32,18 @@ func (e *Engine) Doctor(ctx context.Context, repair bool) ([]Finding, error) {
 		if err := e.installer().Recover(ctx); err != nil {
 			return nil, err
 		}
+		restored, err := e.installer().RestoreLinks(ctx)
+		if err != nil {
+			return nil, err
+		}
+		for _, path := range restored {
+			findings = append(findings, Finding{Problem: "restored missing link " + path, Severity: "fixed"})
+		}
 	}
 	snap, err := e.Installed()
 	if err != nil {
 		return nil, err
 	}
-	findings := make([]Finding, 0)
 	if snap.RecoveryRequired {
 		findings = append(findings, Finding{Problem: "an interrupted operation needs recovery; run `gobrew doctor --repair`"})
 	}
@@ -51,9 +59,11 @@ func (e *Engine) Doctor(ctx context.Context, repair bool) ([]Finding, error) {
 			findings = append(findings, Finding{Package: name, Problem: problem})
 		}
 		for rel, want := range r.Links {
-			got, err := os.Readlink(filepath.Join(e.config.Prefix, rel))
-			if err != nil || got != want {
-				findings = append(findings, Finding{Package: name, Problem: "link " + rel + " is missing or was changed; run `gobrew reinstall " + name + "`"})
+			path := filepath.Join(e.config.Prefix, rel)
+			if _, err := os.Lstat(path); errors.Is(err, os.ErrNotExist) {
+				findings = append(findings, Finding{Package: name, Problem: "link " + rel + " is missing; run `gobrew doctor --repair` to restore it"})
+			} else if got, err := os.Readlink(path); err != nil || got != want {
+				findings = append(findings, Finding{Package: name, Problem: path + " was replaced by something gobrew does not own; move it away, then run `gobrew doctor --repair`"})
 			}
 		}
 	}

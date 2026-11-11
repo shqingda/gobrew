@@ -52,6 +52,10 @@ var examples = map[string]string{
 	"link":      "  gobrew link jq\n  gobrew link --force --dry-run openssl@3",
 	"pin":       "  gobrew pin node\n  gobrew upgrade   # leaves node as it is",
 	"self":      "  gobrew self update\n  gobrew self uninstall",
+	"config":    "  gobrew config",
+	"leaves":    "  gobrew leaves --installed-on-request",
+	"desc":      "  gobrew desc jq\n  gobrew desc --search json",
+	"home":      "  gobrew home jq",
 }
 
 // addHelpText adds examples and longer descriptions to the built commands.
