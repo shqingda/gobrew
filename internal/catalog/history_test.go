@@ -125,3 +125,48 @@ func TestSelectTagPrefersNewestRevisionAndRebuild(t *testing.T) {
 		}
 	}
 }
+
+// TestHistoryRejectsRecipesThatDoNotDescribeTheBottle covers the checks that
+// stand in for signed metadata on the unsigned history path.
+func TestHistoryRejectsRecipesThatDoNotDescribeTheBottle(t *testing.T) {
+	current := model.Formula{Name: "uv", Version: "0.13.6"}
+	for _, tc := range []struct {
+		name, old, new, want string
+	}{
+		{"pour condition", "  keg_only", "  pour_bottle? only_if: :clt_installed\n\n  keg_only", "pour condition"},
+		{"revision", "  compatibility_version 1", "  revision 1\n  compatibility_version 1", "revision 1 does not match"},
+		{"rebuild", "  bottle do\n", "  bottle do\n    rebuild 2\n", "rebuild 2 does not match"},
+		{"declared version", "  compatibility_version 1", "  version \"0.13.4\"\n  compatibility_version 1", "declares version 0.13.4"},
+		{"source URL", "tags/0.13.5.tar.gz", "tags/0.13.4.tar.gz", "does not name version 0.13.5"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			recipe := strings.Replace(uvRecipe, tc.old, tc.new, 1)
+			if recipe == uvRecipe {
+				t.Fatal("the fixture did not change")
+			}
+			_, err := fakeHistory(t, recipe).Formula(context.Background(), current, "0.13.5")
+			if err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("err = %v, want %q", err, tc.want)
+			}
+		})
+	}
+}
+
+func TestFormulaPathAcceptsOnlyTheFormulaInHomebrewCore(t *testing.T) {
+	const core = "https://github.com/homebrew/homebrew-core/blob/" + bumpCommit + "/"
+	for source, ok := range map[string]bool{
+		core + "Formula/u/uv.rb":    true,
+		core + "Formula/uv.rb":      true,
+		core + "Formula/x/uv.rb":    false,
+		core + "Formula/u/uvx.rb":   false,
+		core + "Formula/u/../uv.rb": false,
+		core + "Aliases/uv":         false,
+		"https://github.com/homebrew/homebrew-cask/blob/" + bumpCommit + "/Formula/u/uv.rb": false,
+		"https://github.com/homebrew/homebrew-core/blob/":                                   false,
+		"http://github.com/homebrew/homebrew-core/blob/" + bumpCommit + "/Formula/u/uv.rb":  false,
+	} {
+		if _, err := formulaPath(source, "uv"); (err == nil) != ok {
+			t.Errorf("formulaPath(%q) = %v, want ok=%v", source, err, ok)
+		}
+	}
+}
