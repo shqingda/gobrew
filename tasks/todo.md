@@ -23,4 +23,7 @@
   - 写了 v0.6.0 发布说明草稿，其中写明恢复 `self`。`release.yml` 缺少说明文件时直接失败；新增对被测量的同一个发布二进制运行 `smoke.sh` 与 `smoke-version.sh`。只改了文件，没有触发 Actions。
   - 更新了 README、架构文件清单和 status。`query.go` 按 search/info/list/deps/shellenv 拆分，只移动、不改行为；拆分前后代码行逐行比对一致。
   - 大小上限：压缩包两边本来都是 32 MiB；install.sh 解压时补上了与自更新一致的 64 MiB 可执行文件上限。
-- [ ] 最终验证：`make check`、`scripts/smoke.sh`、`scripts/smoke-version.sh`。
+- [x] 最终验证：`make check`、`scripts/smoke.sh`、`scripts/smoke-version.sh`。
+  - `make check` 在 `1b3f3fc` 上全部通过。测试构建为 `bin/gobrew`，SHA-256 为 `484b5258…18c6`。
+  - `smoke.sh` 与 `smoke-version.sh` 都在隔离的临时目录中对同一个构建运行，均通过。
+  - 未运行：GitHub Actions 发布门禁，以及与 nanobrew 的重测。两者都需要用户先确认发版。没有打 tag。
