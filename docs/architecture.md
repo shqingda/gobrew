@@ -134,6 +134,9 @@ return and that marker still has an unknown outcome and requires explicit repair
 Recovery retains completed package records and explicit-request promotions.
 
 Writer lock order is prefix `writer.lock`, then a short bbolt open/transaction.
+A writer holds `writer.lock` for its whole operation but opens the database for
+each transaction and closes it again, so read-only commands wait for at most one
+transaction, not for an install or its post-install commands.
 Preparation acquires cache tree leases in sorted key order before per-blob leases;
 it acquires neither the prefix lock nor the state database. Leases may remain held
 through Apply, but prefix-locked code never waits for new cache leases. Eviction

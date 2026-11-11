@@ -124,3 +124,37 @@ func TestInitializeRejectsForeignDatabase(t *testing.T) {
 		})
 	}
 }
+
+// A writer can hold writer.lock for a long time, such as during a
+// post-install script, without making read-only commands busy.
+func TestReadersRunWhileAWriterHoldsTheLock(t *testing.T) {
+	s := Store{Prefix: t.TempDir()}
+	if err := s.Initialize(); err != nil {
+		t.Fatal(err)
+	}
+	saved, read := make(chan struct{}), make(chan error, 1)
+	go func() {
+		<-saved
+		snap, err := s.Load()
+		if err == nil && snap.Generation != 1 {
+			err = fmt.Errorf("reader saw generation %d", snap.Generation)
+		}
+		read <- err
+	}()
+	err := s.WithLock(context.Background(), func(tx *Session) error {
+		if err := tx.Save(empty()); err != nil {
+			return err
+		}
+		close(saved)
+		// Longer than a reader's 250ms open timeout.
+		select {
+		case err := <-read:
+			return err
+		case <-time.After(2 * time.Second):
+			return errors.New("reader did not finish while the writer held the lock")
+		}
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+}

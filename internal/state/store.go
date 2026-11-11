@@ -1,5 +1,7 @@
-// Package state persists installed facts and recovery intents. Handles never
-// escape an operation: a bbolt read handle would otherwise block another client.
+// Package state persists installed facts and recovery intents. A bbolt handle
+// holds a process-level file lock, so handles live for one transaction only:
+// a writer holds writer.lock for its whole operation, but readers wait at most
+// for one short transaction, even during a long external post-install step.
 package state
 
 import (
@@ -21,7 +23,9 @@ import (
 var bucket = []byte("state-v1")
 
 type Store struct{ Prefix string }
-type Session struct{ db *bolt.DB }
+// Session is a writer's access while it holds writer.lock. Each call opens the
+// database for one transaction and closes it again.
+type Session struct{ store Store }
 
 type LinkChange struct {
 	Path   string  `json:"path"`
@@ -154,12 +158,12 @@ func (s Store) Load() (model.Snapshot, error) {
 	if err := s.checkFile(); err != nil {
 		return model.Snapshot{}, err
 	}
-	db, err := bolt.Open(s.path(), 0600, &bolt.Options{ReadOnly: true, Timeout: 250 * time.Millisecond})
-	if err != nil {
-		return model.Snapshot{}, dbError(err)
-	}
-	defer db.Close()
-	return (&Session{db: db}).Load()
+	var snap model.Snapshot
+	err := s.transaction(false, 250*time.Millisecond, func(tx *bolt.Tx) (err error) {
+		snap, err = load(tx)
+		return err
+	})
+	return snap, err
 }
 
 func (s Store) WithLock(ctx context.Context, fn func(*Session) error) error {
@@ -185,23 +189,42 @@ func (s Store) WithLock(ctx context.Context, fn func(*Session) error) error {
 			return cause
 		}
 		if errors.Is(lockCtx.Err(), context.DeadlineExceeded) {
-			return fmt.Errorf("%w: %v", model.ErrBusy, err)
+			return fmt.Errorf("%w: another gobrew process has been changing %s for over 10 seconds; wait for it to finish and try again", model.ErrBusy, s.Prefix)
 		}
 		return fmt.Errorf("acquire prefix lock: %w", err)
 	}
 	defer unlock()
-	db, err := bolt.Open(s.path(), 0600, &bolt.Options{Timeout: time.Second})
-	if err != nil {
-		if cause := ctx.Err(); cause != nil {
-			return cause
-		}
-		return dbError(err)
-	}
-	defer db.Close()
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	return fn(&Session{db: db})
+	return fn(&Session{store: s})
+}
+
+// transaction opens the database for one transaction. Writers wait up to a
+// second for readers, whose transactions are short; readers wait for writers'
+// single transactions, never for a whole operation.
+func (s Store) transaction(write bool, timeout time.Duration, fn func(*bolt.Tx) error) error {
+	if err := s.checkFile(); err != nil {
+		return err
+	}
+	db, err := bolt.Open(s.path(), 0600, &bolt.Options{ReadOnly: !write, Timeout: timeout})
+	if err != nil {
+		return dbError(err)
+	}
+	if write {
+		err = db.Update(fn)
+	} else {
+		err = db.View(fn)
+	}
+	return errors.Join(err, db.Close())
+}
+
+func (s *Session) view(fn func(*bolt.Tx) error) error {
+	return s.store.transaction(false, time.Second, fn)
+}
+
+func (s *Session) update(fn func(*bolt.Tx) error) error {
+	return s.store.transaction(true, time.Second, fn)
 }
 
 func (s Store) checkFile() error {
@@ -227,19 +250,25 @@ func dbError(err error) error {
 }
 
 func (s *Session) Load() (model.Snapshot, error) {
-	snap := empty()
-	err := s.db.View(func(tx *bolt.Tx) error {
-		b := tx.Bucket(bucket)
-		if b == nil {
-			return errors.New("unrecognized state schema")
-		}
-		snap.RecoveryRequired = b.Get([]byte("operation")) != nil
-		v := b.Get([]byte("installed"))
-		if v == nil {
-			return nil
-		}
-		return json.Unmarshal(v, &snap)
+	var snap model.Snapshot
+	err := s.view(func(tx *bolt.Tx) (err error) {
+		snap, err = load(tx)
+		return err
 	})
+	return snap, err
+}
+
+func load(tx *bolt.Tx) (model.Snapshot, error) {
+	snap := empty()
+	b := tx.Bucket(bucket)
+	if b == nil {
+		return snap, errors.New("unrecognized state schema")
+	}
+	snap.RecoveryRequired = b.Get([]byte("operation")) != nil
+	var err error
+	if v := b.Get([]byte("installed")); v != nil {
+		err = json.Unmarshal(v, &snap)
+	}
 	if snap.Records == nil {
 		snap.Records = make(map[string]model.Record)
 	}
@@ -247,19 +276,22 @@ func (s *Session) Load() (model.Snapshot, error) {
 }
 
 // Save increments the generation even when restoring an earlier snapshot, so
-// no previously prepared plan can become valid again after recovery.
+// no previously prepared plan can become valid again after recovery. Reading
+// the current generation and writing the new one is a single transaction.
 func (s *Session) Save(snap model.Snapshot) error {
-	current, err := s.Load()
-	if err != nil {
-		return err
-	}
-	snap.Generation = current.Generation + 1
-	return s.put("installed", snap)
+	return s.update(func(tx *bolt.Tx) error {
+		current, err := load(tx)
+		if err != nil {
+			return err
+		}
+		snap.Generation = current.Generation + 1
+		return put(tx, "installed", snap)
+	})
 }
 
 func (s *Session) Journal() (*Journal, error) {
 	var j *Journal
-	err := s.db.View(func(tx *bolt.Tx) error {
+	err := s.view(func(tx *bolt.Tx) error {
 		b := tx.Bucket(bucket)
 		if b == nil {
 			return errors.New("unrecognized state schema")
@@ -275,7 +307,7 @@ func (s *Session) Journal() (*Journal, error) {
 
 func (s *Session) WriteJournal(j *Journal) error {
 	if j == nil {
-		return s.db.Update(func(tx *bolt.Tx) error {
+		return s.update(func(tx *bolt.Tx) error {
 			b := tx.Bucket(bucket)
 			if b == nil {
 				return errors.New("unrecognized state schema")
@@ -283,21 +315,19 @@ func (s *Session) WriteJournal(j *Journal) error {
 			return b.Delete([]byte("operation"))
 		})
 	}
-	return s.put("operation", j)
+	return s.update(func(tx *bolt.Tx) error { return put(tx, "operation", j) })
 }
 
-func (s *Session) put(key string, value any) error {
+func put(tx *bolt.Tx, key string, value any) error {
 	b, err := json.Marshal(value)
 	if err != nil {
 		return err
 	}
-	return s.db.Update(func(tx *bolt.Tx) error {
-		bucket := tx.Bucket(bucket)
-		if bucket == nil {
-			return errors.New("unrecognized state schema")
-		}
-		return bucket.Put([]byte(key), b)
-	})
+	state := tx.Bucket(bucket)
+	if state == nil {
+		return errors.New("unrecognized state schema")
+	}
+	return state.Put([]byte(key), b)
 }
 
 // SecurePath rejects symlink parents. Shared prefix directories are real
