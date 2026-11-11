@@ -56,6 +56,9 @@ func (a *application) searchCommand() *cobra.Command {
 			return err
 		}
 		query := strings.Join(args, " ")
+		if err := a.ensureCatalog(ctx, e); err != nil {
+			return err
+		}
 		formulae, err := e.Search(ctx, query, descriptions)
 		if err != nil {
 			return err
@@ -295,6 +298,9 @@ func (a *application) infoCommand() *cobra.Command {
 				formulae = append(formulae, r.Formula)
 			}
 		} else {
+			if err := a.ensureCatalog(ctx, e); err != nil {
+				return err
+			}
 			catalog, err := e.Catalog(ctx)
 			if err != nil {
 				return err
@@ -359,6 +365,9 @@ func (a *application) infoSizes(ctx context.Context, e *engine.Engine, names []s
 	if len(names) == 0 {
 		names = slices.Sorted(maps.Keys(snapshot.Records))
 	} else {
+		if err := a.ensureCatalog(ctx, e); err != nil {
+			return err
+		}
 		cat, err := e.Catalog(ctx)
 		if err != nil {
 			return err
@@ -424,6 +433,9 @@ func sizeLines(rows []formulaSize) []string {
 func (a *application) infoGitHub(ctx context.Context, e *engine.Engine, names []string) error {
 	if len(names) == 0 {
 		return usageError{errors.New("this command requires a formula argument")}
+	}
+	if err := a.ensureCatalog(ctx, e); err != nil {
+		return err
 	}
 	cat, err := e.Catalog(ctx)
 	if err != nil {
@@ -492,6 +504,9 @@ func (a *application) infoAnalytics(ctx context.Context, e *engine.Engine, names
 	results := make([]analyticsResult, 0, max(len(names), 1))
 	var formulae []model.Formula
 	if len(names) > 0 {
+		if err := a.ensureCatalog(ctx, e); err != nil {
+			return err
+		}
 		cat, err := e.Catalog(ctx)
 		if err != nil {
 			return err
@@ -1342,6 +1357,11 @@ func (a *application) usesCommand() *cobra.Command {
 			return err
 		}
 		opts.Direct = !recursive
+		if !opts.Installed {
+			if err := a.ensureCatalog(ctx, e); err != nil {
+				return err
+			}
+		}
 		uses, err := e.Uses(ctx, names, opts)
 		if err != nil {
 			return err

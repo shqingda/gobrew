@@ -43,6 +43,9 @@ type Client struct {
 	// default always uses HTTPS and the compiled-in official Homebrew key.
 	URL string
 	Key *rsa.PublicKey
+	// Events receives best-effort progress for one Update: a download event
+	// for the catalog, then a "step" while it is verified and indexed.
+	Events chan<- model.Event
 
 	retryDelays []time.Duration
 }
@@ -135,13 +138,18 @@ func (c Client) Update(ctx context.Context) (Snapshot, error) {
 		return Snapshot{}, errors.New("catalog URL must use HTTPS")
 	}
 	var data []byte
-	err = platform.Retry(ctx, c.retryDelays, func() (err error) {
+	retrying := func(attempt, attempts int, err error) {
+		model.Emit(c.Events, model.Event{Phase: "output", Message: fmt.Sprintf("Retrying download of the %s (attempt %d of %d) after: %v", catalogLabel, attempt, attempts, err)})
+	}
+	err = platform.RetryWith(ctx, c.retryDelays, retrying, func() (err error) {
 		data, err = c.download(ctx, endpoint)
 		return err
 	})
 	if err != nil {
 		return Snapshot{}, err
 	}
+	model.Emit(c.Events, model.Event{Phase: "step", Message: "Verifying and indexing the formula catalog"})
+	defer model.Emit(c.Events, model.Event{Phase: "step"})
 	key := c.Key
 	if key == nil {
 		key, err = officialKey()
@@ -208,7 +216,11 @@ func (c Client) download(ctx context.Context, endpoint string) ([]byte, error) {
 	if res.StatusCode != http.StatusOK {
 		return nil, platform.StatusError(res.StatusCode, "download catalog: HTTP "+res.Status)
 	}
-	data, err := io.ReadAll(io.LimitReader(idle.Reader(res.Body), maxCatalogBytes+1))
+	model.Emit(c.Events, model.Event{Phase: "download", Package: catalogLabel})
+	counter := &countingReader{r: idle.Reader(res.Body), events: c.Events, event: model.Event{Phase: "download", Package: catalogLabel, Total: max(res.ContentLength, 0)}}
+	data, err := io.ReadAll(io.LimitReader(counter, maxCatalogBytes+1))
+	counter.event.Total = counter.event.Completed
+	model.Emit(c.Events, counter.event)
 	if err != nil {
 		return nil, err
 	}
@@ -448,4 +460,25 @@ func (c Client) load(names []string, selective bool) (Snapshot, error) {
 		return formulas.ForEach(decode)
 	})
 	return snapshot, err
+}
+
+const catalogLabel = "formula catalog"
+
+// countingReader reports download progress at most every 100ms; the final
+// event is sent by the caller. Delivery is best effort.
+type countingReader struct {
+	r      io.Reader
+	events chan<- model.Event
+	event  model.Event
+	last   time.Time
+}
+
+func (c *countingReader) Read(p []byte) (int, error) {
+	n, err := c.r.Read(p)
+	c.event.Completed += int64(n)
+	if c.events != nil && time.Since(c.last) >= 100*time.Millisecond {
+		c.last = time.Now()
+		model.Emit(c.events, c.event)
+	}
+	return n, err
 }

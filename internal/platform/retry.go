@@ -30,13 +30,22 @@ func StatusError(status int, message string) error {
 // they fetched outside this or in fetch itself, so an integrity failure is never
 // retried, and hold no prefix lock while this waits.
 func Retry(ctx context.Context, delays []time.Duration, fetch func() error) error {
+	return RetryWith(ctx, delays, nil, fetch)
+}
+
+// RetryWith is Retry that calls retrying, if not nil, before each repeated
+// attempt with that attempt's number, the total, and the failure it follows.
+func RetryWith(ctx context.Context, delays []time.Duration, retrying func(attempt, attempts int, err error), fetch func() error) error {
 	if delays == nil {
 		delays = defaultRetryDelays
 	}
 	err := fetch()
-	for _, delay := range delays {
+	for i, delay := range delays {
 		if err == nil || ctx.Err() != nil || !transient(err) {
 			return err
+		}
+		if retrying != nil {
+			retrying(i+2, len(delays)+1, err)
 		}
 		select {
 		case <-ctx.Done():

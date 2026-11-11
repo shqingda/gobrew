@@ -85,13 +85,13 @@ func (e *Engine) Execute(ctx context.Context, req model.Request, events chan<- m
 		return model.Result{}, err
 	}
 	start := time.Now()
-	plan, err := e.Plan(ctx, req)
+	plan, err := e.plan(ctx, req, events)
 	if errors.Is(err, model.ErrRecoveryRequired) {
 		if err = e.Recover(ctx); err != nil {
 			timings.Plan = float64(time.Since(start)) / float64(time.Millisecond)
 			return model.Result{}, err
 		}
-		plan, err = e.Plan(ctx, req)
+		plan, err = e.plan(ctx, req, events)
 	}
 	timings.Plan = float64(time.Since(start)) / float64(time.Millisecond)
 	if err != nil {

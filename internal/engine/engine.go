@@ -72,16 +72,39 @@ func (e *Engine) Catalog(ctx context.Context) (catalog.Snapshot, error) {
 		return catalog.Snapshot{}, err
 	}
 	s, err := c.Load()
-	if errors.Is(err, os.ErrNotExist) || errors.Is(err, model.ErrNotFound) {
+	if missingCatalog(err) {
 		return c.Update(ctx)
 	}
 	return s, err
 }
-func (e *Engine) Update(ctx context.Context) (catalog.Snapshot, error) {
+
+func missingCatalog(err error) bool {
+	return errors.Is(err, os.ErrNotExist) || errors.Is(err, model.ErrNotFound)
+}
+
+// EnsureCatalog downloads the catalog if there is none yet, reporting progress
+// to events, and otherwise only checks that CURRENT exists. Commands that read
+// the catalog call it first so a first download is never silent.
+func (e *Engine) EnsureCatalog(ctx context.Context, events chan<- model.Event) error {
+	c, err := e.client()
+	if err != nil {
+		return err
+	}
+	if _, err := c.Fetched(); !errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	c.Events = events
+	_, err = c.Update(ctx)
+	return err
+}
+
+// Update refreshes the catalog, reporting progress to events (may be nil).
+func (e *Engine) Update(ctx context.Context, events chan<- model.Event) (catalog.Snapshot, error) {
 	c, err := e.client()
 	if err != nil {
 		return catalog.Snapshot{}, err
 	}
+	c.Events = events
 	return c.Update(ctx)
 }
 func (e *Engine) Installed() (model.Snapshot, error) { return e.store().Load() }

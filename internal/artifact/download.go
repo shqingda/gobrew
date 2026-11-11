@@ -67,7 +67,10 @@ func (m *Manager) downloadLocked(ctx context.Context, p model.Package, events ch
 	}
 	model.Emit(events, model.Event{Phase: "download", Package: p.Formula.Name})
 	var n int64
-	err = platform.Retry(ctx, m.retryDelays, func() (err error) {
+	retrying := func(attempt, attempts int, err error) {
+		model.Emit(events, model.Event{Phase: "output", Package: p.Formula.Name, Message: fmt.Sprintf("Retrying download of %s (attempt %d of %d) after: %v", p.Formula.Name, attempt, attempts, err)})
+	}
+	err = platform.RetryWith(ctx, m.retryDelays, retrying, func() (err error) {
 		n, err = m.fetchBlob(ctx, &client, u, p, path, events)
 		return err
 	})

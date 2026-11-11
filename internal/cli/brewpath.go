@@ -60,7 +60,10 @@ func commandName(cmd *cobra.Command) string {
 
 // namedFormulae resolves names and aliases the way brew's named arguments do:
 // every name first, so an unknown one prints nothing.
-func namedFormulae(ctx context.Context, e *engine.Engine, names []string) ([]model.Formula, error) {
+func (a *application) namedFormulae(ctx context.Context, e *engine.Engine, names []string) ([]model.Formula, error) {
+	if err := a.ensureCatalog(ctx, e); err != nil {
+		return nil, err
+	}
 	cat, err := e.Catalog(ctx)
 	if err != nil {
 		return nil, err
@@ -109,7 +112,7 @@ func (a *application) pathCommands() []*cobra.Command {
 				a.lines([]string{e.Prefix()})
 				return nil
 			}
-			formulae, err := namedFormulae(cmd.Context(), e, names)
+			formulae, err := a.namedFormulae(cmd.Context(), e, names)
 			if err != nil {
 				return err
 			}
@@ -150,7 +153,7 @@ func (a *application) pathCommands() []*cobra.Command {
 				a.lines([]string{root})
 				return nil
 			}
-			formulae, err := namedFormulae(cmd.Context(), e, names)
+			formulae, err := a.namedFormulae(cmd.Context(), e, names)
 			if err != nil {
 				return err
 			}
@@ -175,7 +178,7 @@ func (a *application) pathCommands() []*cobra.Command {
 				a.lines([]string{e.CacheDir()})
 				return nil
 			}
-			formulae, err := namedFormulae(cmd.Context(), e, names)
+			formulae, err := a.namedFormulae(cmd.Context(), e, names)
 			if err != nil {
 				return err
 			}

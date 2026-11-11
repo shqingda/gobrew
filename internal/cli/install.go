@@ -136,7 +136,13 @@ func (a *application) install(ctx context.Context, request model.Request, dryRun
 		return err
 	})
 	notes := a.afterInstall(ctx, e, result, err)
-	a.setResult(result, func(w io.Writer) error { return a.renderInstall(w, e, request, result, notes) })
+	// The embedded Result keeps its JSON fields where they were; notes adds
+	// the PATH setup and cleanup messages text output shows.
+	data := struct {
+		model.Result
+		Notes []string `json:"notes,omitempty"`
+	}{result, notes}
+	a.setResult(data, func(w io.Writer) error { return a.renderInstall(w, e, request, result, notes) })
 	if action == "upgrade" {
 		return errors.Join(err, a.pinnedUpgrade(e, result.Held, len(request.Names) > 0))
 	}
@@ -316,6 +322,12 @@ func (a *application) postinstall(ctx context.Context, names []string) error {
 	}
 	a.names(names, "")
 	return nil
+}
+
+// ensureCatalog downloads a missing catalog with visible progress, so the
+// first command that needs one does not sit silent for the download.
+func (a *application) ensureCatalog(ctx context.Context, e *engine.Engine) error {
+	return a.withEvents(func(events chan<- model.Event) error { return e.EnsureCatalog(ctx, events) })
 }
 
 func (a *application) withEvents(run func(chan<- model.Event) error) error {

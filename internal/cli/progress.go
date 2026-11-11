@@ -26,8 +26,10 @@ type progress struct {
 	finished map[string]bool
 	shown    bool
 	drawn    time.Time
-	// running is the package whose post-install step started at since.
+	// running is the package whose post-install step, or the step, started
+	// at since; step is set while a "step" event's stage runs.
 	running string
+	step    string
 	since   time.Time
 }
 
@@ -60,8 +62,10 @@ func (p *progress) event(event model.Event) error {
 				return err
 			}
 		}
+		// Without a known size (a compressed response), still count bytes.
+		p.done[name] = event.Completed
 		if event.Total > 0 {
-			p.total[name], p.done[name] = event.Total, event.Completed
+			p.total[name] = event.Total
 			p.finished[name] = event.Completed >= event.Total
 		}
 		return p.draw(false)
@@ -100,6 +104,19 @@ func (p *progress) event(event model.Event) error {
 		return err
 	case "relocate":
 		return nil
+	case "step":
+		// A titled stage with no byte count, such as verifying the catalog.
+		// An empty message ends it; a terminal shows the elapsed time meanwhile.
+		if event.Message == "" {
+			if p.running == "" || p.step == "" {
+				return nil
+			}
+			p.running, p.step = "", ""
+			return p.clear()
+		}
+		p.step = cleanText(event.Message)
+		p.running, p.since = p.step, time.Now()
+		return p.title(p.step)
 	}
 	line := event.Phase + " " + name
 	if event.Message != "" {
@@ -133,8 +150,8 @@ func (p *progress) clear() error {
 	return err
 }
 
-// tick shows how long a running post-install step has taken, so a slow
-// initialization such as ca-certificates does not look stalled.
+// tick shows how long a running post-install step or stage has taken, so a
+// slow initialization such as ca-certificates does not look stalled.
 func (p *progress) tick() error {
 	if !p.tty || p.running == "" || time.Since(p.since) < time.Second {
 		return nil

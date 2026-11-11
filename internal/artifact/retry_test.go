@@ -65,12 +65,23 @@ func TestDownloadRetriesTransportFailuresFromTheStart(t *testing.T) {
 	body := []byte(strings.Repeat("bottle", 4096))
 	server, attempts := retryServer(t, cutOff(body), replyStatus(http.StatusServiceUnavailable), replyBody(body))
 	m := retryManager(t, server)
-	path, err := m.download(context.Background(), retryPackage(server, body), nil)
+	events := make(chan model.Event, 64)
+	path, err := m.download(context.Background(), retryPackage(server, body), events)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if got := attempts.Load(); got != 3 {
 		t.Fatalf("attempts = %d, want 3", got)
+	}
+	close(events)
+	var retries []string
+	for e := range events {
+		if e.Phase == "output" {
+			retries = append(retries, e.Message)
+		}
+	}
+	if len(retries) != 2 || !strings.HasPrefix(retries[1], "Retrying download of demo (attempt 3 of 4)") {
+		t.Fatalf("retry messages = %q", retries)
 	}
 	if got, err := os.ReadFile(path); err != nil || string(got) != string(body) {
 		t.Fatalf("blob differs: %d bytes, %v", len(got), err)

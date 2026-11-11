@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/shqingda/gobrew/internal/engine"
+	"github.com/shqingda/gobrew/internal/model"
 	"github.com/shqingda/gobrew/internal/selfupdate"
 	"github.com/spf13/cobra"
 )
@@ -43,13 +44,19 @@ func (a *application) runUpdate(ctx context.Context, e *engine.Engine) (updateRe
 	if cliErr != nil {
 		cli.Error = cliErr.Error()
 	}
-	catalog, err := e.Update(ctx)
+	var generation string
+	var formulae int
+	err := a.withEvents(func(events chan<- model.Event) error {
+		cat, err := e.Update(ctx, events)
+		generation, formulae = cat.Generation, len(cat.Formulae)
+		return err
+	})
 	if err != nil {
 		return updateReport{CLI: cli}, cliErr, err
 	}
 	// The catalog is fresh, so this compares local records only.
 	outdated, err := e.Outdated(ctx)
-	return updateReport{catalog.Generation, len(catalog.Formulae), cli, outdated}, cliErr, err
+	return updateReport{generation, formulae, cli, outdated}, cliErr, err
 }
 
 func outdatedLines(outdated []engine.Outdated) []string {
@@ -222,6 +229,9 @@ func (a *application) outdated(ctx context.Context, names []string, verbose bool
 	}
 	var items []engine.Outdated
 	if minimum == "" {
+		if err := a.ensureCatalog(ctx, e); err != nil {
+			return err
+		}
 		items, err = e.Outdated(ctx)
 		if err != nil {
 			return err

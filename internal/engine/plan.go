@@ -16,6 +16,11 @@ import (
 )
 
 func (e *Engine) Plan(ctx context.Context, req model.Request) (model.Plan, error) {
+	return e.plan(ctx, req, nil)
+}
+
+// plan reports a first catalog download to events.
+func (e *Engine) plan(ctx context.Context, req model.Request, events chan<- model.Event) (model.Plan, error) {
 	if err := ctx.Err(); err != nil {
 		return model.Plan{}, err
 	}
@@ -57,7 +62,8 @@ func (e *Engine) Plan(ctx context.Context, req model.Request) (model.Plan, error
 	} else {
 		cat, err = client.LoadForPlan(names)
 	}
-	if errors.Is(err, os.ErrNotExist) || errors.Is(err, model.ErrNotFound) {
+	if missingCatalog(err) {
+		client.Events = events
 		cat, err = client.Update(ctx)
 	}
 	if err != nil {

@@ -55,6 +55,10 @@ func (a *application) setupPath(env shellconfig.Env) string {
 	note := ""
 	if changed {
 		note = "Added gobrew to PATH in " + tildePath(profile.Path) + ".\n"
+		// The block goes first on PATH, so say what that means for Homebrew users.
+		if info, err := os.Stat(filepath.Join(homebrewPrefix(), "bin")); err == nil && info.IsDir() {
+			note += "New shells run gobrew's commands before Homebrew's when both provide one.\n"
+		}
 	}
 	return note + "Open a new terminal, or run: exec " + profile.Shell
 }
