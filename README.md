@@ -2,7 +2,7 @@
 
 使用 Go 实现的 macOS 包管理器，读取 Homebrew 官方 core 元数据与预编译 bottles。CLI 和未来 macOS 客户端共享同一安装核心。
 
-当前支持 Apple Silicon、macOS 15+，构建使用 Go 1.27.3。Formula 安装在独立 prefix，默认 `/opt/gobrew`。不调用 Homebrew 或 Ruby 作为安装兜底。
+当前支持 Apple Silicon、macOS 15+，构建使用 Go 1.27.4。Formula 安装在独立 prefix，默认 `/opt/gobrew`。不调用 Homebrew 或 Ruby 作为安装兜底。
 
 ## 安装命令行
 

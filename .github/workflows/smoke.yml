@@ -31,3 +31,8 @@ jobs:
           scripts/smoke.sh "$PWD/bin/gobrew"
         env:
           CGO_ENABLED: '0'
+      # Once is enough: it checks version history, not the host OS. The build
+      # is unversioned, so its update never replaces itself.
+      - name: Install, pin, upgrade and clean up a historical version
+        if: matrix.os == 'macos-15'
+        run: scripts/smoke-version.sh "$PWD/bin/gobrew"

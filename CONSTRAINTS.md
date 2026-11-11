@@ -1,6 +1,6 @@
 # Engineering constraints
 
-- Go 1.27.3; macOS ARM64 15+ is the supported installation platform.
+- Go 1.27.4; macOS ARM64 15+ is the supported installation platform.
 - Keep the core independent of CLI, GUI, process exit and terminal streams.
 - No Homebrew/Ruby fallback, unknown installation semantics, or ignored integrity errors.
 - Bottle metadata must come from Homebrew's signed API snapshot. The single exception is an explicit `version-install` request for a version the snapshot no longer contains: its bottle is accepted only when the GHCR OCI index and the homebrew-core "update bottle" commit record the same digest for the host tag, and the recipe defines no Ruby post-install hook or pour condition. The user is told that the version is outside the signed metadata. No other path may use unsigned metadata.

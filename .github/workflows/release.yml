@@ -16,8 +16,9 @@ jobs:
     uses: ./.github/workflows/benchmark.yml
     with:
       compare_brew: true
-  # The version smoke and a second bottle smoke run on the exact binary the
-  # benchmark measured, which is the binary published below.
+  # A second bottle smoke runs on the exact binary the benchmark measured,
+  # which is the binary published below. The version smoke needs a dev build
+  # (it runs update and must not self-update), so it runs in smoke.yml.
   release-binary:
     needs: performance
     runs-on: macos-15
@@ -34,7 +35,6 @@ jobs:
         run: |
           chmod 0755 performance/bin/gobrew
           scripts/smoke.sh "$PWD/performance/bin/gobrew"
-          scripts/smoke-version.sh "$PWD/performance/bin/gobrew"
   publish:
     needs: [verify, bottles, performance, release-binary]
     runs-on: macos-15

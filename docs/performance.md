@@ -2,7 +2,7 @@
 
 ## 2026-11-11：只读查询按 key 读取、未变化的 update 复用索引
 
-环境：Apple M3 Pro、macOS 27.2、Go 1.27.3，本机网络。新旧二进制交替运行五轮，隔离临时 prefix、缓存与 HOME，`GOBREW_NO_AUTO_UPDATE=1`，prefix 中已安装 jq，两次 update 之间上游目录未变。计时用 `/usr/bin/time -p`，分辨率 10 毫秒。旧版为 `096e94d`。
+环境：Apple M3 Pro、macOS 27.2、Go 1.27.4，本机网络。新旧二进制交替运行五轮，隔离临时 prefix、缓存与 HOME，`GOBREW_NO_AUTO_UPDATE=1`，prefix 中已安装 jq，两次 update 之间上游目录未变。计时用 `/usr/bin/time -p`，分辨率 10 毫秒。旧版为 `096e94d`。
 
 | 命令 | 改动前中位数（墙钟 / CPU） | 改动后中位数（墙钟 / CPU） |
 | --- | ---: | ---: |
