@@ -74,9 +74,13 @@ main() {
         exit 1
     fi
     # Stream just the executable into a private directory; never extract paths.
-    tar -xOzf "$work/$archive" "${archive%.tar.gz}/gobrew" > "$work/gobrew" ||
+    # The limits match gobrew's own self-update: a 32 MiB archive (curl above)
+    # and a 64 MiB executable.
+    tar -xOzf "$work/$archive" "${archive%.tar.gz}/gobrew" | head -c 67108865 > "$work/gobrew" ||
         fail 'The release archive does not contain the gobrew executable.'
-    test -s "$work/gobrew" || fail 'The release archive contains an empty gobrew executable.'
+    test -s "$work/gobrew" || fail 'The release archive does not contain the gobrew executable.'
+    size=$(wc -c < "$work/gobrew")
+    [ "$size" -le 67108864 ] || fail 'The gobrew executable in the release archive exceeds 64 MiB.'
     chmod 0755 "$work/gobrew"
     bin=${GOBREW_BIN_DIR:-$HOME/.local/bin}
     title "Installing gobrew $version"

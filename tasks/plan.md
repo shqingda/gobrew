@@ -1,130 +1,123 @@
-# gobrew v0.5 整理计划：清理、重构、性能、体验、测试与文档
+# gobrew v0.6 计划：修复、体验、性能与功能补足
 
 ## Context
 
-v0.4.0 已发布，上一轮计划全部完成。这一轮不加新命令，目标有六个：清理冗余代码和文件，拆分过大的文件，修补架构上的小越界，只做没有争议的性能优化，打磨交互细节，清理或调整测试，整理文档。
+v0.5.0 已发布，main 上有 7 个未发布提交（`self` 恢复、多批 brew flag 对齐、`--prefix/--cellar/--cache`、网络重试）。用户要求盘点还要做的功能、性能、UI/UX 和需补足/修复之处并排期。
 
-约束：CONSTRAINTS.md 和 docs/architecture.md 照常适用。必须保持 Plan/Prepare/Apply 契约、不可变的 prepared 产物，以及 durable journal。不能削弱签名、摘要、持久化或文件系统隔离。测试一律使用临时 prefix，不碰开发机上的 Homebrew。不引入通用框架。日常只在本地跑 `make check`，不触发 Actions。**`docs/go-tutorial.md` 不改**，`scripts/check-tutorial.go` 也照常执行。
+本计划基于三路只读审查（CLI 体验、性能热点、缺陷/测试/文档）加对关键项的源码核对。约束照旧：CONSTRAINTS.md、docs/architecture.md、Plan/Prepare/Apply 契约、不可变 prepared 产物、durable journal；不削弱签名、摘要、持久化与文件系统隔离；测试只用临时 prefix；不加通用框架；日常只跑本地 `make check`，不触发 Actions、不打 tag。
 
-已确定的取舍：
-- 新功能只写进最后的“后续阶段”，本轮不实施。
-- 历史交接文档和 tasks/ 下的旧文件直接删除，靠 git 历史追溯。
-- 性能只做无争议项，有争议的只写评估、不实施。
-- 现有证据归档保留不动；以后新产生的大证据放 Release 或本地，仓库里只提交摘要 JSON。
+执行方式沿用 v0.5：每阶段单独提交；修复类先写会失败的测试再改；性能类先归因测量、再改、再复测，无可证明收益即回退并记录。
 
-执行方式：每个阶段单独提交，阶段内按单元再细分。重构类改动不改变行为，靠现有测试兜底。修复类改动先写出会失败的测试，再修。
+标注：【已核对】= 我亲自看过源码；其余来自审查报告，动手前先复核。
 
 ---
 
-## 阶段 0：清理无用文件与代码（低风险，先做）
+## 阶段 0：修复缺陷（最高优先，全部不改契约）
 
-文件（均未纳入 Git 跟踪，可直接删除）：
-- 空目录 `internal/artifact/.proof`、`internal/postinstall/.proof`
-- 根目录过时的 `./benchmark` 二进制，以及 `scripts/__pycache__/`
+1. **catalog 快照永不回收**【已核对：全仓只有写入 `client.go:207` 和读取 `:309`】。每次上游变化生成一个约 59 MB 的 `snapshots/<gen>.db`，每日自动更新下无上限增长。
+   - 在 `catalog.Client` 发布新 `CURRENT` 成功后删除非当前快照（保留当前一代；正被只读打开的文件在 macOS 上 unlink 安全）；`cleanup` 也调用同一函数。
+2. **fish 的 MANPATH 丢系统路径**【已核对：`shellconfig.go:96`】。未设 MANPATH 时结果无空元素，`man ls` 失效。改为与 POSIX 版同义（保留空元素）；INFOPATH 同查。补 fish/csh/pwsh 输出断言（`cli_test.go:112` 目前只执行 sh）。
+3. **手工 PATH 提示跑不通**【已核对：`path.go:43`】。`eval "$(gobrew shellenv)"` 在 gobrew 不在 PATH 时无效，且 shellenv 不含 `~/.local/bin`。提示改用可执行文件绝对路径，并一并给出命令目录。
+4. **下载整体超时**【已核对：`manager.go:57` `Timeout: 15m` 覆盖响应体】。慢网大 bottle 超时后从头重试 4 次。改为连接/响应头超时 + 读空闲超时（包一层带 deadline 重置的 Reader，仍每次全量校验）。catalog 的 2 分钟整体超时（`client.go:183`）同样处理。
+5. **`--prune` 天数溢出**【已核对：`cleanup.go:94,136,209`】。`time.Duration(days)*24h` 无上界，大值溢出反而清空缓存。加上界校验并按用法错误报出；`GOBREW_AUTO_UPDATE_SECS`（`update.go:129`）同查。
+6. **成功的安装因缓存淘汰失败而报错**：`manager.go:156-159` 的 `Release` 把 Cleanup 错误 Join 进返回值，而 `Prepare`（`:140`）忽略。统一为警告，不改变已成功操作的退出码。
+7. **post-install 输出末行丢失**：`installer/postinstall.go:261-276` 的 `outputEvents` 未 flush 无换行的尾段。
+8. **空目录累积**：`.gobrew/staging|backups|trash/<id>` 空父目录从不删除（`apply.go:97`、`records.go:48`、`cleanup.go:207-240`）。操作成功后与 cleanup 时移除空目录。
+9. **symlink 步骤的 `uninstall` 字段被接受但从不读取**（`postinstall/steps.go:83`）。确认上游语义后实现或在解码时拒绝，不静默忽略。
+10. **未知 macOS 主版本时 variations 不合并**（`normalize.go:91-104`；版本表在 `resolver/bottle.go:15` 与 `normalize.go:17` 各一份）。合并为一份表，未知新版本时与 `HostTag` 一致地回退到最近的已知版本。
+11. **`update` 自更新失败同一错误输出两次**（`update.go:98-99,114`）；`outdated <name>` 文本模式退出 1 而 `--json` 退出 0（`update.go:268`）；`info --analytics` 打印 `Error:` 却退出 0（`query.go:578`）；`open` 失败报成 `write output`（`query.go:186,449,1174`）。逐项统一。
+12. **install.sh**：Rosetta 终端被误判为 Intel（`:19`，改查 `sysctl.proc_translated`/`hw.optional.arm64`）；`:24,40,68-69` 的静默 `exit 1` 补原因；`uninstall.sh:55-65` 加 trap 清理 `.gobrew-write-*`。`scripts/test-bootstrap.sh` 补 bash/fish 分支。
 
-代码：
-- 删除只有测试在用的包装函数：`artifact/relocate.go:33` 的 `relocateTree`，改测试调用 `relocateTreeChecked`；`installer/installer.go:363` 的 `changeLink`，改测试调用 `changeLinks`。
-- 删除 `state.SyncDir`（`state/store.go:374`）这个单纯转发的包装，调用方直接用 `platform.SyncDir`。
-- 去掉未使用的参数：`replacements` 的 `p`（`relocate.go:23`）、`readReceipt` 的 `p`（`manager.go:314`）。
-- `postinstall` 的 `step.ResolveSource`（`steps.go:68,92`）runner 从未读取。先确认语义：如果 Homebrew 的步骤定义需要它，就实现读取并补测试；否则在解码时拒绝或删除，不能静默忽略。
-- 把 `resolver.SelectBottle` 改为不导出。
-- 替换已弃用的写法：`tar.TypeRegA`（`extract.go:103`），以及 `bolt.ErrTimeout` 改从 `bbolt/errors` 引入。
-- 给 `java.go:80` 加一行注释，说明两次 `u2()` 会前移读取位置，防止被当成重复表达式误删。
-- 用 gopls 的 modernize 建议做机械更新（range-over-int、`maps.Copy`、`slices.*` 等），限定在本阶段动到的文件。
-- 保留：`Record.InstalledAt`、`Plan.CatalogGeneration`（属于持久化/JSON 契约），以及 `scripts/benchmark*`、`check-tutorial.go`、各个 workflow。
+## 阶段 1：并发与只读可用性（需要你的一个决定，见文末 D1）
 
-## 阶段 1：合并重复逻辑并修复持久化不一致
+- 【已核对：`store.go:164-204`】`WithLock` 在整个 Apply 期间持有读写 bbolt 句柄，含外部 post-install（证书约 6.5 秒）；并发的 `list`/`info` 250 ms 后报 `ErrBusy` 退出 4。这与 architecture.md:136 “短暂的 bbolt 打开/事务” 不符。
+- 推荐做法：`Session` 改为每次读写短开短关（写锁 `writer.lock` 仍全程持有，锁顺序不变），使只读命令在安装期间可用；补“安装进行中并发只读”测试。
+- 同时：等待写锁超过约 1 秒时在 stderr 提示正在等待另一个 gobrew 操作，超时错误写明锁路径（`store.go:180-188`）。
 
-- **原子写**：在 `platform` 新增一个 `WriteFileAtomic`（临时文件 → `SyncFile` → rename → `SyncDir`），替换四处重复实现：`catalog/client.go:346` `atomicWrite`、`selfupdate/install.go:180` `atomicFile`、`shellconfig/shellconfig.go:230` `write`，以及 `installer/installer.go:844` 中适用的部分。
-- **修复 catalog 的弱 fsync**：删掉 `catalog/client.go:369` 的私有 `syncDir`，改用 full-flush 的 `platform.SyncDir`。
-- **路径组件校验**：在 `model` 新增 `ValidPathComponent`，替换 `installer.go:231`、`artifact/manager.go:300`、`artifact/receipt.go:142`、`catalog/normalize.go:104` 四处；`postinstall/steps.go:218` 只在语义一致时替换。
-- **GHCR 认证**：`artifact` 内部的“401 → 取 token → 重试”逻辑有两份（`download.go:65-90`、`receipt.go:162-190`），合并成一个 helper。`catalog/history.go:323` 与 `artifact/download.go:133` 的 token 获取，限额和错误文案各自保留，只抽出公共请求部分；如果抽出来不比现在更简单，就不动。
-- **owner marker 名称**：`.gobrew-owner` 改成在 `model` 定义一个常量，`installer.go:25` 和 `artifact/extract.go:76` 都引用它。
-- **User-Agent**：统一用一个 `model` 常量，不做通用 HTTP 封装。
+## 阶段 2：错误消息与文案统一（UX）
 
-## 阶段 2：拆分大文件（只移动代码，不改行为）
+- **“找不到 Formula” 两套文案**：统一为 brew 的 `No available formula with the name "x".`，并基于本地 catalog 给 `Did you mean` 建议（`brewpath.go:73` 已有 brew 文案；`catalog/client.go:70`、`resolver.go:48`、`query.go:308` 待改）。
+- **“未安装” 三套文案**：统一为 `No such keg: …`（`mutate.go:19,55`、`query.go:298`）。
+- **内部前缀与术语外泄**：`unsupported:`、`conflict:`、`installation needs repair:`、`create a new plan`、`dependency closure`、`versioned receipt fact` 等。在 `cli/app.go` 的错误映射层按 sentinel 改写成面向用户的句子；`model` 的 sentinel 不动，JSON `code` 不变。
+- **补可操作提示**：uninstall 被依赖时提示 `gobrew uses --installed X`；doctor 退出 5、`Needs repair:`、`Not executed:` 给出下一条命令（`postinstall`/`link`/`doctor --repair`）；`doctor` 的原始状态串（`maintenance.go:47-57`）改成人话。
+- **Ctrl-C**：把 `Error: context canceled` 改为说明已中断、状态安全或下次自动恢复（`app.go:177-202`）。
+- **颜色**：`==>` 标题统一走 `p.title()`（`install.go:218,391`、`cleanup.go:112,202,210`、`update.go:59,101`）；`Warning:`/`Error:` 在 TTY 上着黄/红；认 `HOMEBREW_NO_COLOR`；`GOBREW_NO_EMOJI` 对 info 的 ✔/✘ 也生效（`query.go:866-882`）。
+- **小项**：用法错误句号/大小写统一；`Formulae` 大小写；环境变量写法统一带不带 `$`；提示中的程序名跟随实际调用名（`gob`/`gobrew`）；dry-run 空计划给出“无需变更”与总下载量；`autoremove` 加标题与 uninstall 一致。
 
-文件按职责拆分，包不变：
-- `internal/cli/cli.go`（1564 行）拆成 `app.go`、`root.go`、`init.go`、`query.go`、`update.go`、`install.go`、`cleanup.go`、`render.go`。划分以探查给出的行号分组为准。
-  - `root()`（103 行）的子命令注册按组拆开。
-  - `infoCommand` 和 `searchCommand` 嵌套较深的渲染部分抽成 `render*` 函数。
-  - 新增 `envSettings`，在 `Run` 里一次读完所有 `GOBREW_*` 变量（目前散落在 524、802-817、909、1136、1166-1202 各行）。
-- `internal/installer/installer.go`（864 行）拆成 `apply.go`、`links.go`、`journal.go`、`records.go`、`postinstall.go`。
-  - `stage`（107 行）拆出 `stagePackage` 和 `backupExistingKeg`。
-  - `newID` 改为返回 error，不再 panic（`installer.go:36`）。
-- `internal/engine/engine.go`（746 行）拆成 `config.go`、`init.go`、`plan.go`、`operation.go`、`mutate.go`、`maintenance.go`。
+## 阶段 3：进度与静默阶段（UX）
 
-## 阶段 3：修补架构上的小越界
+- **首次 catalog 下载、`update`、`self update`、auto-update 没有进度**（`engine.go:69-86`、`update.go:41-53,137`）。接入现有 `withEvents` 与 `progress.go` 的下载条；catalog 的验签/建索引阶段显示带计时的状态行。
+- **relocate/codesign/link 阶段无事件**（`progress.go:93-94` 丢弃 relocate）。大包（node、python）上显示阶段名与计时；复用 post-install 已有的秒表（`progress.go:130-142`）。
+- 下载重试时输出一行 `Retrying…`（`download.go:70`）；进度条加速度；处理 SIGWINCH（低优先）。
+- 首次 install 的输出顺序：先 sudo 说明与 prefix 创建确认，再 auto-update；PATH 自动写入时说明同名命令将先于 Homebrew（`path.go:55-59`、`install.go:96-131`）。
+- `--json` 模式：把 PATH/cleanup 的 `notes` 与 auto-update 失败写进结果信封（`install.go:138,401-411`、`update.go:147`）；warning 遵守 `--quiet`。
 
-- `Init` 不再自己读进程状态（`engine.go:125-133` 中的 `os.Geteuid`、`SUDO_UID/GID`），改由 CLI 通过 `Config` 传入 uid/gid。
-- `engine.go:106` 硬编码的 `.gobrew/state.db` 改用 `state` 包提供的 `Exists`，路径只在 `state/store.go:55` 定义一处。
-- `createOwnedPrefix`、`checkOwnedPrefix`（`engine.go:157-213`）里的 mkdir、chown、stat 原语移到 `platform`，engine 只保留编排。
-- `sudo` 改用注入的 `a.stderr`（`cli.go:478`）。
-- 在 `docs/architecture.md` 的依赖方向里补上 `postinstall`。
+## 阶段 4：帮助与 flag 对齐（功能，小）
 
-## 阶段 4：性能（只做无争议项）
+- 全局接受 brew 的 `-v/--verbose`、`-d/--debug`（目前 `install -v` 是用法错误）；verbose 至少打印阶段计时与重试，debug 打印请求 URL 与缓存命中。
+- `--cask` 给出明确的“gobrew 只支持 Formula”而不是 unknown flag（`caskflags.go`）。
+- brew 有而 gobrew 没有的命令（`tap`、`services`、`bundle`、`fetch` 等）给出“不支持，见 status.md”的明确拒绝，其余未知命令给拼写建议（`root.go:18`）。
+- 帮助：新增 `gobrew help environment`（或根 Long 段）列出全部 `GOBREW_*`，让四处 “see `gobrew help`”（`update.go:140`、`cleanup.go:221`、`path.go:266`、`query.go:1153`）成立；给 info/list/deps/uses/cleanup/doctor/link/pin/uninstall/outdated/update/self 补 Example；`uninstall` 说明提到自动移除孤儿依赖；`--prefix/--cellar/--cache` 取消 Hidden 或在根帮助注明。
+- 半实现 flag：`search --formula`、`deps --full-name` 的未读变量（`query.go:29,79,1131`）要么实现要么删变量保留 flag 并注释。
+- `--minimum-version`/`--min-version` 的重复处理合并并拒绝同时给出（`install.go:31`、`update.go:207`）。
 
-每项先归因测量，再改，再复测；拿不出可证明的收益就回退，并在文档里说明。
-1. **GHCR token 预取**：对 ghcr.io 直接先取 token，一个计划尽量只取一次（可以合并多个 scope），省掉每个 bottle 一次 401 往返（`download.go:77-90`）。这是冷安装 Prepare 阶段落后 nanobrew 的主要嫌疑。
-2. **去掉重复哈希**：刚下载并已校验过的 blob，在 `extractBottle`（`manager.go:236`）不再重算 SHA。从缓存读取的 blob 仍然要校验。
-3. **包内并行**：`relocate.go:42` 的重定位和 `relocate.go:208-214` 的 codesign 批次，改用有上限的 worker pool。
-4. **减少全树遍历**：`logicalSize`（`manager.go:265`）合并到已有的遍历中；每次安装里 cache `Cleanup` 跑了两次（`manager.go:142,163`），合并为一次。
-5. **并行 fsync**：`sync.go:112` 的逐文件 `syncInode` 改为并行，最后的根目录 barrier 保持不变。
-6. **postinstall 与其他包重叠执行**：ca-certificates 的脚本可以和互不依赖的包的 Apply 重叠进行。前提是状态保存仍然串行，journal 的恢复边界不变。这一项风险最高，放在最后做，必须单独审查。
-- **只评估、不实施**：边下载边流式解压、`msync` 去重、合并 `finishPackage` 的多次提交、hardlink 改用 clonefile。评估结论写进 `docs/performance.md`。
-- **禁止**：跳过或缓存证书脚本、在 SHA 校验通过前信任数据、去掉 F_FULLFSYNC 或 journal、跳过 codesign 或链接检查。
+## 阶段 5：新增小功能（按 0001 的延后清单，推荐做前三项）
 
-## 阶段 5：交互体验打磨
+1. `config`：打印版本、prefix、cache、catalog 代数与刷新时间、CLI 托管状态、生效的 `GOBREW_*`、macOS/CPU。问题报告的必需品；brew 有同名命令，不违背 0002。
+2. `leaves`、`desc`、`home`：都是本地 catalog/state 的薄查询，复用 `engine/query.go` 与 `engine/deps.go` 的现有函数。
+3. `doctor` 补检查：catalog 过期/缺失、缓存目录可写、CLI 托管与版本、启动文件标记块损坏、平台；`--repair` 能修 gobrew 自己声明的缺失链接。
+4. （见 D2）shell 补全、清单导出/恢复、`fetch`、brew `--json=v2`：等你决定。
 
-- **进度**：postinstall 和 relocate 期间显示 spinner 或已用时间；安装结束时给出总耗时。不在终端时，保留关键行并带上耗时。
-- **postinstall 输出**：formula 的 `warn` 和脚本的 stderr 在文本模式下以 Warning 转发给用户（目前是 `installer.go:715` 的 `io.Discard`）；JSON 模式下仍不混入 stdout。
-- **颜色**：`search`（`cli.go:527`）要遵守 `NO_COLOR` 和 `TERM=dumb`；终端检测统一成一个函数（目前 `cli.go:464` 与 `progress.go:33` 各有一套）。
-- **文案统一**：
-  - 提示里的命令名统一成一种。随 README 一起决定：建议用实际执行的程序名，不硬编码。
-  - Formula/formulae 的大小写统一。
-  - 错误前缀统一成 `Error:`。
-  - “Updated gobrew”的样式统一。
-  - Warning 一律输出到 stderr（`cli.go:1495`、`1509`）。
-  - `pin`/`unpin` 改为输出完整的句子。
-- **错误提示**：
-  - 下载遇到 404 时提示运行 `update`；遇到 401/403/429 时提示设置 token（`download.go:95`）。
-  - 缓存参数错误时写明是哪个 flag（`cli.go:231`）。
-  - 用法错误提示具体子命令的 `--help`。
-- **退出码**：被 pin 或 held 挡下的升级单独使用一个退出码和 JSON code（`cli.go:1449-1458`），并同步更新 README 的退出码表。这一项改变了对外契约，在发布说明中注明。
-- **补全与帮助**：`install`、`reinstall`、`version-install`、`deps` 的补全改为从本地目录取候选名（离线、轻量）；常用命令补上 `Example`。
+## 阶段 6：性能（先测量，再动手）
 
-## 阶段 6：测试清理与调整
+**6a. 先补测量缺口**（基准此前禁用了自动更新和安装后清理，且只在空 prefix 上测）：
+- 用 `fs_usage` 统计一次热安装的 `F_FULLFSYNC` 与 bbolt commit 次数（审查推测 hello+jq 约 60 次）。
+- 在预装约 100 个包的临时 prefix 上测默认开启清理时的 install 与 Apply。
+- 对 `update` 做 CPU profile，拆分网络/验签/normalize/publish。
+- 结果以摘要 JSON/Markdown 记入 `docs/benchmarks/` 与 `docs/performance.md`。
 
-原则沿用 CONSTRAINTS.md：只测高损失的边界和可观察行为，不测平凡的转发或数据容器。
-- **归位**：`cli/path_test.go` 里与 path 无关的用例移到对应的测试文件，包括进度渲染、命令别名、列布局、自动更新（`:98`、`:122`、`:133`、`:169`、`:187`）。
-- **审视只断言字符串的用例**：`TestProgressRendersHomebrewStyle`、`TestColumnsMatchHomebrewLayout`、`TestShadowCaveatMatchesHomebrew` 等，只保留真正保护可见契约的断言；纯样式断言删掉，或改成检查结构。
-- **拆分** `installer_test.go`（805 行），与阶段 2 的源码拆分对应：apply、links、postinstall、cleanup。
-- **共享夹具**：新建 `internal/testutil`，只允许 `_test.go` 引用，只依赖 `model`、`state` 和标准库。提供 `InstalledPrefix`、`OwnedKeg`、`Tree`、`TarGz`、`NoNetwork`，以及局部的 `preparedPackage` helper。用它替换 installer 中 13 处重复的 Prepared 字面量、17 处 bottle 树构造，以及 engine 和 cli 中重复的已安装记录和 store 初始化。
-- **去掉对内部实现的耦合**：`cli/cleanup_test.go:49,103` 目前直接调用 `installer.Apply`，改为通过 engine 或 testutil 构造状态。
-- **删除冗余**：随阶段 0 删除测试专用的包装后，同步调整相关测试；合并互相覆盖的用例。每删一个都要说明对应的保护由哪个测试承担。
-- 新代码的测试：阶段 1 的原子写和路径校验、阶段 3 的 uid 注入、阶段 4 的并行化（race），以及阶段 5 的退出码和 Warning 去向。
+**6b. 不触红线、预期有收益的项**（按预期收益排序）：
+1. **安装后清理扫描全部 keg 的每个文件**（`installer/cleanup.go:66-121`，每次 install/upgrade 后触发）。把 Prepare 阶段 `artifact/linkage.go:19` 已解析的 Cellar 引用存进 record，清理时读记录；有 post-install 的 keg 保留实时扫描兜底。需证明保护结果仍然保守。
+2. **只读查询全量解码 catalog**（每次约 55 ms / 28 MB）：`info`、`outdated`、`namedFormulae` 改走已有的按 key 读取（`LoadForPlan`）；加 alias bucket 消除别名回退全量（`client.go:55-66,349-354`）；`search` 加精简 bucket；`update` 后的 `Outdated` 复用内存快照（`update.go:46,51`）。提升 catalog schema 版本。
+3. **`update` 未变化时不重建**：generation 在 normalize 前已算出（`client.go:150-154`），快照已存在则只重写 `CURRENT`；加 ETag/If-None-Match。normalize 的三次 JSON 往返改为直接合并并并行（`normalize.go:85-108`）；publish 排序插入并设 FillPercent。
+4. **状态整份 JSON 重写**（`state/store.go:251-301`，journal 带 Before/After 两份全量）：按 key 存 record、generation 独立 key、journal 记增量。需 schema 迁移与恢复测试；已装规模大时收益大。
+5. **刷盘批量化（不改提交点）**：`moveKeg` 改用已有 `platform.SyncDirs`（`journal.go:51`、`sync.go:25`）；stage 阶段先全部 clone 再统一 barrier（`apply.go:144,153`）；Prepare 的 manifest 写在 `SyncTree` 之前由同一 barrier 覆盖（`manager.go:262-291`）。每项都要过中断恢复测试。
+6. **冷安装 Prepare**（落后 nanobrew 的部分）：命令开始时并发预热 ghcr.io 与 CDN 的 TLS；缺 receipt 的 bottle 的 OCI index/manifest 与 blob 并发预取而不占 CPU 槽（`receipt.go:67,99`、`manager.go:219-247`）；relocate 去掉两次无效 chmod、先只读锚点预检再进入完整处理、包内文件并行（`relocate.go:37-178`，此前只测过 fsync/codesign 并行）；解压缓存已建目录（`extract.go:96`）。
+7. **小项**：auto-update 的自更新与 catalog 刷新并发（`update.go:42,46`）；`uses`/`deps` 全量的跨候选备忘（`engine/query.go:115-141`、`deps.go:231-391`）；`info` analytics 并发上限（`query.go:657-671`）；Manager 与 engine 两套并发默认值统一（`manager.go:44-48`、`engine.go:39`）；下载断点续传（Range，续传后仍全量校验）。
 
-## 阶段 7：文档整理（不动 go-tutorial.md）
+**6c. 触及持久化边界、默认不做**（见 D3）：合并 `finishPackage` 的 bbolt 事务；缩小 `syncPostInstall` 范围。证书脚本约 6.5 秒按约束不跳过、不缓存。
 
-- 删除 `docs/CLAUDE-HANDOFF.md`、`tasks/plan.md`、`tasks/todo.md`、`tasks/work-log.md`。同步修改引用它们的 `docs/verification/2026-10-28-final/README.md`，必要时把原链接改成提交哈希。
-- 新建一份简短的 `docs/status.md`：写当前版本、已支持和不支持的范围、延后的功能、验证方式，并指向 0001 决定。本轮的计划和进度放在新的 `tasks/plan.md` 和 `tasks/todo.md`。
-- 整理 README：
-  - 日常操作示例补上 `link`/`unlink`、`deps`、`uses`、`shellenv`。
-  - 退出码、环境变量和阶段 5 的文案与实际代码保持一致。
-  - 历史性能段落精简，改为链接到 `docs/performance.md`。
-- 精简 `docs/performance.md` 和 `docs/nanobrew-comparison.md` 中重复的历史叙述，原始证据和链接保留。补写阶段 4 的测量结果和评估结论。
-- `docs/architecture.md` 同步阶段 2、3 后的文件布局和依赖方向。
-- 在 `CONSTRAINTS.md` 补一条：今后大的证据归档放 Release 或本地，仓库只提交摘要 JSON。
-- 在 `docs/verification/2026-10-28-uninstall/gobrew-uninstall-smoke.sh` 顶部注明它是一次性证据，不是可复用脚本。
+## 阶段 7：测试补足
 
-## 后续阶段（本轮不实施，仅列候选）
+- journal 中断注入扩展到升级（备份旧 keg + 发布新 keg 的倒序撤销，`journal.go:108`）、卸载与 autoremove 的 trash 移动（`records.go:37-70`）、未知 phase（`journal.go:102`）。
+- `catalog/history`（唯一未签名元数据路径）：`pour_bottle?`、revision/rebuild/version 不匹配、异常 `formulaPath` 的拒绝用例。
+- 随各阶段新增：快照回收、fish 输出、空闲超时、溢出校验、并发只读、错误文案映射。
+- 复用 `internal/testutil` 的现有夹具，不新建框架。
 
-按 0001 决定，优先级从高到低：软件清单导出与恢复；`home`、`desc`、`log` 等辅助入口；依赖方仅过时时的自动升级评估；Homebrew JSON 兼容（按需）；tap、services、Cask、漏洞查询。
+## 阶段 8：文档与发布工程
+
+- 写 `docs/releases/v0.6.0.md` 草稿（0003 要求写明 `self` 恢复）；`release.yml:60-65` 缺说明文件时失败而非 `--generate-notes`【已核对】；发布门禁加跑 `smoke-version.sh`，且 smoke 测最终发布的同一二进制（`release.yml:13-14`）。这两处 workflow 修改只改文件，不触发 Actions。
+- README：补未记录的 flag（`4a2b124`、`14d7f53` 引入的）与 `GOBREW_DISPLAY_INSTALL_TIMES`、`GOBREW_INSTALL_BIN_DIR`。
+- `docs/architecture.md:19-25` 文件清单与 `:136` 锁描述同步；`docs/status.md` 的差异清单补 `-v/-d`，并随本计划各项更新。
+- `tasks/plan.md`、`tasks/todo.md` 换成本轮内容。
+- `query.go`（1396 行）按 search/info/list/deps/shellenv 拆文件，只移动不改行为；install.sh/selfupdate 的三个大小上限对齐。
+
+---
+
+## 需要你决定的事项（默认按推荐执行）
+
+- **D1 并发只读**：推荐改为短开短关 bbolt（阶段 1）。备选是只改文档、承认安装期间只读命令会 busy。
+- **D2 延后功能**：推荐本轮只做 `config`/`leaves`/`desc`/`home`/doctor 增强。shell 补全在 0002 中被明确删除（brew 以独立脚本而非命令提供补全）——若要恢复，建议以随发布包附带的静态补全脚本形式，不新增命令；清单导出/恢复、Cask、tap、services、brew `--json=v2` 继续延后。
+- **D3 持久化边界**：推荐不合并 `finishPackage` 事务、不缩小 post-install 同步范围，除非 6a 的测量显示它们是主要开销，届时再单独提请。
+
+## 建议顺序
+
+阶段 0 → 1 → 2 → 3 → 4 → 8（文档部分）可直接进行；阶段 6 先做 6a 再排 6b；阶段 5、7 穿插。阶段 0–4 完成后即可交付一个 dev 构建供试用。
 
 ## 验证
 
-- 每个阶段结束都在本地跑 `make check`，内容包括 gofmt、go vet、全量 `go test -race`、教程示例、比较器测试、govulncheck、CGO=0 release 构建和 bootstrap。
-- 阶段 2、6 结束后，对比重构前后的测试名单和覆盖范围，确认没有误删保护。
-- 阶段 4、5 结束后，在隔离的 HOME、prefix 和缓存中跑 `scripts/smoke.sh` 和 `scripts/smoke-version.sh` 的实瓶测试。用 `scripts/benchmark` 做五轮 Homebrew 对照（冷安装、热重装、no-op），结果另存一份新的 JSON，不覆盖旧基线。nanobrew 对照需要 Actions，留到用户确认发版时再跑。
-- 手动检查 UX：分别在 TTY、`NO_COLOR`、管道和 `--json` 下运行 install、search、info、uninstall 和错误场景，确认 stdout 仍是单一 JSON 文档。
-- 交付时提供本地 release 构建的路径、提交和 SHA-256，由用户安装测试；不打 tag、不触发 Actions。
+- 每阶段：`make check`（gofmt、go vet、`go test -race`、教程示例、govulncheck、CGO=0 release 构建、bootstrap）。
+- 安装行为变更（阶段 0 的 4/6/8/10、阶段 1、阶段 6）：隔离 prefix/HOME/缓存下运行 `scripts/smoke.sh` 与 `scripts/smoke-version.sh`。
+- UX（阶段 2–4）：在 TTY、管道、`NO_COLOR`、`--json`、`--quiet` 下手工跑 install、search、info、uninstall、doctor 及错误场景（未知 formula、未安装、被依赖卸载、Ctrl-C、锁占用），确认 stdout 仍是单一 JSON 文档、stderr 无转义字符泄漏。
+- 性能：`scripts/benchmark` 五轮冷/热/no-op 对照，另加“预装 100 包 + 默认清理开启”场景；结果另存新 JSON，不覆盖旧基线。nanobrew 重测与发布门禁需 Actions，等你确认发版。
+- 交付：本地 release 构建的路径、源码提交与 SHA-256；不打 tag、不触发 Actions。

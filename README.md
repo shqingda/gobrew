@@ -128,8 +128,14 @@ gobrew autoremove --dry-run
 gobrew cleanup
 gobrew doctor
 gobrew --prefix jq
+gobrew leaves
+gobrew desc --search json
+gobrew config
+gobrew help environment
 eval "$(gobrew shellenv zsh)"
 ```
+
+全局 `-v/--verbose` 让安装类命令在结尾列出各包与各阶段耗时；`-d/--debug` 另外打印完整的错误原文。单独的 `gobrew -v` 仍然打印版本。`leaves` 列出没有被其他已安装软件依赖的 Formula（`-r` 只看主动安装的，`-p` 只看作为依赖安装的）；`desc` 显示一行说明，`-s`／`-n`／`--description` 在名称、说明或两者中搜索（brew 的 `-d` 已是全局 `--debug`）；`home` 用浏览器打开主页；`config` 打印报告问题所需的版本、路径、目录代数与刷新时间和生效的 `GOBREW_*`，令牌只显示为 `set`。`--cask` 以及 `tap`、`services`、`bundle` 等 gobrew 有意不提供的 brew 命令会明确拒绝并说明原因，拼错的命令给出建议。`doctor` 还会就平台、过期目录、不可写缓存、未托管的程序和损坏的启动文件配置段给出警告（不影响退出码）；`doctor --repair` 会重建记录中有、但被删除的链接，被他人文件占据的路径保持原样。
 
 `update` 先更新 gobrew 自身，再刷新并校验 Formula 目录，最后列出可升级的软件；`install --only-dependencies` 只装依赖，`install --as-dependency` 安装后按依赖对待，可被 `autoremove` 清理，`--skip-link` 和 `--skip-post-install` 只跳过点名 Formula 的链接或 post-install，`--display-times`（或 `GOBREW_DISPLAY_INSTALL_TIMES=1`）在结尾列出各包耗时；`upgrade` 升级已安装软件及必要依赖，不带名称时升级全部未 pin 的软件。与 brew 一样，被 pin 的软件会被跳过，并提示 `Not upgrading N pinned package(s)`；只有显式点名被 pin 的软件时才以退出码 1 结束（`--json` 错误码为 `held`），其余软件照常升级。源码构建或未托管的程序会跳过自身更新并说明原因，目录仍会刷新；自身更新失败时目录照常刷新，显式 `update` 命令以非零状态退出。`uninstall NAME` 卸载指定 Formula，并自动清理不再被任何主动安装或 pin 的包需要的依赖；仍被依赖的包不能直接卸载。`list` 与 brew 一样只列名称，`--versions` 附带版本，`--installed-on-request`／`--pinned`／`--poured-from-bottle` 可筛选，`-t` 按修改时间排序，`-r` 反转顺序，`-l` 显示长格式；`list NAME` 列出 keg 里的文件，在终端显示摘要，管道中逐个列出；主动安装和 pin 的包不会被自动清理。`outdated` 在终端显示 `name (旧版本) < 新版本`，管道中只列名称。`autoremove --dry-run` 可预览已有的无用依赖，`autoremove` 清理它们。
 
@@ -167,7 +173,12 @@ Formula 安装类命令支持 `--dry-run`：只规划，不自动更新目录或
 | `GOBREW_NO_PATH_SHADOW_CHECK` | 未设置 | 禁用 install/info 的 PATH 遮蔽 Caveats，不禁用 doctor 的共存诊断。 |
 | `GOBREW_NO_ENV_HINTS` | 未设置 | 隐藏自动更新、清理和 PATH 遮蔽提示中的环境变量说明。 |
 | `GOBREW_NO_ANALYTICS`、`GOBREW_NO_GITHUB_API` | 未设置 | `info` 不再读取和显示 Formula 的安装统计。 |
-| `GOBREW_NO_EMOJI` | 未设置 | 交互式 search 以 `(installed)` 替代已安装项的勾选标记。 |
+| `GOBREW_NO_EMOJI` | 未设置 | search 与 info 以 `(installed)`／`(missing)` 替代勾选标记。 |
+| `GOBREW_NO_COLOR` | 未设置 | 关闭颜色；`NO_COLOR`、`HOMEBREW_NO_COLOR` 和 `TERM=dumb` 同样有效。 |
+| `GOBREW_DISPLAY_INSTALL_TIMES` | 未设置 | 等同于 `--display-times`。 |
+| `GOBREW_INSTALL_BIN_DIR` | 未设置 | 由 curl 安装器设置：`update` 只把正在运行的程序装入该目录。 |
+
+`gobrew help environment` 列出程序读取的全部环境变量。
 
 ### 安装指定版本
 
@@ -197,7 +208,7 @@ gobrew postinstall NAME
 
 ## 脚本与客户端接口
 
-`--json` 输出单个带 `schema_version`、`command`、`data`、`error` 的 JSON 文档。进度不混入标准输出。安装结果的 `timings_ms` 给出计划、准备与提交耗时。退出码：0 成功，1 操作失败，2 参数错误，3 不支持，4 冲突/过期计划/忙，5 需要修复，130 取消。`error.code` 进一步区分 `not_found`、`privilege_required`、`timeout`、`held` 等原因。文本模式下进度、警告和 post-install 输出写入标准错误。
+`--json` 输出单个带 `schema_version`、`command`、`data`、`error` 的 JSON 文档。进度不混入标准输出。安装结果的 `timings_ms` 给出计划、准备与提交耗时。退出码：0 成功，1 操作失败，2 参数错误，3 不支持，4 冲突/过期计划/忙，5 需要修复，130 取消。`error.code` 进一步区分 `not_found`、`privilege_required`、`timeout`、`held`、`outdated`（`outdated NAME` 有过时项）等原因。安装类结果的 `data.notes` 列出 PATH 与清理说明；`doctor` 的发现项 `severity` 为空表示需要修复，`warning` 为环境建议，`fixed` 为 `--repair` 已修正的内容。文本模式下进度、警告和 post-install 输出写入标准错误。
 
 ```sh
 gobrew --json list

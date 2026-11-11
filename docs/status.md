@@ -1,10 +1,10 @@
 # 当前状态
 
-更新日期：2026-11-08（Asia/Taipei）。
+更新日期：2026-11-11（Asia/Taipei）。
 
 ## 版本
 
-最新正式版是 [v0.5.0](releases/v0.5.0.md)，于 2026-11-01 发布，发布流水线的全部门禁均已通过（代码检查、macOS 15/26 实瓶测试、Homebrew 性能门槛）。本版的命令是 Homebrew 命令的子集，详见 [0002 决定](decisions/0002-homebrew-command-compatibility.md)。此后 `self` 已按 [0003 决定](decisions/0003-restore-self-command.md) 恢复，尚未发布。
+最新正式版是 [v0.5.0](releases/v0.5.0.md)，于 2026-11-01 发布，发布流水线的全部门禁均已通过（代码检查、macOS 15/26 实瓶测试、Homebrew 性能门槛）。本版的命令是 Homebrew 命令的子集，详见 [0002 决定](decisions/0002-homebrew-command-compatibility.md)。此后 `self` 已按 [0003 决定](decisions/0003-restore-self-command.md) 恢复，并在 `v0.6` 分支上完成了缺陷修复、交互改进与新命令，均尚未发布；发布说明草稿见 [v0.6.0](releases/v0.6.0.md)。
 
 ## 支持范围
 
@@ -22,7 +22,7 @@
   - `--ignore-dependencies`。
 - **延后（按需求再排期）**：
   - 软件清单的导出与恢复。
-  - `home`、`desc`、`log` 等辅助入口。
+  - `log` 等辅助入口（`config`、`leaves`、`desc`、`home` 已提供）。
   - 依赖方仅版本过时时的自动升级。
   - Homebrew JSON 格式兼容。
   - 第三方 tap、`services`、Cask、漏洞查询。
@@ -48,6 +48,9 @@ brew 只对 Cask 或 HEAD 安装起作用的参数（`--appdir` 等目标目录�
   - 同时标记了 deprecated 和 disabled 的 Formula，gobrew 仍按 disabled 拒绝安装，除非加 `--force`；brew 只给警告。
   - `install --skip-link` 和 `install`、`reinstall`、`upgrade` 的 `--force` 仍然检查 `conflicts_with`；brew 这时跳过检查。gobrew 的 `--force` 只让 disabled 的 Formula 带警告安装。
   - `--display-times` 的每个包时间从它的第一个进度事件算到安装完成；gobrew 并行准备，所以各包时间会重叠，brew 是逐个计时。
+  - `desc` 没有 brew 的 `-d` 短参数，因为 `-d` 已是全局 `--debug`；请用 `--description`。
+  - `--cask` 与 `tap`、`services`、`bundle` 等 brew 命令会明确拒绝并说明原因，而不是报未知参数或未知命令。
+  - `doctor` 额外检查平台、目录是否过期、缓存是否可写、程序是否托管和启动文件配置段，这些只作为警告；`doctor --repair` 还会重建记录中有但被删除的链接。
   - 没有 `doctor --list-checks`：brew 列出的是它自己的 `Diagnostic::Checks` 方法名，gobrew 的检查不是按这些方法组织的。
   - 没有 `update --force` 和 `update --auto-update`：它们调整的是 brew 基于 Git 的更新步骤，gobrew 每次 `update` 都完整下载并校验签名 catalog。
   - `version-install` 在原名下安装指定版本；brew 会把它提取成个人 tap 中的独立 Formula（如 `uv@0.13.5`）。

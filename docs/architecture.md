@@ -18,8 +18,10 @@ PATH setup is likewise outside the engine: `cli → shellconfig → platform`.
 
 Large packages are split into files named by role rather than into more
 packages: `cli` has `app.go` (run, errors, JSON envelope), `root.go`,
-`init.go`, `query.go`, `kegfiles.go`, `install.go`, `update.go`, `self.go`,
-`cleanup.go` and `render.go`; `engine` has `plan.go`, `operation.go`, `mutate.go`,
+`helptext.go`, `init.go`, `search.go`, `info.go`, `list.go`, `deps.go`,
+`shellenv.go`, `extra.go` (config, leaves, desc, home), `brewpath.go`,
+`kegfiles.go`, `install.go`, `update.go`, `self.go`, `cleanup.go`,
+`doctor.go`, `path.go`, `progress.go` and `render.go`; `engine` has `plan.go`, `operation.go`, `mutate.go`,
 `maintenance.go`, `deps.go` and `init.go`; `installer` has `apply.go`,
 `links.go`, `journal.go`, `records.go`, `prune.go` and `postinstall.go`. Shared durable writes (`WriteFileAtomic`) and the
 owned-directory bootstrap (`CreateOwnedDir`) live in `platform`.
