@@ -8,8 +8,11 @@ import (
 	"crypto/sha512"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"reflect"
 	"slices"
 	"sync/atomic"
@@ -70,6 +73,81 @@ func TestUpdateKeepsLastVerifiedSnapshot(t *testing.T) {
 	}
 	if loaded.Generation != first.Generation {
 		t.Fatal("unverified update replaced current snapshot")
+	}
+}
+
+func TestUpdateReclaimsOldGenerationsOnly(t *testing.T) {
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatal(err)
+	}
+	version := "1.0"
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write(signed(t, key, `[{"name":"demo","tap":"homebrew/core","versions":{"stable":"`+version+`"},"bottle":{"stable":{"files":{}}}}]`))
+	}))
+	defer server.Close()
+	client := Client{Dir: t.TempDir(), HTTP: server.Client(), URL: server.URL, Key: &key.PublicKey, Platform: model.Platform{OS: "darwin", Arch: "arm64", Major: 15}}
+	first, err := client.Update(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	old := filepath.Join(client.Dir, "snapshots", first.Generation+".db")
+	abandoned := filepath.Join(client.Dir, "snapshots", ".index-crashed")
+	if err := os.WriteFile(abandoned, []byte("x"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	version = "2.0"
+	second, err := client.Update(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Both are younger than the grace period: a concurrent update may still
+	// be about to record them in CURRENT.
+	for _, path := range []string{old, abandoned} {
+		if _, err := os.Stat(path); err != nil {
+			t.Fatalf("young %s removed: %v", filepath.Base(path), err)
+		}
+	}
+	past := time.Now().Add(-2 * snapshotGrace)
+	for _, path := range []string{old, abandoned, filepath.Join(client.Dir, "snapshots", second.Generation+".db")} {
+		if err := os.Chtimes(path, past, past); err != nil {
+			t.Fatal(err)
+		}
+	}
+	listed, err := client.PruneSnapshots(time.Now(), true)
+	if err != nil || len(listed) != 2 {
+		t.Fatalf("dry run = %v, %v", listed, err)
+	}
+	if _, err := os.Stat(old); err != nil {
+		t.Fatal("dry run removed a generation")
+	}
+	removed, err := client.PruneSnapshots(time.Now(), false)
+	if err != nil || len(removed) != 2 {
+		t.Fatalf("removed = %v, %v", removed, err)
+	}
+	for _, path := range []string{old, abandoned} {
+		if _, err := os.Stat(path); !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("%s kept: %v", filepath.Base(path), err)
+		}
+	}
+	loaded, err := client.Load()
+	if err != nil || loaded.Generation != second.Generation {
+		t.Fatalf("current generation lost: %v, %v", loaded.Generation, err)
+	}
+}
+
+// A macOS release newer than this build knows gets the newest known version's
+// variation, the same one whose bottle resolver.BottleFor selects.
+func TestNormalizationOnAnUnknownNewerMacOSUsesTheNewestKnownVariation(t *testing.T) {
+	raw := json.RawMessage(`{"name":"demo","versions":{"stable":"1"},"dependencies":["base"],"variations":{"arm64_golden_gate":{"dependencies":["newest"]},"arm64_tahoe":{"dependencies":["older"]}}}`)
+	for major, want := range map[int]string{27: "newest", 28: "newest", 26: "older"} {
+		f, err := normalize(raw, model.Platform{OS: "darwin", Arch: "arm64", Major: major})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !reflect.DeepEqual(f.Dependencies, []string{want}) {
+			t.Fatalf("macOS %d dependencies = %v, want [%s]", major, f.Dependencies, want)
+		}
 	}
 }
 

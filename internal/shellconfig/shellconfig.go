@@ -93,7 +93,12 @@ func (e Env) Script(shell string) (string, error) {
 			b.WriteString("\n")
 		}
 		if e.Prefix != "" {
+			// Like brew's fish shellenv: an unset MANPATH gains an empty element,
+			// which man(1) reads as "and the system defaults". Without it, setting
+			// MANPATH would hide every system manual page.
+			b.WriteString("! set -q MANPATH; and set MANPATH ''\n")
 			b.WriteString("set -gx MANPATH " + fishQuote(filepath.Join(e.Prefix, "share/man")) + " $MANPATH\n")
+			b.WriteString("! set -q INFOPATH; and set INFOPATH ''\n")
 			b.WriteString("set -gx INFOPATH " + fishQuote(filepath.Join(e.Prefix, "share/info")) + " $INFOPATH\n")
 		}
 	}

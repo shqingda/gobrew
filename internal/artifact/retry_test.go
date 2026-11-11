@@ -159,3 +159,54 @@ func TestOCIMetadataDoesNotRetryDigestMismatch(t *testing.T) {
 		t.Fatalf("attempts = %d, want 1", got)
 	}
 }
+
+// stall sends half of the body, then waits without closing the connection.
+func stall(body []byte, release <-chan struct{}) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Length", strconv.Itoa(len(body)))
+		_, _ = w.Write(body[:len(body)/2])
+		w.(http.Flusher).Flush()
+		select {
+		case <-release:
+		case <-r.Context().Done():
+		}
+	}
+}
+
+// trickle sends the body in small pieces, each well within the idle timeout,
+// taking longer in total than the timeout.
+func trickle(body []byte, pieces int, gap time.Duration) http.HandlerFunc {
+	return func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Length", strconv.Itoa(len(body)))
+		size := len(body) / pieces
+		for i := 0; i < len(body); i += size {
+			_, _ = w.Write(body[i:min(i+size, len(body))])
+			w.(http.Flusher).Flush()
+			time.Sleep(gap)
+		}
+	}
+}
+
+func TestStalledDownloadIsRetriedAndSteadyOneFinishes(t *testing.T) {
+	body := []byte(strings.Repeat("bottle", 4096))
+	release := make(chan struct{})
+	defer close(release)
+	server, attempts := retryServer(t, stall(body, release), trickle(body, 8, 20*time.Millisecond))
+	m := retryManager(t, server)
+	m.idle = 80 * time.Millisecond
+	start := time.Now()
+	path, err := m.download(context.Background(), retryPackage(server, body), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := attempts.Load(); got != 2 {
+		t.Fatalf("attempts = %d, want 2", got)
+	}
+	// The trickle alone takes about 160ms, twice the idle timeout.
+	if elapsed := time.Since(start); elapsed < 2*m.idle {
+		t.Fatalf("finished in %s; the steady download was not slower than the timeout", elapsed)
+	}
+	if got, err := os.ReadFile(path); err != nil || string(got) != string(body) {
+		t.Fatalf("blob differs: %d bytes, %v", len(got), err)
+	}
+}

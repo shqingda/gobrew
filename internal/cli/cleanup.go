@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"math"
 	"os"
 	"slices"
 	"strconv"
@@ -91,7 +92,7 @@ func (a *application) cleanupCommand() *cobra.Command {
 			if err != nil || days < 0 {
 				return usageError{fmt.Errorf("--prune must be a number of days or all")}
 			}
-			opts.MaxAge = time.Duration(days) * 24 * time.Hour
+			opts.MaxAge = saturate(int64(days), 24*time.Hour)
 		}
 		var removed []model.Removed
 		if prunePrefix {
@@ -127,13 +128,22 @@ func (a *application) cleanupCommand() *cobra.Command {
 	return cmd
 }
 
+// saturate is n units without wrapping around: a period too long to represent
+// means "never", as it does for brew, rather than a short or negative one.
+func saturate(n int64, unit time.Duration) time.Duration {
+	if n >= int64(math.MaxInt64/unit) {
+		return math.MaxInt64
+	}
+	return time.Duration(n) * unit
+}
+
 // cleanupMaxAge is Homebrew's HOMEBREW_CLEANUP_MAX_AGE_DAYS, default 120.
 func cleanupMaxAge() time.Duration {
 	days := 120
 	if value, err := strconv.Atoi(os.Getenv("GOBREW_CLEANUP_MAX_AGE_DAYS")); err == nil && value >= 0 {
 		days = value
 	}
-	return time.Duration(days) * 24 * time.Hour
+	return saturate(int64(days), 24*time.Hour)
 }
 
 // removedLines follows brew: pruned paths are listed only in a dry run, and a
@@ -206,7 +216,7 @@ func (a *application) installCleanup(ctx context.Context, e *engine.Engine, resu
 	if value, err := strconv.Atoi(os.Getenv("GOBREW_CLEANUP_PERIODIC_FULL_DAYS")); err == nil && value >= 0 {
 		days = value
 	}
-	if due, err := e.PeriodicCleanupDue(time.Duration(days) * 24 * time.Hour); err == nil && due {
+	if due, err := e.PeriodicCleanupDue(saturate(int64(days), 24*time.Hour)); err == nil && due {
 		lines = append(lines, fmt.Sprintf("==> `gobrew cleanup` has not been run in the last %d days, running now...", days))
 		removed, err := e.Cleanup(ctx, engine.CleanupOptions{Skip: skip, MaxAge: cleanupMaxAge()})
 		if err == nil {

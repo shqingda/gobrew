@@ -183,7 +183,7 @@ func (a *application) searchDatabase(ctx context.Context, db struct{ name, url s
 	}
 	u := fmt.Sprintf(db.url, platform.FormComponent(strings.Join(args, " ")))
 	a.setResult(u, func(io.Writer) error {
-		return exec.CommandContext(ctx, "/usr/bin/open", u).Run()
+		return openURLs(ctx, u)
 	})
 	return nil
 }
@@ -446,7 +446,7 @@ func (a *application) infoGitHub(ctx context.Context, e *engine.Engine, names []
 		urls = append(urls, githubURL(f))
 	}
 	a.setResult(urls, func(io.Writer) error {
-		return exec.CommandContext(ctx, "/usr/bin/open", urls...).Run()
+		return openURLs(ctx, urls...)
 	})
 	return nil
 }
@@ -1171,7 +1171,7 @@ func (a *application) depsCommand() *cobra.Command {
 					_, err := fmt.Fprintln(w, cleanText(code))
 					return err
 				}
-				return exec.CommandContext(ctx, "/usr/bin/open", graphvizURL(code)).Run()
+				return openURLs(ctx, graphvizURL(code))
 			})
 			return nil
 		case forEach || len(names) == 0:
@@ -1381,6 +1381,11 @@ func (a *application) shellenvCommand() *cobra.Command {
 		}
 		prefix := e.Prefix()
 		env := shellconfig.Env{Paths: []string{filepath.Join(prefix, "bin"), filepath.Join(prefix, "sbin")}, Prefix: prefix}
+		// Like brew's shellenv, which puts brew itself on PATH, include the
+		// managed command directory so the evaluated line also finds gobrew.
+		if bin := managedBinDir(); bin != "" {
+			env.Paths = append([]string{bin}, env.Paths...)
+		}
 		script, err := env.Script(shell)
 		if err != nil {
 			return usageError{err}
@@ -1393,4 +1398,13 @@ func (a *application) shellenvCommand() *cobra.Command {
 	_ = cmd.Flags().MarkHidden("shell")
 	cmd.Example = "  eval \"$(gobrew shellenv zsh)\""
 	return cmd
+}
+
+// openURLs shows pages in the default browser, as brew does with exec_browser.
+// Its failure is reported as such, not as a failure to write the output.
+func openURLs(ctx context.Context, urls ...string) error {
+	if err := exec.CommandContext(ctx, "/usr/bin/open", urls...).Run(); err != nil {
+		return actionError{fmt.Errorf("could not open %s: %w", strings.Join(urls, " "), err)}
+	}
+	return nil
 }

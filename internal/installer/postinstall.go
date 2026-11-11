@@ -94,7 +94,10 @@ func (i Installer) finishPackage(ctx context.Context, tx *state.Session, snap *m
 		if err := i.mergeShared(rec.Keg); err != nil {
 			return fail(err)
 		}
-		if err := postinstall.Run(ctx, steps, postinstall.Env{Prefix: i.Prefix, Keg: rec.Keg, Name: name, Version: rec.Formula.Version, Output: &outputEvents{events: events, name: name}}); err != nil {
+		output := &outputEvents{events: events, name: name}
+		err := postinstall.Run(ctx, steps, postinstall.Env{Prefix: i.Prefix, Keg: rec.Keg, Name: name, Version: rec.Formula.Version, Output: output})
+		output.Flush()
+		if err != nil {
 			return fail(err)
 		}
 		if len(steps) > 0 {
@@ -270,8 +273,15 @@ func (o *outputEvents) Write(b []byte) (int, error) {
 		o.pending = rest
 	}
 	if len(o.pending) > 4096 { // Bound a newline-free stream.
-		model.Emit(o.events, model.Event{Phase: "output", Package: o.name, Message: string(o.pending)})
-		o.pending = nil
+		o.Flush()
 	}
 	return len(b), nil
+}
+
+// Flush forwards a final line that ended without a newline.
+func (o *outputEvents) Flush() {
+	if len(o.pending) > 0 && o.events != nil {
+		model.Emit(o.events, model.Event{Phase: "output", Package: o.name, Message: string(o.pending)})
+	}
+	o.pending = nil
 }

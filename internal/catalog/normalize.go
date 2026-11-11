@@ -14,7 +14,7 @@ import (
 )
 
 var formulaName = regexp.MustCompile(`^[a-z0-9][a-z0-9+_.@-]*$`)
-var macOSNames = map[string]int{"big_sur": 11, "monterey": 12, "ventura": 13, "sonoma": 14, "sequoia": 15, "tahoe": 26, "golden_gate": 27}
+var macOSNames = model.MacOSVersions
 
 type rawFormula struct {
 	Name        string   `json:"name"`
@@ -88,13 +88,9 @@ func normalize(data json.RawMessage, host model.Platform) (model.Formula, error)
 	if err := json.Unmarshal(fields["variations"], &variations); err != nil && len(fields["variations"]) > 0 {
 		return model.Formula{}, err
 	}
-	tag := ""
-	for name, major := range macOSNames {
-		if host.Major == major {
-			tag = name
-			break
-		}
-	}
+	// An unknown newer macOS uses the newest known version's variation,
+	// matching the bottle that resolver.BottleFor selects for it.
+	tag := model.MacOSName(host.Major)
 	if host.Arch == "arm64" && tag != "" {
 		tag = "arm64_" + tag
 	}

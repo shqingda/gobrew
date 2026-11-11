@@ -53,6 +53,12 @@ func (e heldUpgrade) Error() string { return string(e) }
 // outdated; the listing itself is the message.
 var errOutdated = errors.New("")
 
+// actionError is a renderer's failure at something other than writing, such
+// as opening a browser; it is reported without the "write output" prefix.
+type actionError struct{ error }
+
+func (e actionError) Unwrap() error { return e.error }
+
 func (e notFound) Error() string { return string(e) }
 func (notFound) Unwrap() error   { return model.ErrNotFound }
 
@@ -170,7 +176,12 @@ func (a *application) run(ctx context.Context, args []string, stdout io.Writer, 
 	}
 	if a.hasResult && a.render != nil {
 		if writeErr := a.render(stdout); writeErr != nil {
-			fmt.Fprintf(stderr, "Error: write output: %v\n", writeErr)
+			var action actionError
+			if errors.As(writeErr, &action) {
+				fmt.Fprintf(stderr, "Error: %s\n", cleanText(action.Error()))
+			} else {
+				fmt.Fprintf(stderr, "Error: write output: %v\n", writeErr)
+			}
 			return 1
 		}
 	}
@@ -211,6 +222,8 @@ func classify(err error) (int, string) {
 	// Only when nothing else failed: a joined real failure keeps its own code.
 	case errors.As(err, &held) && err.Error() == held.Error():
 		return 1, "held"
+	case err == errOutdated:
+		return 1, "outdated"
 	case errors.Is(err, model.ErrPrivilegeRequired):
 		return 1, "privilege_required"
 	case errors.Is(err, model.ErrNotFound), errors.Is(err, os.ErrNotExist):

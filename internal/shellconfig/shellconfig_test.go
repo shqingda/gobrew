@@ -151,3 +151,45 @@ func appendFile(path, text string) error {
 	_, err = f.WriteString(text)
 	return errors.Join(err, f.Close())
 }
+
+// An unset MANPATH must end up with an empty element, which man(1) reads as
+// "and the system defaults"; otherwise `man ls` stops working.
+func TestScriptsKeepSystemManualPages(t *testing.T) {
+	env := Env{Paths: []string{"/opt/gobrew/bin"}, Prefix: "/opt/gobrew"}
+	for shell, run := range map[string][]string{
+		"sh":  {"sh", "-c"},
+		"csh": {"/bin/csh", "-f", "-c"},
+	} {
+		script, err := env.Script(shell)
+		if err != nil {
+			t.Fatal(err)
+		}
+		probe := `printf '%s' "$MANPATH"`
+		if _, err := exec.LookPath(run[0]); err != nil {
+			t.Logf("skipping %s: %v", shell, err)
+			continue
+		}
+		cmd := exec.Command(run[0], append(run[1:], script+"\n"+probe)...)
+		cmd.Env = []string{"PATH=/usr/bin:/bin"}
+		got, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("%s: %v: %s", shell, err, got)
+		}
+		if string(got) != "/opt/gobrew/share/man:" {
+			t.Fatalf("%s MANPATH = %q", shell, got)
+		}
+	}
+	// fish is rarely installed; check that it sets the empty element the way
+	// brew's own fish shellenv does before prepending.
+	script, err := env.Script("fish")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"MANPATH", "INFOPATH"} {
+		guard := "! set -q " + name + "; and set " + name + " ''\n"
+		i, j := strings.Index(script, guard), strings.Index(script, "set -gx "+name+" ")
+		if i < 0 || j < i {
+			t.Fatalf("fish script does not keep an empty %s element:\n%s", name, script)
+		}
+	}
+}

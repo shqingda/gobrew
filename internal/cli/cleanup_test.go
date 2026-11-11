@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"math"
 	"os"
 	"path/filepath"
 	"strings"
@@ -192,5 +193,18 @@ func TestAfterInstallStartsCleanupPeriodBeforeFullCleanup(t *testing.T) {
 	}
 	if info, err := os.Stat(marker); err != nil || !info.ModTime().After(stale) {
 		t.Fatalf("successful full cleanup did not refresh period: %v", err)
+	}
+}
+
+// A period longer than time.Duration can hold must mean "never", not wrap
+// around into a short one that would prune almost the whole cache.
+func TestHugePeriodsDoNotWrapAround(t *testing.T) {
+	for _, days := range []int64{213504, math.MaxInt64} {
+		if got := saturate(days, 24*time.Hour); got < 100*365*24*time.Hour {
+			t.Fatalf("%d days = %s", days, got)
+		}
+	}
+	if got := saturate(30, 24*time.Hour); got != 30*24*time.Hour {
+		t.Fatalf("30 days = %s", got)
 	}
 }

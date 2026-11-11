@@ -12,7 +12,7 @@ import (
 	"github.com/shqingda/gobrew/internal/model"
 )
 
-var macOSVersions = map[string]int{"big_sur": 11, "monterey": 12, "ventura": 13, "sonoma": 14, "sequoia": 15, "tahoe": 26, "golden_gate": 27}
+var macOSVersions = model.MacOSVersions
 
 // HostTag is the bottle tag of an Apple Silicon host, such as
 // arm64_sequoia, or "" for a macOS version this build does not name.

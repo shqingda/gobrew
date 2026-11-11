@@ -3,6 +3,11 @@
 # Keep execution inside main so a truncated download cannot run a partial script.
 set -eu
 
+fail() {
+    printf '%s\n' "$1" >&2
+    exit 1
+}
+
 title() {
     if [ -t 1 ]; then
         printf '\033[34;1m==>\033[0m \033[1m%s\033[0m\n' "$1"
@@ -16,12 +21,13 @@ main() {
         printf '%s\n' 'Run this installer as your normal user, without sudo.' >&2
         exit 1
     fi
-    if [ "$(uname -s)" != Darwin ] || [ "$(uname -m)" != arm64 ]; then
-        printf '%s\n' 'gobrew requires Apple Silicon and macOS 15 or newer.' >&2
-        exit 1
+    # A shell running under Rosetta reports x86_64; the hardware is what counts.
+    if [ "$(uname -s)" != Darwin ] || { [ "$(uname -m)" != arm64 ] &&
+        [ "$(sysctl -n hw.optional.arm64 2>/dev/null)" != 1 ]; }; then
+        fail 'gobrew requires Apple Silicon and macOS 15 or newer.'
     fi
-    major=$(sw_vers -productVersion | cut -d . -f 1)
-    case "$major" in ''|*[!0-9]*) exit 1 ;; esac
+    major=$(sw_vers -productVersion 2>/dev/null | cut -d . -f 1) || major=
+    case "$major" in ''|*[!0-9]*) fail 'Could not read the macOS version from sw_vers.' ;; esac
     if [ "$major" -lt 15 ]; then
         printf '%s\n' 'gobrew requires macOS 15 or newer.' >&2
         exit 1
@@ -37,7 +43,10 @@ main() {
         url=$(curl --proto '=https' --proto-redir '=https' --tlsv1.2 -fsSL \
             --retry 2 --connect-timeout 15 --max-time 120 -o /dev/null -w '%{url_effective}' \
             "$repository/releases/latest")
-        case "$url" in "$repository"/releases/tag/*) version=${url##*/} ;; *) exit 1 ;; esac
+        case "$url" in
+            "$repository"/releases/tag/*) version=${url##*/} ;;
+            *) fail "Could not find the latest gobrew release; set GOBREW_VERSION to choose one." ;;
+        esac
     fi
     if ! printf '%s\n' "$version" | LC_ALL=C grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+$'; then
         printf '%s\n' 'GOBREW_VERSION must be a stable version, such as v0.2.0.' >&2
@@ -65,8 +74,9 @@ main() {
         exit 1
     fi
     # Stream just the executable into a private directory; never extract paths.
-    tar -xOzf "$work/$archive" "${archive%.tar.gz}/gobrew" > "$work/gobrew"
-    test -s "$work/gobrew"
+    tar -xOzf "$work/$archive" "${archive%.tar.gz}/gobrew" > "$work/gobrew" ||
+        fail 'The release archive does not contain the gobrew executable.'
+    test -s "$work/gobrew" || fail 'The release archive contains an empty gobrew executable.'
     chmod 0755 "$work/gobrew"
     bin=${GOBREW_BIN_DIR:-$HOME/.local/bin}
     title "Installing gobrew $version"

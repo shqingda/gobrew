@@ -40,7 +40,7 @@ func (a *application) setupPath(env shellconfig.Env) string {
 	if len(env.Paths) == 0 || onPath(env.Paths...) {
 		return ""
 	}
-	manual := "Add it to your shell startup file:\n  eval \"$(gobrew shellenv)\""
+	manual := "Add this line to your shell startup file:\n  " + shellenvLine()
 	if os.Getenv("GOBREW_NO_MODIFY_PATH") != "" {
 		return "gobrew is not on PATH. " + manual
 	}
@@ -57,6 +57,21 @@ func (a *application) setupPath(env shellconfig.Env) string {
 		note = "Added gobrew to PATH in " + tildePath(profile.Path) + ".\n"
 	}
 	return note + "Open a new terminal, or run: exec " + profile.Shell
+}
+
+// shellenvLine names the executable by absolute path: when this hint is shown,
+// gobrew itself is usually not on PATH yet, so a bare `gobrew` would not run.
+func shellenvLine() string {
+	exe := "gobrew"
+	if bin := managedBinDir(); bin != "" {
+		exe = filepath.Join(bin, "gobrew")
+	} else if path, err := os.Executable(); err == nil {
+		exe = path
+	}
+	if strings.ContainsAny(exe, " '\"$`\\!*?[]{}()&;|<>~#") {
+		exe = "'" + strings.ReplaceAll(exe, "'", `'"'"'`) + "'"
+	}
+	return `eval "$(` + exe + ` shellenv)"`
 }
 
 func (a *application) removePath() string {

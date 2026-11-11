@@ -97,6 +97,13 @@ func (e *Engine) Cleanup(ctx context.Context, opts CleanupOptions) ([]model.Remo
 	if err != nil {
 		return removed, err
 	}
+	if c, err := e.client(); err == nil {
+		snapshots, err := c.PruneSnapshots(time.Now(), opts.DryRun)
+		removed = append(removed, snapshots...)
+		if err != nil {
+			return removed, err
+		}
+	}
 	pruned, err := e.installer().PrunePrefix(ctx, opts.DryRun)
 	return append(removed, pruned...), err
 }

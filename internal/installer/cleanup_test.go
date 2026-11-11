@@ -94,4 +94,9 @@ func TestCleanupWithLimitsDryRunAndPinsLikeBrew(t *testing.T) {
 			t.Fatalf("%s exists = %v, want %v (removed %+v)", path, err == nil, want, removed)
 		}
 	}
+	// Removing old kegs must not leave their empty trash directories behind.
+	entries, err := os.ReadDir(filepath.Join(prefix, ".gobrew", "trash"))
+	if err != nil || len(entries) != 0 {
+		t.Fatalf("trash left %v, %v", entries, err)
+	}
 }

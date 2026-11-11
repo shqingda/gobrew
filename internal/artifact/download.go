@@ -82,9 +82,11 @@ func (m *Manager) downloadLocked(ctx context.Context, p model.Package, events ch
 // only after the whole download matches the signed digest.
 func (m *Manager) fetchBlob(ctx context.Context, client *http.Client, u *url.URL, p model.Package, path string, events chan<- model.Event) (int64, error) {
 	sha := p.Bottle.SHA256
-	response, err := m.registryGet(ctx, client, u, u, nil)
+	idle := platform.NewIdle(ctx, m.idleTimeout())
+	defer idle.Stop()
+	response, err := m.registryGet(idle.Context(), client, u, u, nil)
 	if err != nil {
-		return 0, err
+		return 0, idle.Err(err)
 	}
 	defer response.Body.Close()
 	if response.StatusCode != http.StatusOK {
@@ -101,7 +103,7 @@ func (m *Manager) fetchBlob(ctx context.Context, client *http.Client, u *url.URL
 	defer tmp.Close()
 	hash := sha256.New()
 	counter := &progressWriter{events: events, event: model.Event{Phase: "download", Package: p.Formula.Name, Total: max(response.ContentLength, 0)}}
-	n, err := io.Copy(io.MultiWriter(tmp, hash, counter), response.Body)
+	n, err := io.Copy(io.MultiWriter(tmp, hash, counter), idle.Reader(response.Body))
 	if err != nil {
 		return 0, err
 	}
@@ -121,6 +123,13 @@ func (m *Manager) fetchBlob(ctx context.Context, client *http.Client, u *url.URL
 		return 0, err
 	}
 	return n, platform.SyncDir(filepath.Dir(path))
+}
+
+func (m *Manager) idleTimeout() time.Duration {
+	if m.idle > 0 {
+		return m.idle
+	}
+	return platform.DefaultIdleTimeout
 }
 
 // registryGet sends one GET. GHCR requests start with Homebrew's anonymous

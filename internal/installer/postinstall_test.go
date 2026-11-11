@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/shqingda/gobrew/internal/model"
@@ -267,5 +268,20 @@ func TestSkipOptionsLeaveTheKegUnlinkedAndHooksUnrun(t *testing.T) {
 	}
 	if _, err := os.Lstat(ran); err != nil {
 		t.Fatalf("postinstall did not run the skipped hook: %v", err)
+	}
+}
+
+func TestPostInstallOutputKeepsAnUnterminatedLastLine(t *testing.T) {
+	events := make(chan model.Event, 8)
+	o := &outputEvents{events: events, name: "demo"}
+	_, _ = o.Write([]byte("first\nlast without newline"))
+	o.Flush()
+	close(events)
+	var got []string
+	for e := range events {
+		got = append(got, e.Message)
+	}
+	if strings.Join(got, "|") != "first|last without newline" {
+		t.Fatalf("forwarded %q", got)
 	}
 }

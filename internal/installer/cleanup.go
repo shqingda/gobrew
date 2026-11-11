@@ -200,6 +200,7 @@ func (i Installer) CleanupWith(ctx context.Context, opts CleanupOptions) ([]mode
 			}
 		}
 		if len(opts.Formulae) > 0 {
+			i.removeEmptyOperationDirs(opts.DryRun)
 			return nil
 		}
 		// These roots contain only previously owned staging/backup trees. Leave any
@@ -244,6 +245,7 @@ func (i Installer) CleanupWith(ctx context.Context, opts CleanupOptions) ([]mode
 				return err
 			}
 		}
+		i.removeEmptyOperationDirs(opts.DryRun)
 		return nil
 	})
 	return removed, err
@@ -274,4 +276,32 @@ func validOwner(owner, name string) bool {
 		}
 	}
 	return model.ValidPathComponent(name)
+}
+
+// removeEmptyOperationDirs removes the staging/<id>, backups/<id> and
+// trash/<id> directories operations leave behind once their kegs have moved
+// on. os.Remove deletes only empty ones, so no owned or foreign content is
+// lost; callers hold the writer lock, so no operation is about to fill one.
+func (i Installer) removeEmptyOperationDirs(dryRun bool) {
+	if dryRun {
+		return
+	}
+	for _, kind := range []string{"staging", "backups", "trash"} {
+		root, err := state.SecureDir(i.Prefix, filepath.Join(".gobrew", kind))
+		if err != nil {
+			continue
+		}
+		// WalkDir does not follow symlinks; removing in reverse visits
+		// children before their parents.
+		var dirs []string
+		_ = filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+			if err == nil && d.IsDir() && path != root {
+				dirs = append(dirs, path)
+			}
+			return nil
+		})
+		for _, dir := range slices.Backward(dirs) {
+			_ = os.Remove(dir)
+		}
+	}
 }

@@ -53,6 +53,8 @@ remove_block() {
     fi
     target=$(realpath "$file")
     tmp=$(mktemp "${target%/*}/.gobrew-write-XXXXXX")
+    # set -e may stop here on a failed awk, chmod or mv; never leave tmp behind.
+    trap 'rm -f "$tmp"' EXIT
     awk -v b="$begin" -v e="$end" '
         $0 == b { inside = 1; held = 0; next }
         inside { if ($0 == e) inside = 0; next }

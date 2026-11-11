@@ -168,15 +168,17 @@ func (m *Manager) fetchOCIOnce(ctx context.Context, u, bottleURL *url.URL, expec
 	client := *m.cfg.HTTP
 	client.CheckRedirect = func(*http.Request, []*http.Request) error { return errors.New("OCI metadata redirect is not allowed") }
 	accept := http.Header{"Accept": {"application/vnd.oci.image.index.v1+json, application/vnd.oci.image.manifest.v1+json"}}
-	response, err := m.registryGet(ctx, &client, u, bottleURL, accept)
+	idle := platform.NewIdle(ctx, m.idleTimeout())
+	defer idle.Stop()
+	response, err := m.registryGet(idle.Context(), &client, u, bottleURL, accept)
 	if err != nil {
-		return nil, err
+		return nil, idle.Err(err)
 	}
 	defer response.Body.Close()
 	if response.StatusCode != http.StatusOK {
 		return nil, platform.StatusError(response.StatusCode, fmt.Sprintf("OCI metadata returned HTTP %d", response.StatusCode))
 	}
-	data, err := io.ReadAll(io.LimitReader(response.Body, maxManifestSize+1))
+	data, err := io.ReadAll(io.LimitReader(idle.Reader(response.Body), maxManifestSize+1))
 	if err != nil {
 		return nil, err
 	}

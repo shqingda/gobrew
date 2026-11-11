@@ -36,8 +36,10 @@ type Config struct {
 type Manager struct {
 	cfg         Config
 	retryDelays []time.Duration
-	mu          sync.Mutex
-	leases      map[string][]func() error
+	// idle overrides platform.DefaultIdleTimeout in tests.
+	idle   time.Duration
+	mu     sync.Mutex
+	leases map[string][]func() error
 }
 
 func New(cfg Config) *Manager {
@@ -54,7 +56,9 @@ func New(cfg Config) *Manager {
 		cfg.TreeBudget = 8 << 30
 	}
 	if cfg.HTTP == nil {
-		cfg.HTTP = &http.Client{Timeout: 15 * time.Minute}
+		// No whole-request deadline: downloads end when they stall instead
+		// (platform.Idle), so a large bottle on a slow link can finish.
+		cfg.HTTP = &http.Client{}
 	}
 	return &Manager{cfg: cfg, leases: make(map[string][]func() error)}
 }
@@ -155,8 +159,9 @@ func (m *Manager) Release(prepared model.Prepared) error {
 		err = errors.Join(err, locks[i]())
 	}
 	if len(locks) > 0 {
-		_, cleanupErr := m.Cleanup(context.Background())
-		err = errors.Join(err, cleanupErr)
+		// Eviction is best effort, as after Prepare: by now the operation's
+		// outcome is decided, and the next cache insertion or cleanup retries.
+		_, _ = m.Cleanup(context.Background())
 	}
 	return err
 }

@@ -43,8 +43,10 @@ func TestPathSetupTouchesOnlyTheDefaultPrefixAndOnlyWhenMissing(t *testing.T) {
 	}
 	t.Setenv("PATH", "/usr/bin")
 	t.Setenv("GOBREW_NO_MODIFY_PATH", "1")
-	if note := a.setupPath(env); !strings.Contains(note, "shellenv") {
-		t.Fatalf("opt-out note = %q", note)
+	// gobrew is not on PATH here, so the manual line must name it by path.
+	exe, _ := os.Executable()
+	if note := a.setupPath(env); !strings.Contains(note, `eval "$(`) || !strings.Contains(note, exe+" shellenv") {
+		t.Fatalf("opt-out note = %q, want the absolute %s", note, exe)
 	}
 	if _, err := os.Stat(rc); !os.IsNotExist(err) {
 		t.Fatal("opt-out still wrote the startup file")

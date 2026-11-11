@@ -376,3 +376,19 @@ type PullRequest struct {
 	URL   string `json:"url"`
 	State string `json:"state"`
 }
+
+// MacOSVersions maps Homebrew's macOS bottle tag names to major versions.
+var MacOSVersions = map[string]int{"big_sur": 11, "monterey": 12, "ventura": 13, "sonoma": 14, "sequoia": 15, "tahoe": 26, "golden_gate": 27}
+
+// MacOSName is the tag name for a macOS major version. A version newer than
+// this build knows is treated as the newest known one, the same choice bottle
+// selection makes; it returns "" only for versions older than every name.
+func MacOSName(major int) string {
+	name, best := "", 0
+	for n, m := range MacOSVersions {
+		if m <= major && m > best {
+			name, best = n, m
+		}
+	}
+	return name
+}

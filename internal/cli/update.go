@@ -96,7 +96,7 @@ func (a *application) update(ctx context.Context, _ []string) error {
 		case cli.Skipped != "":
 			lines = append(lines, "Skipped updating gobrew: "+cli.Skipped)
 		case cli.Error != "":
-			lines = append(lines, "Could not update gobrew: "+cli.Error)
+			// The returned error reports it once, on stderr.
 		case cli.Changed:
 			lines = append(lines, "==> Updated gobrew to "+cli.Version+"; the new version runs from the next command.")
 		default:
@@ -111,7 +111,10 @@ func (a *application) update(ctx context.Context, _ []string) error {
 		}
 		return nil
 	})
-	return cliErr
+	if cliErr != nil {
+		return fmt.Errorf("could not update gobrew: %w", cliErr)
+	}
+	return nil
 }
 
 // autoUpdate mirrors Homebrew's auto-update before install, outdated and
@@ -126,7 +129,7 @@ func (a *application) autoUpdate(ctx context.Context, e *engine.Engine, listOutd
 	interval := 24 * time.Hour
 	if value := os.Getenv("GOBREW_AUTO_UPDATE_SECS"); value != "" {
 		if seconds, err := strconv.ParseInt(value, 10, 64); err == nil && seconds >= 0 {
-			interval = time.Duration(seconds) * time.Second
+			interval = saturate(seconds, time.Second)
 		}
 	}
 	if fetched, err := e.CatalogFetched(); err == nil && time.Since(fetched) < interval {
@@ -265,7 +268,8 @@ func (a *application) outdated(ctx context.Context, names []string, verbose bool
 		}
 		return nil
 	})
-	if len(names) > 0 && len(items) > 0 && !a.json {
+	// brew sets this failure status with or without --json.
+	if len(names) > 0 && len(items) > 0 {
 		return errOutdated
 	}
 	return nil

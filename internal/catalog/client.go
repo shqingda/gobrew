@@ -173,24 +173,28 @@ func (c Client) Update(ctx context.Context) (Snapshot, error) {
 
 // download makes one attempt; Update verifies the signature of what it returns.
 func (c Client) download(ctx context.Context, endpoint string) ([]byte, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	// The catalog is tens of megabytes: a stall ends the attempt, not a
+	// whole-request deadline that a slow but steady link could exceed.
+	idle := platform.NewIdle(ctx, platform.DefaultIdleTimeout)
+	defer idle.Stop()
+	req, err := http.NewRequestWithContext(idle.Context(), http.MethodGet, endpoint, nil)
 	if err != nil {
 		return nil, err
 	}
 	req.Header.Set("User-Agent", model.UserAgent)
 	client := c.HTTP
 	if client == nil {
-		client = &http.Client{Timeout: 2 * time.Minute}
+		client = http.DefaultClient
 	}
 	res, err := client.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("download catalog: %w", err)
+		return nil, fmt.Errorf("download catalog: %w", idle.Err(err))
 	}
 	defer res.Body.Close()
 	if res.StatusCode != http.StatusOK {
 		return nil, platform.StatusError(res.StatusCode, "download catalog: HTTP "+res.Status)
 	}
-	data, err := io.ReadAll(io.LimitReader(res.Body, maxCatalogBytes+1))
+	data, err := io.ReadAll(io.LimitReader(idle.Reader(res.Body), maxCatalogBytes+1))
 	if err != nil {
 		return nil, err
 	}
@@ -268,7 +272,63 @@ func (c Client) publish(ctx context.Context, snapshot Snapshot) error {
 	if err = platform.SyncDir(dir); err != nil {
 		return err
 	}
-	return platform.WriteFileAtomic(filepath.Join(c.Dir, "CURRENT"), []byte(snapshot.Generation+"\n"), 0600)
+	if err = platform.WriteFileAtomic(filepath.Join(c.Dir, "CURRENT"), []byte(snapshot.Generation+"\n"), 0600); err != nil {
+		return err
+	}
+	// Reclaiming old generations is best effort: the new one is already live.
+	_, _ = c.PruneSnapshots(time.Now(), false)
+	return nil
+}
+
+// snapshotGrace keeps recently written generations and temporary indexes. Updates
+// take no lock, so a concurrent update may have published a generation it has
+// not yet recorded in CURRENT; nothing that young is removed.
+const snapshotGrace = time.Hour
+
+// PruneSnapshots removes index generations other than CURRENT, and abandoned
+// temporary indexes, that are older than snapshotGrace. A reader that already
+// opened a removed generation keeps its inode; one that read CURRENT just
+// before the switch retries once (see open). A dry run only lists them.
+func (c Client) PruneSnapshots(now time.Time, dryRun bool) ([]model.Removed, error) {
+	current, err := os.ReadFile(filepath.Join(c.Dir, "CURRENT"))
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	keep := strings.TrimSpace(string(current)) + ".db"
+	dir := filepath.Join(c.Dir, "snapshots")
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	var removed []model.Removed
+	var errs []error
+	for _, entry := range entries {
+		name := entry.Name()
+		if name == keep || !entry.Type().IsRegular() || !(strings.HasSuffix(name, ".db") || strings.HasPrefix(name, ".index-")) {
+			continue
+		}
+		info, err := entry.Info()
+		if err != nil || now.Sub(info.ModTime()) < snapshotGrace {
+			continue
+		}
+		path := filepath.Join(dir, name)
+		if !dryRun {
+			if err := os.Remove(path); err != nil {
+				if !errors.Is(err, os.ErrNotExist) {
+					errs = append(errs, err)
+				}
+				continue
+			}
+		}
+		removed = append(removed, model.Removed{Path: path, Files: 1, Bytes: info.Size()})
+	}
+	return removed, errors.Join(errs...)
 }
 
 // Fetched reports when the catalog was last refreshed successfully. Update
@@ -295,8 +355,19 @@ func (c Client) LoadForPlan(names []string) (Snapshot, error) {
 	return c.load(names, true)
 }
 
-// open opens the current generation's index read-only.
+// open opens the current generation's index read-only. If CURRENT moved on and
+// the generation it named was pruned in between, it reads CURRENT once more.
 func (c Client) open() (*bolt.DB, string, error) {
+	db, generation, err := c.openCurrent()
+	if errors.Is(err, os.ErrNotExist) {
+		if _, statErr := os.Stat(filepath.Join(c.Dir, "CURRENT")); statErr == nil {
+			db, generation, err = c.openCurrent()
+		}
+	}
+	return db, generation, err
+}
+
+func (c Client) openCurrent() (*bolt.DB, string, error) {
 	current, err := os.ReadFile(filepath.Join(c.Dir, "CURRENT"))
 	if err != nil {
 		return nil, "", fmt.Errorf("load catalog (run gobrew update): %w", err)
