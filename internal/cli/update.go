@@ -142,7 +142,7 @@ func (a *application) autoUpdate(ctx context.Context, e *engine.Engine, listOutd
 		_ = newProgress(a.stderr).title("Auto-updating gobrew...")
 		if os.Getenv("GOBREW_NO_ENV_HINTS") == "" && os.Getenv("GOBREW_AUTO_UPDATE_SECS") == "" {
 			fmt.Fprintln(a.stderr, "Adjust how often this is run with `$GOBREW_AUTO_UPDATE_SECS` or disable with")
-			fmt.Fprintln(a.stderr, "`$GOBREW_NO_AUTO_UPDATE=1`. Hide these hints with `$GOBREW_NO_ENV_HINTS=1` (see `gobrew help`).")
+			fmt.Fprintln(a.stderr, "`$GOBREW_NO_AUTO_UPDATE=1`. Hide these hints with `$GOBREW_NO_ENV_HINTS=1` (see `gobrew help environment`).")
 		}
 	}
 	report, cliErr, err := a.runUpdate(ctx, e)
@@ -204,18 +204,18 @@ func (a *application) installCLI(ctx context.Context, binDir string) (cliUpdate,
 
 // outdatedCommand mirrors brew outdated [--verbose] [formula...].
 func (a *application) outdatedCommand() *cobra.Command {
-	var verbose bool
 	var minimum, minimumAlias string
 	cmd := a.commandFor("outdated [formula...]", "List installed formulae with available updates", cobra.ArbitraryArgs, func(ctx context.Context, names []string) error {
 		minimum = cmp.Or(minimum, minimumAlias)
 		if minimum != "" && len(names) != 1 {
 			return usageError{errors.New("`--minimum-version` requires exactly one formula argument")}
 		}
-		return a.outdated(ctx, names, verbose, minimum)
+		// brew outdated's --verbose is the global one: it adds versions.
+		return a.outdated(ctx, names, a.verbose, minimum)
 	})
-	cmd.Flags().BoolVarP(&verbose, "verbose", "v", false, "Include detailed version information")
 	cmd.Flags().StringVar(&minimum, "minimum-version", "", "Only list a named formula with an installed version below the given minimum version")
 	cmd.Flags().StringVar(&minimumAlias, "min-version", "", "Alias of --minimum-version")
+	cmd.MarkFlagsMutuallyExclusive("minimum-version", "min-version")
 	return cmd
 }
 

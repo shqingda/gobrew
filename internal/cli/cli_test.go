@@ -8,6 +8,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -143,5 +145,67 @@ func TestHomebrewCommandAliasesResolve(t *testing.T) {
 	Run(context.Background(), []string{"-S", "--json", "--cache-dir", t.TempDir(), "--prefix", t.TempDir(), "x"}, &stdout, &stderr, BuildInfo{})
 	if !strings.Contains(stdout.String(), `"command":"search"`) {
 		t.Fatalf("-S did not run search: %s", &stdout)
+	}
+}
+
+func TestBrewOnlyInputsAreRefusedPlainly(t *testing.T) {
+	dir := t.TempDir()
+	base := []string{"--prefix", filepath.Join(dir, "prefix"), "--cache-dir", filepath.Join(dir, "cache")}
+	for _, tc := range []struct {
+		args []string
+		code int
+		want string
+	}{
+		{[]string{"tap", "user/repo"}, 3, "Homebrew's `tap` command is not available"},
+		{[]string{"install", "--cask", "firefox"}, 3, "casks are not supported"},
+		{[]string{"install", "--casks", "firefox"}, 3, "casks are not supported"},
+		{[]string{"instll", "jq"}, 2, "Did you mean this?"},
+		{[]string{"upgrade", "jq", "--minimum-version", "1", "--min-version", "1"}, 2, "minimum-version"},
+	} {
+		var stdout, stderr bytes.Buffer
+		code := Run(context.Background(), append(slices.Clone(base), tc.args...), &stdout, &stderr, BuildInfo{})
+		if code != tc.code || !strings.Contains(stderr.String(), tc.want) {
+			t.Errorf("%v: exit = %d, stderr = %s", tc.args, code, &stderr)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(dir, "prefix")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("refused input touched the prefix: %v", err)
+	}
+}
+
+func TestShortVFlagIsVersionAloneAndVerboseAfterACommand(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	if code := Run(context.Background(), []string{"--prefix", t.TempDir(), "-v"}, &stdout, &stderr, BuildInfo{Version: "1.2.3"}); code != 0 || !strings.Contains(stdout.String(), "gobrew 1.2.3") {
+		t.Fatalf("exit = %d, stdout = %s, stderr = %s", code, &stdout, &stderr)
+	}
+	stdout.Reset()
+	if code := Run(context.Background(), []string{"--prefix", t.TempDir(), "list", "-v"}, &stdout, &stderr, BuildInfo{Version: "1.2.3"}); code != 0 || strings.Contains(stdout.String(), "1.2.3") {
+		t.Fatalf("exit = %d, stdout = %s, stderr = %s", code, &stdout, &stderr)
+	}
+}
+
+func TestHelpEnvironmentListsEveryVariable(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	if code := Run(context.Background(), []string{"help", "environment"}, &stdout, &stderr, BuildInfo{}); code != 0 {
+		t.Fatalf("exit = %d, stderr = %s", code, &stderr)
+	}
+	sources, err := filepath.Glob("*.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	read := regexp.MustCompile(`(?:Getenv|LookupEnv)\("((?:GOBREW|HOMEBREW)_[A-Z_]+)"\)`)
+	for _, source := range sources {
+		if strings.HasSuffix(source, "_test.go") {
+			continue
+		}
+		data, err := os.ReadFile(source)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, m := range read.FindAllStringSubmatch(string(data), -1) {
+			if !strings.Contains(stdout.String(), m[1]) {
+				t.Errorf("%s reads %s, which `gobrew help environment` does not list", source, m[1])
+			}
+		}
 	}
 }

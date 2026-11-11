@@ -25,7 +25,7 @@ func (a *application) installCommand(action string) *cobra.Command {
 		args, use = cobra.ArbitraryArgs, "upgrade [formula...]"
 	}
 	cmd := a.commandFor(use, strings.ToUpper(action[:1])+action[1:]+" official core bottles and their dependencies", args, func(ctx context.Context, names []string) error {
-		if displayTimes {
+		if displayTimes || a.verbose {
 			a.times = &installTimes{}
 		}
 		if a.minimumVersion = cmp.Or(minimum, minimumAlias); a.minimumVersion != "" && len(names) != 1 {
@@ -46,6 +46,7 @@ func (a *application) installCommand(action string) *cobra.Command {
 	if action == "upgrade" {
 		cmd.Flags().StringVar(&minimum, "minimum-version", "", "Only upgrade a named formula if its installed version is below the given minimum version")
 		cmd.Flags().StringVar(&minimumAlias, "min-version", "", "Alias of --minimum-version")
+		cmd.MarkFlagsMutuallyExclusive("minimum-version", "min-version")
 	}
 	// gobrew never asks for confirmation and only pours bottles; these are
 	// accepted so brew scripts keep working.

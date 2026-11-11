@@ -241,7 +241,7 @@ func (a *application) installCleanup(ctx context.Context, e *engine.Engine, resu
 		lines = append(lines, removedLines(removed, e.Prefix(), false)...)
 	}
 	if len(lines) > 0 && os.Getenv("GOBREW_NO_ENV_HINTS") == "" {
-		lines = append(lines, "Disable this behaviour by setting `GOBREW_NO_INSTALL_CLEANUP=1`.", "Hide these hints with `GOBREW_NO_ENV_HINTS=1` (see `gobrew help`).")
+		lines = append(lines, "Disable this behaviour by setting `GOBREW_NO_INSTALL_CLEANUP=1`.", "Hide these hints with `GOBREW_NO_ENV_HINTS=1` (see `gobrew help environment`).")
 	}
 	return lines
 }

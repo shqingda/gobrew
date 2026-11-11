@@ -282,7 +282,7 @@ func shadowText(prefix string, r model.Record) string {
 	}
 	b.WriteString("Running these by name will not invoke the version provided by gobrew\nbecause the shadowing commands come earlier in your PATH.\n")
 	if os.Getenv("GOBREW_NO_ENV_HINTS") == "" {
-		b.WriteString("Disable this behaviour by setting `GOBREW_NO_PATH_SHADOW_CHECK=1`.\nHide these hints with `GOBREW_NO_ENV_HINTS=1` (see `gobrew help`).\n")
+		b.WriteString("Disable this behaviour by setting `GOBREW_NO_PATH_SHADOW_CHECK=1`.\nHide these hints with `GOBREW_NO_ENV_HINTS=1` (see `gobrew help environment`).\n")
 	}
 	return strings.TrimSuffix(b.String(), "\n")
 }

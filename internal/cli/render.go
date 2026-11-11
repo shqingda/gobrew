@@ -120,7 +120,11 @@ func (a *application) renderInstall(w io.Writer, e *engine.Engine, request model
 			lines = append(lines, group.label+": "+strings.Join(group.names, ", "))
 		}
 	}
-	lines = append(append(lines, a.times.lines()...), notes...)
+	lines = append(lines, a.times.lines()...)
+	if t := result.Timings; a.verbose && t != nil {
+		lines = append(lines, fmt.Sprintf("==> Stages: plan %.2fs, prepare %.2fs, apply %.2fs", t.Plan/1000, t.Prepare/1000, t.Apply/1000))
+	}
+	lines = append(lines, notes...)
 	return writeLines(w, lines)
 }
 

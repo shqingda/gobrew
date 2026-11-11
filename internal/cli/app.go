@@ -17,6 +17,7 @@ import (
 
 	"github.com/shqingda/gobrew/internal/engine"
 	"github.com/shqingda/gobrew/internal/model"
+	"github.com/spf13/cobra"
 )
 
 type BuildInfo struct {
@@ -89,6 +90,9 @@ type application struct {
 	build     BuildInfo
 	json      bool
 	quiet     bool
+	// verbose and debug are brew's global -v and -d; debug implies verbose.
+	verbose   bool
+	debug     bool
 	started   bool
 	command   string
 	stderr    io.Writer
@@ -141,6 +145,7 @@ func (a *application) run(ctx context.Context, args []string, stdout io.Writer, 
 		args = append([]string{"search"}, args[1:]...)
 	}
 	root := a.root()
+	args = versionShorthand(root, args)
 	args = pathCommand(root, args)
 	root.SetArgs(args)
 	root.SetOut(stdout)
@@ -157,6 +162,9 @@ func (a *application) run(ctx context.Context, args []string, stdout io.Writer, 
 	}
 	if conflict := flagConflict(err); conflict != nil {
 		err = conflict
+	}
+	if missing := brewOnlyCommand(err); missing != nil {
+		err = missing
 	}
 	code, kind := classify(err)
 	// Cobra can reject an unknown command before parsing persistent flags.
@@ -190,6 +198,9 @@ func (a *application) run(ctx context.Context, args []string, stdout io.Writer, 
 		fmt.Fprintf(stderr, "%s: %s\n", label(stderr, "Error", "31"), cleanText(userMessage(err)))
 		if hint := errorHint(err, a.command); hint != "" {
 			fmt.Fprintln(stderr, hint)
+		}
+		if a.debug && userMessage(err) != err.Error() {
+			fmt.Fprintf(stderr, "Debug: %s (%s)\n", cleanText(err.Error()), kind)
 		}
 		if code == 2 {
 			path := "gobrew"
@@ -269,6 +280,66 @@ func classify(err error) (int, string) {
 	default:
 		return 1, "failed"
 	}
+}
+
+// versionShorthand keeps brew's "gobrew -v" for the version: with no command,
+// -v means --version; after a command it is the global --verbose.
+func versionShorthand(root *cobra.Command, args []string) []string {
+	flags := root.Flags()
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
+		if arg == "--" || !strings.HasPrefix(arg, "-") {
+			return args
+		}
+		// Skip the separate value of a root flag such as --prefix PATH.
+		if name, ok := strings.CutPrefix(arg, "--"); ok && !strings.Contains(name, "=") {
+			f := flags.Lookup(name)
+			if f == nil {
+				f = root.PersistentFlags().Lookup(name)
+			}
+			if f != nil && f.NoOptDefVal == "" {
+				i++
+			}
+		}
+	}
+	out := slices.Clone(args)
+	for i, arg := range out {
+		if arg == "-v" {
+			out[i] = "--version"
+		}
+	}
+	return out
+}
+
+// brewOnly are Homebrew commands gobrew deliberately does not provide, with
+// the reason. Other unknown commands keep cobra's message and suggestions.
+var brewOnly = map[string]string{
+	"tap": "gobrew installs only official homebrew/core formulae", "untap": "gobrew installs only official homebrew/core formulae",
+	"tap-info": "gobrew installs only official homebrew/core formulae", "services": "gobrew does not manage background services",
+	"bundle": "gobrew does not read Brewfiles", "fetch": "gobrew downloads bottles as part of install",
+	"cask": "gobrew installs only formulae", "update-reset": "gobrew does not use Git for its catalog",
+	"--repository": "gobrew does not use Git for its catalog", "--repo": "gobrew does not use Git for its catalog",
+	"create": "gobrew has no formula development tools", "edit": "gobrew has no formula development tools",
+	"audit": "gobrew has no formula development tools", "bottle": "gobrew has no formula development tools",
+	"test": "gobrew has no formula development tools", "style": "gobrew has no formula development tools",
+	"extract": "use gobrew version-install for an older version", "migrate": "gobrew installs only official homebrew/core formulae",
+}
+
+var unknownCommand = regexp.MustCompile(`^unknown command "([^"]+)" for "gobrew"`)
+
+func brewOnlyCommand(err error) error {
+	if err == nil {
+		return nil
+	}
+	m := unknownCommand.FindStringSubmatch(err.Error())
+	if m == nil {
+		return nil
+	}
+	reason, ok := brewOnly[m[1]]
+	if !ok {
+		return nil
+	}
+	return fmt.Errorf("%w: Homebrew's `%s` command is not available in gobrew: %s.", model.ErrUnsupported, m[1], reason)
 }
 
 // cobraConflict is cobra's message for flags marked mutually exclusive.

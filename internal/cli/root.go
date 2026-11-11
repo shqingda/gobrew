@@ -6,7 +6,9 @@ import (
 	"io"
 	"strings"
 
+	"github.com/shqingda/gobrew/internal/model"
 	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
 )
 
 func (a *application) root() *cobra.Command {
@@ -15,9 +17,14 @@ func (a *application) root() *cobra.Command {
 		Use: "gobrew", Short: "A Go package manager for official Homebrew core bottles",
 		Long:          "Install official Homebrew core bottles in an independent prefix.\nSupports macOS ARM64 15+; unsupported formula semantics fail before activation.",
 		SilenceErrors: true, SilenceUsage: true,
-		Args: cobra.NoArgs,
+		// No Args validator: cobra then rejects an unknown command with
+		// "Did you mean this?" suggestions.
 		PersistentPreRunE: func(cmd *cobra.Command, _ []string) error {
 			a.started, a.command = true, commandName(cmd)
+			a.verbose = a.verbose || a.debug
+			if f := cmd.Flags().Lookup("cask"); f != nil && f.Changed {
+				return fmt.Errorf("%w: gobrew installs only Homebrew formulae; casks are not supported", model.ErrUnsupported)
+			}
 			return cmd.Context().Err()
 		},
 		RunE: func(cmd *cobra.Command, _ []string) error {
@@ -28,7 +35,7 @@ func (a *application) root() *cobra.Command {
 			return cmd.Help()
 		},
 	}
-	root.Flags().BoolVarP(&version, "version", "v", false, "Print build information")
+	root.Flags().BoolVar(&version, "version", false, "Print build information (also -v without a command)")
 	root.PersistentFlags().StringVar(&a.config.Prefix, "prefix", a.config.Prefix, "Installation prefix")
 	root.PersistentFlags().StringVar(&a.config.CacheDir, "cache-dir", a.config.CacheDir, "Catalog and artifact cache directory")
 	root.PersistentFlags().IntVar(&a.config.Downloads, "downloads", a.config.Downloads, "Maximum concurrent downloads")
@@ -37,6 +44,8 @@ func (a *application) root() *cobra.Command {
 	root.PersistentFlags().Int64Var(&a.config.TreeBudget, "prepared-cache-bytes", a.config.TreeBudget, "Prepared tree cache budget in logical bytes")
 	root.PersistentFlags().BoolVar(&a.json, "json", false, "Write one versioned JSON result to stdout")
 	root.PersistentFlags().BoolVarP(&a.quiet, "quiet", "q", false, "Suppress progress messages")
+	root.PersistentFlags().BoolVarP(&a.verbose, "verbose", "v", false, "Print more detail, such as stage timings")
+	root.PersistentFlags().BoolVarP(&a.debug, "debug", "d", false, "Print debugging detail, such as full error text; implies --verbose")
 	root.SetFlagErrorFunc(func(_ *cobra.Command, err error) error { return usageError{err} })
 	root.SetHelpFunc(func(cmd *cobra.Command, _ []string) {
 		description := cmd.Long
@@ -53,6 +62,10 @@ func (a *application) root() *cobra.Command {
 	root.SetHelpCommand(&cobra.Command{
 		Use: "help [command]", Short: "Show help for a command", Args: cobra.MaximumNArgs(1),
 		RunE: func(_ *cobra.Command, args []string) error {
+			if text, ok := helpTopic(args); ok {
+				a.message(map[string]string{"topic": args[0], "text": text}, strings.TrimSuffix(text, "\n"))
+				return nil
+			}
 			target, remaining, err := root.Find(args)
 			if err != nil {
 				return usageError{err}
@@ -113,7 +126,20 @@ func (a *application) root() *cobra.Command {
 			command.Flags().Bool("formula", false, "Treat all named arguments as formulae (gobrew has only formulae)")
 		}
 		addCaskFlags(command)
+		// brew's --cask; gobrew refuses it plainly instead of "unknown flag".
+		if brewFormulaFlag[command.Name()] {
+			command.Flags().Bool("cask", false, "Refused: gobrew has no casks")
+			_ = command.Flags().MarkHidden("cask")
+			command.Flags().SetNormalizeFunc(func(_ *pflag.FlagSet, name string) pflag.NormalizedName {
+				if name == "casks" {
+					name = "cask"
+				}
+				return pflag.NormalizedName(name)
+			})
+			command.MarkFlagsMutuallyExclusive("formula", "cask")
+		}
 	}
+	addHelpText(root)
 	return root
 }
 

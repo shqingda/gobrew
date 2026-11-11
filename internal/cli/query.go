@@ -26,7 +26,7 @@ import (
 
 // searchCommand mirrors brew search [--formula] [--desc] text|/regex/.
 func (a *application) searchCommand() *cobra.Command {
-	var descriptions, formulaOnly, pullRequest, open, closed bool
+	var descriptions, pullRequest, open, closed bool
 	databases := make([]bool, len(searchDatabases))
 	cmd := a.commandFor("search [text|/regex/]", "Search formula names, or descriptions with --desc; list all without text", cobra.ArbitraryArgs, func(ctx context.Context, args []string) error {
 		for _, flag := range []struct {
@@ -79,7 +79,8 @@ func (a *application) searchCommand() *cobra.Command {
 		return nil
 	})
 	cmd.Flags().BoolVar(&descriptions, "desc", false, "Search descriptions instead of names")
-	cmd.Flags().BoolVar(&formulaOnly, "formula", false, "Search only formulae (gobrew has no casks)")
+	// Accepted and ignored: every gobrew search result is a formula.
+	cmd.Flags().Bool("formula", false, "Search only formulae (gobrew has no casks)")
 	cmd.Flags().BoolVar(&pullRequest, "pull-request", false, "Search for GitHub pull requests containing text")
 	cmd.Flags().BoolVar(&open, "open", false, "Search for only open GitHub pull requests")
 	cmd.Flags().BoolVar(&closed, "closed", false, "Search for only closed GitHub pull requests")
@@ -1138,7 +1139,7 @@ func (a *application) listFiles(snapshot model.Snapshot, names []string) error {
 // [--topological] [--tree [--prune]] [--for-each] [formula...].
 func (a *application) depsCommand() *cobra.Command {
 	var opts engine.DepsOptions
-	var tree, graph, dot, forEach, fullName bool
+	var tree, graph, dot, forEach bool
 	cmd := a.commandFor("deps [formula...]", "Show dependencies of formulae (their intersection for several)", cobra.ArbitraryArgs, func(ctx context.Context, names []string) error {
 		if dot && !graph {
 			return usageError{errors.New("`--dot` cannot be passed without `--graph`")}
@@ -1160,7 +1161,7 @@ func (a *application) depsCommand() *cobra.Command {
 				return !ok
 			})
 			if reason := declaredReason(opts, tree, graph, allInstalled); reason != "" {
-				a.warn(fmt.Sprintf("`gobrew deps` is not the actual runtime dependencies because %s!\nThis means dependencies may differ from a formula's declared dependencies.\nHide these hints with `GOBREW_NO_ENV_HINTS=1` (see `gobrew help`).", reason))
+				a.warn(fmt.Sprintf("`gobrew deps` is not the actual runtime dependencies because %s!\nThis means dependencies may differ from a formula's declared dependencies.\nHide these hints with `GOBREW_NO_ENV_HINTS=1` (see `gobrew help environment`).", reason))
 			}
 		}
 		switch {
@@ -1223,7 +1224,8 @@ func (a *application) depsCommand() *cobra.Command {
 	cmd.Flags().BoolVar(&opts.Missing, "missing", false, "Show only missing dependencies")
 	cmd.Flags().BoolVar(&opts.Annotate, "annotate", false, "Mark build, test, optional and recommended dependencies")
 	cmd.Flags().BoolVar(&forEach, "for-each", false, "List dependencies one formula per line")
-	cmd.Flags().BoolVar(&fullName, "full-name", false, "List dependencies by full name (official formulae have no longer one)")
+	// Accepted and ignored: an official formula's full name is its name.
+	cmd.Flags().Bool("full-name", false, "List dependencies by full name (official formulae have no longer one)")
 	// brew's other spellings of --direct.
 	for _, alias := range []string{"declared", "1"} {
 		cmd.Flags().BoolVar(&opts.Direct, alias, false, "Show only direct dependencies")
