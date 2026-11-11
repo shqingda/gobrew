@@ -4,7 +4,9 @@
 
 ## 版本
 
-最新正式版是 [v0.5.0](releases/v0.5.0.md)，于 2026-11-01 发布，发布流水线的全部门禁均已通过（代码检查、macOS 15/26 实瓶测试、Homebrew 性能门槛）。本版的命令是 Homebrew 命令的子集，详见 [0002 决定](decisions/0002-homebrew-command-compatibility.md)。此后 `self` 已按 [0003 决定](decisions/0003-restore-self-command.md) 恢复，并在 `v0.6` 分支上完成了缺陷修复、交互改进与新命令，均尚未发布；发布说明草稿见 [v0.6.0](releases/v0.6.0.md)。
+最新正式版是 [v0.6.0](releases/v0.6.0.md)，于 2026-11-11 发布。发布流水线的全部门禁均已通过：代码检查（含 govulncheck）、macOS 15/26 实瓶测试、历史版本 smoke、对发布二进制本身的实瓶测试，以及 Homebrew 性能门槛。本版恢复了 `self`（[0003 决定](decisions/0003-restore-self-command.md)），其余命令仍是 Homebrew 命令的子集（[0002 决定](decisions/0002-homebrew-command-compatibility.md)）。
+
+首次推送的 v0.6.0 tag 有两项门禁失败：Go 1.27.3 的 `net/http` 存在 GO-2026-6859，以及历史版本 smoke 被错误地放在了带版本号的二进制上。两处都已修复，并在 `b012b5c` 上重新打了 tag；失败的那次没有发布任何资产。
 
 ## 支持范围
 
