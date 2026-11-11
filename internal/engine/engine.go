@@ -78,6 +78,21 @@ func (e *Engine) Catalog(ctx context.Context) (catalog.Snapshot, error) {
 	return s, err
 }
 
+// CatalogFor reads the named formulae and their runtime dependencies by key,
+// not the whole catalog. An alias or unknown name reads everything, so lookups
+// and "Did you mean" suggestions behave as with Catalog.
+func (e *Engine) CatalogFor(ctx context.Context, names []string) (catalog.Snapshot, error) {
+	c, err := e.client()
+	if err != nil {
+		return catalog.Snapshot{}, err
+	}
+	s, err := c.LoadForPlan(names)
+	if missingCatalog(err) {
+		return c.Update(ctx)
+	}
+	return s, err
+}
+
 func missingCatalog(err error) bool {
 	return errors.Is(err, os.ErrNotExist) || errors.Is(err, model.ErrNotFound)
 }

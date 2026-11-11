@@ -302,7 +302,7 @@ func (a *application) infoCommand() *cobra.Command {
 			if err := a.ensureCatalog(ctx, e); err != nil {
 				return err
 			}
-			catalog, err := e.Catalog(ctx)
+			catalog, err := e.CatalogFor(ctx, names)
 			if err != nil {
 				return err
 			}
@@ -369,7 +369,7 @@ func (a *application) infoSizes(ctx context.Context, e *engine.Engine, names []s
 		if err := a.ensureCatalog(ctx, e); err != nil {
 			return err
 		}
-		cat, err := e.Catalog(ctx)
+		cat, err := e.CatalogFor(ctx, names)
 		if err != nil {
 			return err
 		}
@@ -438,7 +438,7 @@ func (a *application) infoGitHub(ctx context.Context, e *engine.Engine, names []
 	if err := a.ensureCatalog(ctx, e); err != nil {
 		return err
 	}
-	cat, err := e.Catalog(ctx)
+	cat, err := e.CatalogFor(ctx, names)
 	if err != nil {
 		return err
 	}
@@ -508,7 +508,7 @@ func (a *application) infoAnalytics(ctx context.Context, e *engine.Engine, names
 		if err := a.ensureCatalog(ctx, e); err != nil {
 			return err
 		}
-		cat, err := e.Catalog(ctx)
+		cat, err := e.CatalogFor(ctx, names)
 		if err != nil {
 			return err
 		}

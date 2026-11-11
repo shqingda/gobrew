@@ -64,7 +64,7 @@ func (a *application) namedFormulae(ctx context.Context, e *engine.Engine, names
 	if err := a.ensureCatalog(ctx, e); err != nil {
 		return nil, err
 	}
-	cat, err := e.Catalog(ctx)
+	cat, err := e.CatalogFor(ctx, names)
 	if err != nil {
 		return nil, err
 	}

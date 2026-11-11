@@ -161,6 +161,27 @@ func (c Client) Update(ctx context.Context) (Snapshot, error) {
 	if err != nil {
 		return Snapshot{}, err
 	}
+	platformJSON, _ := json.Marshal(c.Platform)
+	hash := sha256.New()
+	_, _ = hash.Write([]byte(schemaVersion))
+	_, _ = hash.Write(platformJSON)
+	_, _ = hash.Write(payload)
+	generation := hex.EncodeToString(hash.Sum(nil))
+	// The generation names the verified payload, schema and platform, so an
+	// index already built for it is reused rather than normalized again.
+	if existing, err := c.loadGeneration(generation, nil, false); err == nil {
+		// Make it young first, so a concurrent prune cannot take a reused
+		// older generation before CURRENT names it.
+		now := time.Now()
+		if err = os.Chtimes(filepath.Join(c.Dir, "snapshots", generation+".db"), now, now); err != nil {
+			return Snapshot{}, err
+		}
+		if err = platform.WriteFileAtomic(filepath.Join(c.Dir, "CURRENT"), []byte(generation+"\n"), 0600); err != nil {
+			return Snapshot{}, err
+		}
+		_, _ = c.PruneSnapshots(time.Now(), false)
+		return existing, nil
+	}
 	var raw []json.RawMessage
 	if err = json.Unmarshal(payload, &raw); err != nil {
 		return Snapshot{}, fmt.Errorf("catalog payload: %w", err)
@@ -168,12 +189,7 @@ func (c Client) Update(ctx context.Context) (Snapshot, error) {
 	if len(raw) == 0 {
 		return Snapshot{}, errors.New("refusing an empty catalog")
 	}
-	platformJSON, _ := json.Marshal(c.Platform)
-	hash := sha256.New()
-	_, _ = hash.Write([]byte(schemaVersion))
-	_, _ = hash.Write(platformJSON)
-	_, _ = hash.Write(payload)
-	snapshot := Snapshot{Generation: hex.EncodeToString(hash.Sum(nil)), Formulae: make(map[string]model.Formula, len(raw))}
+	snapshot := Snapshot{Generation: generation, Formulae: make(map[string]model.Formula, len(raw))}
 	for _, entry := range raw {
 		if err = ctx.Err(); err != nil {
 			return Snapshot{}, err
@@ -405,12 +421,16 @@ func (c Client) openCurrent() (*bolt.DB, string, error) {
 		return nil, "", fmt.Errorf("load catalog (run gobrew update): %w", err)
 	}
 	generation := strings.TrimSpace(string(current))
+	db, err := c.openGeneration(generation)
+	return db, generation, err
+}
+
+func (c Client) openGeneration(generation string) (*bolt.DB, error) {
 	decoded, err := hex.DecodeString(generation)
 	if err != nil || len(decoded) != sha256.Size {
-		return nil, "", errors.New("invalid catalog generation")
+		return nil, errors.New("invalid catalog generation")
 	}
-	db, err := bolt.Open(filepath.Join(c.Dir, "snapshots", generation+".db"), 0400, &bolt.Options{ReadOnly: true, Timeout: time.Second})
-	return db, generation, err
+	return bolt.Open(filepath.Join(c.Dir, "snapshots", generation+".db"), 0400, &bolt.Options{ReadOnly: true, Timeout: time.Second})
 }
 
 func (c Client) load(names []string, selective bool) (Snapshot, error) {
@@ -419,8 +439,25 @@ func (c Client) load(names []string, selective bool) (Snapshot, error) {
 		return Snapshot{}, err
 	}
 	defer db.Close()
+	return c.read(db, generation, names, selective)
+}
+
+// loadGeneration reads a named generation, whether or not it is CURRENT.
+func (c Client) loadGeneration(generation string, names []string, selective bool) (Snapshot, error) {
+	if _, err := os.Stat(filepath.Join(c.Dir, "snapshots", generation+".db")); err != nil {
+		return Snapshot{}, err
+	}
+	db, err := c.openGeneration(generation)
+	if err != nil {
+		return Snapshot{}, err
+	}
+	defer db.Close()
+	return c.read(db, generation, names, selective)
+}
+
+func (c Client) read(db *bolt.DB, generation string, names []string, selective bool) (Snapshot, error) {
 	snapshot := Snapshot{Generation: generation, Formulae: map[string]model.Formula{}}
-	err = db.View(func(tx *bolt.Tx) error {
+	err := db.View(func(tx *bolt.Tx) error {
 		meta := tx.Bucket([]byte("meta"))
 		formulas := tx.Bucket([]byte("formulae"))
 		if meta == nil || formulas == nil {

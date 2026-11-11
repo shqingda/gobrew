@@ -1,5 +1,25 @@
 # 性能验证记录
 
+## 2026-11-11：只读查询按 key 读取、未变化的 update 复用索引
+
+环境：Apple M3 Pro、macOS 27.2、Go 1.27.3，本机网络。新旧二进制交替运行五轮，隔离临时 prefix、缓存与 HOME，`GOBREW_NO_AUTO_UPDATE=1`，prefix 中已安装 jq，两次 update 之间上游目录未变。计时用 `/usr/bin/time -p`，分辨率 10 毫秒。旧版为 `096e94d`。
+
+| 命令 | 改动前中位数（墙钟 / CPU） | 改动后中位数（墙钟 / CPU） |
+| --- | ---: | ---: |
+| `update`（目录未变化） | 2.57 秒 / 1.07 秒 | 1.81 秒 / 0.43 秒 |
+| `info jq`、`desc jq`、`outdated` | 约 60 毫秒 / 70 毫秒 | 低于 10 毫秒 |
+
+- `update`：generation 由签名验证后的 payload、schema 与平台算出，原本仍会对约八千个 formula 做 normalize 并重建 bbolt 索引。现在若该 generation 的索引已存在且通过与正常读取相同的检查，就只刷新它的时间、重写 `CURRENT`，不再重建；签名验证照旧每次执行。自更新与目录下载也改为并发（自更新不输出任何内容）。update 的墙钟时间主要受网络影响，单轮波动大（改动前有一轮 14.7 秒），CPU 时间稳定减半。
+- 按名查询：`info`、`desc`、`home`、`info --sizes`、`--github`、`--analytics` 与 `outdated` 改用已有的按 key 读取（`LoadForPlan`），不再解码整个约 28 MB 的目录。别名或未知名称仍回退为全量读取，所以别名解析与 “Did you mean” 建议不变。
+
+逐轮数据见 [2026-11-11-m3-pro-queries-update.json](benchmarks/2026-11-11-m3-pro-queries-update.json)。
+
+本轮未做、留待测量的项：
+
+- `fs_usage` 统计 `F_FULLFSYNC` 需要 root 权限，本轮未在本机运行。
+- “预装约 100 个包、默认开启清理”需要下载数 GB 的 bottle，本轮未运行。安装后清理改为读取记录中的链接信息、状态按记录分 key 存储、批量刷盘这三项都会改动持久化或清理保护的边界，没有这组测量就不动手。
+- 冷安装 Prepare 的 TLS 预热与 OCI 元数据预取：上次评估（2026-11-01）已把每个 bottle 的 401 往返去掉，剩余收益需在冷缓存下重新测量。
+
 ## 2026-11-01：Prepare 网络往返与包内并行评估
 
 环境：Apple M3 Pro、macOS 27.2、Go 1.27.3，本机网络。只测 gobrew，不含 Homebrew 对照；包集合为 hello、jq（不含证书初始化，便于观察 Prepare）。每组五轮，隔离临时 prefix、缓存与 HOME，测量期间不构建、不跑测试。被测程序为本地 `CGO_ENABLED=0 -trimpath` 构建，版本串为 dev，源码提交在文件名中注明。

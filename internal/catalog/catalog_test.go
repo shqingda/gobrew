@@ -252,3 +252,36 @@ func TestMalformedRequirementVersionFailsClosed(t *testing.T) {
 		t.Fatal("malformed requirement treated as no constraint")
 	}
 }
+
+func TestUpdateReusesTheIndexOfAnUnchangedCatalog(t *testing.T) {
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write(signed(t, key, `[{"name":"demo","tap":"homebrew/core","versions":{"stable":"1.0"},"bottle":{"stable":{"files":{}}}}]`))
+	}))
+	defer server.Close()
+	client := Client{Dir: t.TempDir(), HTTP: server.Client(), URL: server.URL, Key: &key.PublicKey, Platform: model.Platform{OS: "darwin", Arch: "arm64", Major: 15}}
+	first, err := client.Update(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	// A rebuild must create a temporary index here, which now fails.
+	snapshots := filepath.Join(client.Dir, "snapshots")
+	if err := os.Chmod(snapshots, 0500); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(snapshots, 0700) })
+	past := time.Now().Add(-2 * snapshotGrace)
+	if err := os.Chtimes(filepath.Join(client.Dir, "CURRENT"), past, past); err != nil {
+		t.Fatal(err)
+	}
+	second, err := client.Update(context.Background())
+	if err != nil || second.Generation != first.Generation || second.Formulae["demo"].Version != "1.0" {
+		t.Fatalf("second = %+v, %v", second, err)
+	}
+	if fetched, err := client.Fetched(); err != nil || time.Since(fetched) > time.Minute {
+		t.Fatalf("the refresh time did not move: %v, %v", fetched, err)
+	}
+}

@@ -1,0 +1,161 @@
+{
+ "date": "2026-11-11",
+ "machine": "Apple M3 Pro, macOS 27.2",
+ "go": "1.27.3",
+ "rounds": 5,
+ "conditions": "alternating binaries; isolated temporary prefix, cache and HOME; GOBREW_NO_AUTO_UPDATE=1; jq installed; catalog unchanged between updates; /usr/bin/time -p (10 ms resolution)",
+ "commands": {
+  "update -q": {
+   "before_096e94d": {
+    "real_s": [
+     14.69,
+     2.34,
+     2.3,
+     3.3,
+     2.57
+    ],
+    "user_s": [
+     1.22,
+     1.06,
+     1.05,
+     1.09,
+     1.07
+    ],
+    "real_median_s": 2.57,
+    "user_median_s": 1.07
+   },
+   "after": {
+    "real_s": [
+     1.53,
+     1.7,
+     1.83,
+     1.81,
+     5.29
+    ],
+    "user_s": [
+     0.41,
+     0.42,
+     0.43,
+     0.47,
+     0.57
+    ],
+    "real_median_s": 1.81,
+    "user_median_s": 0.43
+   }
+  },
+  "desc jq": {
+   "before_096e94d": {
+    "real_s": [
+     0.06,
+     0.06,
+     0.05,
+     0.06,
+     0.06
+    ],
+    "user_s": [
+     0.07,
+     0.06,
+     0.07,
+     0.07,
+     0.07
+    ],
+    "real_median_s": 0.06,
+    "user_median_s": 0.07
+   },
+   "after": {
+    "real_s": [
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0
+    ],
+    "user_s": [
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0
+    ],
+    "real_median_s": 0.0,
+    "user_median_s": 0.0
+   }
+  },
+  "outdated": {
+   "before_096e94d": {
+    "real_s": [
+     0.06,
+     0.06,
+     0.06,
+     0.06,
+     0.05
+    ],
+    "user_s": [
+     0.06,
+     0.07,
+     0.07,
+     0.07,
+     0.06
+    ],
+    "real_median_s": 0.06,
+    "user_median_s": 0.07
+   },
+   "after": {
+    "real_s": [
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0
+    ],
+    "user_s": [
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0
+    ],
+    "real_median_s": 0.0,
+    "user_median_s": 0.0
+   }
+  },
+  "info jq": {
+   "before_096e94d": {
+    "real_s": [
+     0.06,
+     0.06,
+     0.05,
+     0.06,
+     0.06
+    ],
+    "user_s": [
+     0.07,
+     0.07,
+     0.06,
+     0.07,
+     0.08
+    ],
+    "real_median_s": 0.06,
+    "user_median_s": 0.07
+   },
+   "after": {
+    "real_s": [
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0
+    ],
+    "user_s": [
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0
+    ],
+    "real_median_s": 0.0,
+    "user_median_s": 0.0
+   }
+  }
+ }
+}

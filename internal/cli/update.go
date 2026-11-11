@@ -40,10 +40,14 @@ type updateReport struct {
 // formula catalog, then compute what upgrade would change. A failed self
 // update does not stop the catalog refresh; it is returned separately.
 func (a *application) runUpdate(ctx context.Context, e *engine.Engine) (updateReport, error, error) {
-	cli, cliErr := a.updateCLI(ctx)
-	if cliErr != nil {
-		cli.Error = cliErr.Error()
-	}
+	// The self update prints nothing, so it runs beside the catalog download.
+	var cli cliUpdate
+	var cliErr error
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		cli, cliErr = a.updateCLI(ctx)
+	}()
 	var generation string
 	var formulae int
 	err := a.withEvents(func(events chan<- model.Event) error {
@@ -51,6 +55,10 @@ func (a *application) runUpdate(ctx context.Context, e *engine.Engine) (updateRe
 		generation, formulae = cat.Generation, len(cat.Formulae)
 		return err
 	})
+	<-done
+	if cliErr != nil {
+		cli.Error = cliErr.Error()
+	}
 	if err != nil {
 		return updateReport{CLI: cli}, cliErr, err
 	}

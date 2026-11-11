@@ -29,7 +29,7 @@ func (e *Engine) Outdated(ctx context.Context) ([]Outdated, error) {
 	if err != nil {
 		return nil, err
 	}
-	cat, err := e.Catalog(ctx)
+	cat, err := e.CatalogFor(ctx, slices.Collect(maps.Keys(snap.Records)))
 	if err != nil {
 		return nil, err
 	}
