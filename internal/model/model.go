@@ -298,6 +298,9 @@ type Result struct {
 	Historic []string `json:"historic,omitempty"`
 	// Held copies Plan.Held so clients can report them after the operation.
 	Held []string `json:"held,omitempty"`
+	// Warnings are problems after the outcome was decided, such as failing to
+	// release cache leases or evict old entries. They never change the result.
+	Warnings []string `json:"warnings,omitempty"`
 }
 
 // Removed describes one path cleanup removed, or would remove in a dry run.

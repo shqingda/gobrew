@@ -35,39 +35,42 @@ type guard struct {
 }
 
 type step struct {
-	Type           string            `json:"type"`
-	Guards         []guard           `json:"guards"`
-	Path           *pathSpec         `json:"path"`
-	Source         *pathSpec         `json:"source"`
-	Target         *pathSpec         `json:"target"`
-	Command        *pathSpec         `json:"command"`
-	StdinPath      *pathSpec         `json:"stdin_path"`
-	StdoutPath     *pathSpec         `json:"stdout_path"`
-	Chdir          *pathSpec         `json:"chdir"`
-	Paths          []pathSpec        `json:"paths"`
-	Args           []string          `json:"args"`
-	Env            map[string]string `json:"env"`
-	Content        string            `json:"content"`
-	Before         string            `json:"before"`
-	After          string            `json:"after"`
-	Message        string            `json:"message"`
-	Permissions    string            `json:"permissions"`
-	Prefix         string            `json:"prefix"`
-	Suffix         string            `json:"suffix"`
-	ID             string            `json:"id"`
-	Force          bool              `json:"force"`
-	Recursive      bool              `json:"recursive"`
-	SourceGlob     bool              `json:"source_glob"`
-	Uninstall      bool              `json:"uninstall"`
-	FirstOnly      bool              `json:"first_only"`
-	SkipAudit      bool              `json:"skip_audit"`
-	NonRecursive   bool              `json:"non_recursive"`
-	PrintStdout    bool              `json:"print_stdout"`
-	SuppressStderr bool              `json:"suppress_stderr"`
-	AllowFailure   bool              `json:"allow_failure"`
-	ResolveSource  bool              `json:"resolve_source"`
-	Overwrite      *bool             `json:"overwrite"`
-	Sudo           json.RawMessage   `json:"sudo"`
+	Type        string            `json:"type"`
+	Guards      []guard           `json:"guards"`
+	Path        *pathSpec         `json:"path"`
+	Source      *pathSpec         `json:"source"`
+	Target      *pathSpec         `json:"target"`
+	Command     *pathSpec         `json:"command"`
+	StdinPath   *pathSpec         `json:"stdin_path"`
+	StdoutPath  *pathSpec         `json:"stdout_path"`
+	Chdir       *pathSpec         `json:"chdir"`
+	Paths       []pathSpec        `json:"paths"`
+	Args        []string          `json:"args"`
+	Env         map[string]string `json:"env"`
+	Content     string            `json:"content"`
+	Before      string            `json:"before"`
+	After       string            `json:"after"`
+	Message     string            `json:"message"`
+	Permissions string            `json:"permissions"`
+	Prefix      string            `json:"prefix"`
+	Suffix      string            `json:"suffix"`
+	ID          string            `json:"id"`
+	Force       bool              `json:"force"`
+	Recursive   bool              `json:"recursive"`
+	SourceGlob  bool              `json:"source_glob"`
+	// Uninstall is brew's remove_on_uninstall. brew acts on it only in a cask's
+	// uninstall phase; a formula never runs that phase, so, as in brew, it does
+	// not change what installing a formula does.
+	Uninstall      bool            `json:"uninstall"`
+	FirstOnly      bool            `json:"first_only"`
+	SkipAudit      bool            `json:"skip_audit"`
+	NonRecursive   bool            `json:"non_recursive"`
+	PrintStdout    bool            `json:"print_stdout"`
+	SuppressStderr bool            `json:"suppress_stderr"`
+	AllowFailure   bool            `json:"allow_failure"`
+	ResolveSource  bool            `json:"resolve_source"`
+	Overwrite      *bool           `json:"overwrite"`
+	Sudo           json.RawMessage `json:"sudo"`
 }
 
 func decode(raw json.RawMessage) (step, error) {

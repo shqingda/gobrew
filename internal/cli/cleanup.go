@@ -101,17 +101,15 @@ func (a *application) cleanupCommand() *cobra.Command {
 		if err != nil {
 			return err
 		}
-		opts := engine.CleanupOptions{Formulae: names, DryRun: dryRun, All: scrub, MaxAge: cleanupMaxAge()}
-		switch prune {
-		case "":
-		case "all":
-			opts.All = true
-		default:
-			days, err := strconv.Atoi(prune)
-			if err != nil || days < 0 {
-				return usageError{fmt.Errorf("--prune must be a number of days or all")}
+		opts := engine.CleanupOptions{Formulae: names, DryRun: dryRun, All: scrub}
+		opts.MaxAge, opts.All = cleanupMaxAge()
+		opts.All = opts.All || scrub
+		if prune != "" {
+			age, all, err := pruneOption(prune)
+			if err != nil {
+				return err
 			}
-			opts.MaxAge = saturate(int64(days), 24*time.Hour)
+			opts.MaxAge, opts.All = age, all || scrub
 		}
 		var removed []model.Removed
 		if prunePrefix {
@@ -151,13 +149,57 @@ func saturate(n int64, unit time.Duration) time.Duration {
 	return time.Duration(n) * unit
 }
 
-// cleanupMaxAge is Homebrew's HOMEBREW_CLEANUP_MAX_AGE_DAYS, default 120.
-func cleanupMaxAge() time.Duration {
-	days := 120
-	if value, err := strconv.Atoi(os.Getenv("GOBREW_CLEANUP_MAX_AGE_DAYS")); err == nil && value >= 0 {
-		days = value
+// pruneOption parses brew's --prune=days|all. Like brew, only plain digits
+// are days, and zero days prunes everything, the same as all.
+func pruneOption(value string) (time.Duration, bool, error) {
+	if value == "" {
+		return 0, false, nil
 	}
-	return saturate(int64(days), 24*time.Hour)
+	if value == "all" {
+		return 0, true, nil
+	}
+	days, ok := wholeDays(value)
+	if !ok {
+		return 0, false, usageError{fmt.Errorf("--prune expects an integer or all")}
+	}
+	if days == 0 {
+		return 0, true, nil
+	}
+	return saturate(days, 24*time.Hour), false, nil
+}
+
+// wholeDays accepts only ASCII digits, as brew's /\A\d+\Z/ does: no sign,
+// no fraction. Values too large for int64 saturate to "never".
+func wholeDays(value string) (int64, bool) {
+	if value == "" {
+		return 0, false
+	}
+	var days int64
+	for _, c := range value {
+		if c < '0' || c > '9' {
+			return 0, false
+		}
+		if days > (math.MaxInt64-9)/10 {
+			days = math.MaxInt64
+			continue
+		}
+		days = days*10 + int64(c-'0')
+	}
+	return days, true
+}
+
+// cleanupMaxAge is Homebrew's HOMEBREW_CLEANUP_MAX_AGE_DAYS, default 120.
+// Zero means all, as in brew; a value that is not a number keeps the default
+// rather than brew's to_i, which would silently turn a typo into all.
+func cleanupMaxAge() (time.Duration, bool) {
+	days, ok := wholeDays(os.Getenv("GOBREW_CLEANUP_MAX_AGE_DAYS"))
+	if !ok {
+		days = 120
+	}
+	if days == 0 {
+		return 0, true
+	}
+	return saturate(days, 24*time.Hour), false
 }
 
 // removedLines follows brew: pruned paths are listed only in a dry run, and a
@@ -232,7 +274,8 @@ func (a *application) installCleanup(ctx context.Context, e *engine.Engine, resu
 	}
 	if due, err := e.PeriodicCleanupDue(saturate(int64(days), 24*time.Hour)); err == nil && due {
 		lines = append(lines, fmt.Sprintf("==> `gobrew cleanup` has not been run in the last %d days, running now...", days))
-		removed, err := e.Cleanup(ctx, engine.CleanupOptions{Skip: skip, MaxAge: cleanupMaxAge()})
+		maxAge, all := cleanupMaxAge()
+		removed, err := e.Cleanup(ctx, engine.CleanupOptions{Skip: skip, MaxAge: maxAge, All: all})
 		if err == nil {
 			err = e.MarkCleaned()
 		}

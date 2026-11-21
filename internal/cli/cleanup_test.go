@@ -208,3 +208,43 @@ func TestHugePeriodsDoNotWrapAround(t *testing.T) {
 		t.Fatalf("30 days = %s", got)
 	}
 }
+
+// brew treats --prune=0 and HOMEBREW_CLEANUP_MAX_AGE_DAYS=0 like all; gobrew's
+// zero MaxAge means "no age limit", so zero days must become All.
+func TestPruneZeroDaysMeansAll(t *testing.T) {
+	for _, tc := range []struct {
+		value string
+		age   time.Duration
+		all   bool
+		ok    bool
+	}{
+		{"", 0, false, true},
+		{"all", 0, true, true},
+		{"0", 0, true, true},
+		{"3", 3 * 24 * time.Hour, false, true},
+		{"+5", 0, false, false},
+		{"-1", 0, false, false},
+		{"1.5", 0, false, false},
+		{"x", 0, false, false},
+	} {
+		age, all, err := pruneOption(tc.value)
+		if (err == nil) != tc.ok || age != tc.age || all != tc.all {
+			t.Errorf("--prune=%q = %s, %t, %v", tc.value, age, all, err)
+		}
+	}
+	for _, tc := range []struct {
+		value string
+		age   time.Duration
+		all   bool
+	}{
+		{"", 120 * 24 * time.Hour, false},
+		{"0", 0, true},
+		{"7", 7 * 24 * time.Hour, false},
+		{"bad", 120 * 24 * time.Hour, false},
+	} {
+		t.Setenv("GOBREW_CLEANUP_MAX_AGE_DAYS", tc.value)
+		if age, all := cleanupMaxAge(); age != tc.age || all != tc.all {
+			t.Errorf("GOBREW_CLEANUP_MAX_AGE_DAYS=%q = %s, %t", tc.value, age, all)
+		}
+	}
+}

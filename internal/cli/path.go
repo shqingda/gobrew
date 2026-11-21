@@ -36,11 +36,13 @@ func (a *application) pathEnv(binDir, prefix string) shellconfig.Env {
 // setupPath adds gobrew to new shells and returns what the user should know.
 // It does nothing when the running shell already has every directory, so the
 // installed no-op path performs no file access. GOBREW_NO_MODIFY_PATH opts out.
-func (a *application) setupPath(env shellconfig.Env) string {
+// binDir is where the managed executable now lives, which differs from the
+// running one while install.sh hands over.
+func (a *application) setupPath(env shellconfig.Env, binDir string) string {
 	if len(env.Paths) == 0 || onPath(env.Paths...) {
 		return ""
 	}
-	manual := "Add this line to your shell startup file:\n  " + shellenvLine()
+	manual := "Add this line to your shell startup file:\n  " + shellenvLine(binDir)
 	if os.Getenv("GOBREW_NO_MODIFY_PATH") != "" {
 		return "gobrew is not on PATH. " + manual
 	}
@@ -65,9 +67,13 @@ func (a *application) setupPath(env shellconfig.Env) string {
 
 // shellenvLine names the executable by absolute path: when this hint is shown,
 // gobrew itself is usually not on PATH yet, so a bare `gobrew` would not run.
-func shellenvLine() string {
+// The installed command wins over the running file, which install.sh deletes.
+func shellenvLine(binDir string) string {
 	exe := "gobrew"
-	if bin := managedBinDir(); bin != "" {
+	if binDir == "" {
+		binDir = managedBinDir()
+	}
+	if bin := binDir; bin != "" {
 		exe = filepath.Join(bin, "gobrew")
 	} else if path, err := os.Executable(); err == nil {
 		exe = path

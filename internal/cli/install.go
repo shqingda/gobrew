@@ -136,6 +136,12 @@ func (a *application) install(ctx context.Context, request model.Request, dryRun
 		result, err = e.Execute(ctx, request, events)
 		return err
 	})
+	if !a.json {
+		// JSON carries these in the result; text output shows them on stderr.
+		for _, warning := range result.Warnings {
+			a.warn(warning)
+		}
+	}
 	notes := a.afterInstall(ctx, e, result, err)
 	// The embedded Result keeps its JSON fields where they were; notes adds
 	// the PATH setup and cleanup messages text output shows.
@@ -416,7 +422,7 @@ func (a *application) afterInstall(ctx context.Context, e *engine.Engine, result
 	}
 	notes := a.installCleanup(ctx, e, result)
 	if e.Prefix() == a.systemPrefix {
-		if note := a.setupPath(a.pathEnv(managedBinDir(), e.Prefix())); note != "" {
+		if note := a.setupPath(a.pathEnv(managedBinDir(), e.Prefix()), ""); note != "" {
 			notes = append(notes, note)
 		}
 	}

@@ -22,7 +22,7 @@ func TestPathSetupTouchesOnlyTheDefaultPrefixAndOnlyWhenMissing(t *testing.T) {
 	}
 	env := a.pathEnv("/home/me/.local/bin", "/opt/gobrew")
 	t.Setenv("PATH", "/usr/bin:/bin")
-	note := a.setupPath(env)
+	note := a.setupPath(env, "")
 	data, err := os.ReadFile(rc)
 	if err != nil || !strings.Contains(string(data), "'/home/me/.local/bin':'/opt/gobrew/bin':'/opt/gobrew/sbin':\"$PATH\"") {
 		t.Fatalf("startup file = %q, %v", data, err)
@@ -35,7 +35,7 @@ func TestPathSetupTouchesOnlyTheDefaultPrefixAndOnlyWhenMissing(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Setenv("PATH", strings.Join(env.Paths, ":")+":/usr/bin")
-	if note := a.setupPath(env); note != "" {
+	if note := a.setupPath(env, ""); note != "" {
 		t.Fatalf("configured shell got note %q", note)
 	}
 	if _, err := os.Stat(rc); !os.IsNotExist(err) {
@@ -45,7 +45,7 @@ func TestPathSetupTouchesOnlyTheDefaultPrefixAndOnlyWhenMissing(t *testing.T) {
 	t.Setenv("GOBREW_NO_MODIFY_PATH", "1")
 	// gobrew is not on PATH here, so the manual line must name it by path.
 	exe, _ := os.Executable()
-	if note := a.setupPath(env); !strings.Contains(note, `eval "$(`) || !strings.Contains(note, exe+" shellenv") {
+	if note := a.setupPath(env, ""); !strings.Contains(note, `eval "$(`) || !strings.Contains(note, exe+" shellenv") {
 		t.Fatalf("opt-out note = %q, want the absolute %s", note, exe)
 	}
 	if _, err := os.Stat(rc); !os.IsNotExist(err) {

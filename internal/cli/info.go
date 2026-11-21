@@ -344,6 +344,8 @@ func (a *application) infoAnalytics(ctx context.Context, e *engine.Engine, names
 				continue
 			}
 			if r.ranking && r.Name != "" && len(r.Analytics[0].Periods[0].Results) == 0 {
+				// brew reports this with onoe, not ofail, so it does not change
+				// the exit status; failed fetches are silent there too.
 				fmt.Fprintf(a.stderr, "Error: No results matching `%s` found!\n", cleanText(r.Name))
 				continue
 			}

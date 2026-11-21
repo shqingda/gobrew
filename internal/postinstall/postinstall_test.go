@@ -188,3 +188,26 @@ func TestPythonVenvPermissionsUseFrameworkVersionAndRecursiveGlob(t *testing.T) 
 		}
 	}
 }
+
+// brew serializes remove_on_uninstall as "uninstall" and only a cask's
+// uninstall phase reads it. Installing a formula links the same way with it.
+func TestSymlinkUninstallFieldDoesNotChangeInstall(t *testing.T) {
+	prefix, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	keg := filepath.Join(prefix, "Cellar", "demo", "1.0")
+	if err := os.MkdirAll(filepath.Join(keg, "bin"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(keg, "bin", "demo"), []byte("demo"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	input := steps(t, `[{"type":"symlink","source":{"path":"{{bin}}/demo"},"target":{"path":"{{HOMEBREW_PREFIX}}/demo-link"},"uninstall":true}]`)
+	if err := Run(context.Background(), input, Env{Prefix: prefix, Keg: keg, Name: "demo", Version: "1.0"}); err != nil {
+		t.Fatal(err)
+	}
+	if target, err := os.Readlink(filepath.Join(prefix, "demo-link")); err != nil || target != filepath.Join(keg, "bin", "demo") {
+		t.Fatalf("link = %q, %v", target, err)
+	}
+}

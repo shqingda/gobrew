@@ -161,7 +161,10 @@ func (m *Manager) Release(prepared model.Prepared) error {
 	if len(locks) > 0 {
 		// Eviction is best effort, as after Prepare: by now the operation's
 		// outcome is decided, and the next cache insertion or cleanup retries.
-		_, _ = m.Cleanup(context.Background())
+		// The caller reports the error as a warning, never as a failure.
+		if _, cleanupErr := m.Cleanup(context.Background()); cleanupErr != nil {
+			err = errors.Join(err, fmt.Errorf("cache cleanup: %w", cleanupErr))
+		}
 	}
 	return err
 }

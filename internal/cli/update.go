@@ -207,7 +207,7 @@ func (a *application) installCLI(ctx context.Context, binDir string) (cliUpdate,
 	if err != nil {
 		return cliUpdate{Result: result}, err
 	}
-	return cliUpdate{Result: result, Installed: true, Note: a.setupPath(a.pathEnv(binDir, filepath.Clean(a.config.Prefix)))}, nil
+	return cliUpdate{Result: result, Installed: true, Note: a.setupPath(a.pathEnv(binDir, filepath.Clean(a.config.Prefix)), binDir)}, nil
 }
 
 // outdatedCommand mirrors brew outdated [--verbose] [formula...].

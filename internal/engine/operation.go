@@ -113,7 +113,7 @@ func (e *Engine) Execute(ctx context.Context, req model.Request, events chan<- m
 		}
 		return model.Result{Unchanged: plan.Unchanged, NotExecuted: notExecuted, Held: plan.Held}, err
 	}
-	defer func() { err = errors.Join(err, p.Close()) }()
+	defer func() { result, err = closeOperation(result, err, p.Close()) }()
 	start = time.Now()
 	result, err = e.Apply(ctx, p, events)
 	timings.Apply = float64(time.Since(start)) / float64(time.Millisecond)
@@ -133,4 +133,18 @@ func (e *Engine) Recover(ctx context.Context) error {
 		return err
 	}
 	return e.installer().Recover(ctx)
+}
+
+// closeOperation reports a failure to release a prepared operation. Once Apply
+// has decided the outcome, that failure is a warning: a successful install must
+// not exit non-zero because a cache lease or eviction failed afterwards.
+func closeOperation(result model.Result, err, closeErr error) (model.Result, error) {
+	if closeErr == nil {
+		return result, err
+	}
+	if err != nil {
+		return result, errors.Join(err, closeErr)
+	}
+	result.Warnings = append(result.Warnings, closeErr.Error())
+	return result, nil
 }
