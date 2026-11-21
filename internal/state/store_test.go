@@ -158,3 +158,44 @@ func TestReadersRunWhileAWriterHoldsTheLock(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestSaveWithJournalWritesBothInOneTransaction(t *testing.T) {
+	s := Store{Prefix: t.TempDir()}
+	if err := s.Initialize(); err != nil {
+		t.Fatal(err)
+	}
+	err := s.WithLock(context.Background(), func(tx *Session) error {
+		if err := tx.WriteJournal(&Journal{ID: "a", Phase: "postinstall"}); err != nil {
+			return err
+		}
+		before := WriteTransactions()
+		snap := model.Snapshot{Records: map[string]model.Record{"demo": {Status: model.Ready}}}
+		if err := tx.SaveWithJournal(snap, &Journal{ID: "a", Phase: "postinstall", LinkPackage: ""}); err != nil {
+			return err
+		}
+		if got := WriteTransactions() - before; got != 1 {
+			t.Fatalf("write transactions = %d, want 1", got)
+		}
+		if j, err := tx.Journal(); err != nil || j == nil || j.ID != "a" {
+			t.Fatalf("journal = %+v, %v", j, err)
+		}
+		loaded, err := tx.Load()
+		if err != nil || loaded.Generation != 1 || loaded.Records["demo"].Status != model.Ready {
+			t.Fatalf("snapshot = %+v, %v", loaded, err)
+		}
+		if err := tx.SaveWithJournal(loaded, nil); err != nil {
+			return err
+		}
+		if j, err := tx.Journal(); err != nil || j != nil {
+			t.Fatalf("journal after clear = %+v, %v", j, err)
+		}
+		loaded, err = tx.Load()
+		if err != nil || loaded.RecoveryRequired || loaded.Generation != 2 {
+			t.Fatalf("snapshot after clear = %+v, %v", loaded, err)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+}

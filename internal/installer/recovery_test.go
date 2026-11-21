@@ -3,11 +3,14 @@ package installer
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 
 	"github.com/shqingda/gobrew/internal/model"
+	"github.com/shqingda/gobrew/internal/platform"
 	"github.com/shqingda/gobrew/internal/state"
 )
 
@@ -93,7 +96,7 @@ func TestInterruptedUpgradeAndReinstallRestoreTheOldKeg(t *testing.T) {
 						moves = len(j.Moves)
 					}
 					for _, m := range j.Moves[:min(moves, len(j.Moves))] {
-						if err = inst.moveKeg(m, false); err != nil {
+						if _, err = inst.moveKeg(m, false); err != nil {
 							return err
 						}
 					}
@@ -149,7 +152,7 @@ func TestInterruptedUninstallRestoresTheKegFromTrash(t *testing.T) {
 				if err = tx.WriteJournal(j); err != nil {
 					return err
 				}
-				if err = inst.moveKeg(j.Moves[0], false); err != nil {
+				if _, err = inst.moveKeg(j.Moves[0], false); err != nil {
 					return err
 				}
 				if stop == "after-links" {
@@ -195,4 +198,106 @@ func TestUnknownJournalPhaseIsNeverGuessed(t *testing.T) {
 	if !owns(original.Keg, original.Owner) {
 		t.Fatal("refusing recovery changed the keg")
 	}
+}
+
+// TestInterruptedPendingLinksBeforeReadyCommitRollBack stops after a
+// package's pending links changed but before Ready and the cleared journal
+// committed together, as a crash would.
+func TestInterruptedPendingLinksBeforeReadyCommitRollBack(t *testing.T) {
+	inst, store, original := installedDemo(t)
+	extra := filepath.Join(original.Keg, "bin", "extra")
+	if err := os.WriteFile(extra, []byte("generated"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	err := store.WithLock(context.Background(), func(tx *state.Session) error {
+		snap, err := tx.Load()
+		if err != nil {
+			return err
+		}
+		rec := snap.Records["demo"]
+		rec.Status, rec.PostInstallComplete = model.NeedsPostInstall, true
+		snap.Records["demo"] = rec
+		if err = tx.Save(snap); err != nil {
+			return err
+		}
+		target := extra
+		pending := []state.LinkChange{{Path: filepath.Join("bin", "extra"), After: &target}}
+		j := &state.Journal{ID: newID(), Phase: "postinstall", Before: snap, After: cloneSnapshot(snap), Packages: []string{"demo"}, PendingLinks: pending, LinkPackage: "demo"}
+		if err = tx.WriteJournal(j); err != nil {
+			return err
+		}
+		return inst.changeLinks(pending, false)
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := inst.Recover(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Lstat(filepath.Join(inst.Prefix, "bin", "extra")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatal("pending link survived recovery", err)
+	}
+	snap, err := store.Load()
+	if err != nil || snap.RecoveryRequired {
+		t.Fatalf("after recovery: %+v, %v", snap, err)
+	}
+	if got := snap.Records["demo"]; got.Status != model.NeedsPostInstall || !got.PostInstallComplete || got.Owner != original.Owner {
+		t.Fatalf("record = %+v", got)
+	}
+}
+
+// TestKegMoveBatchBarrierAndFailureRollback checks that a reinstall's two
+// keg moves (backup, then publish) share one barrier after both renames, and
+// that a failed barrier restores the old keg.
+func TestKegMoveBatchBarrierAndFailureRollback(t *testing.T) {
+	for _, fail := range []bool{false, true} {
+		t.Run(fmt.Sprint(fail), func(t *testing.T) {
+			inst, store, original := installedDemo(t)
+			failure := errors.New("injected keg move barrier failure")
+			calls := 0
+			inst.syncMoves = func(paths []string) error {
+				calls++
+				if calls == 1 {
+					if owner := readOwnerOrEmpty(original.Keg); owner == "" || owner == original.Owner {
+						t.Fatal("barrier ran before every keg moved")
+					}
+					for _, dir := range []string{filepath.Join(inst.Prefix, "Cellar", "demo"), filepath.Join(inst.Prefix, ".gobrew", "backups")} {
+						if !slices.ContainsFunc(paths, func(p string) bool { return p == dir || filepath.Dir(p) == dir }) {
+							t.Fatalf("batch omits %s: %v", dir, paths)
+						}
+					}
+					if fail {
+						return failure
+					}
+				}
+				return platform.SyncDirs(paths)
+			}
+			next := onePackage(inst.Prefix, demoTree(t, "v1-new"), model.Formula{Name: "demo", Version: "1"})
+			current, err := store.Load()
+			if err != nil {
+				t.Fatal(err)
+			}
+			next.Plan.StateGeneration = current.Generation
+			_, err = inst.Apply(context.Background(), next, nil)
+			if fail != errors.Is(err, failure) || !fail && err != nil {
+				t.Fatalf("apply error: %v", err)
+			}
+			if fail {
+				if calls != 2 {
+					t.Fatalf("recovery did not flush its undo batch: calls=%d", calls)
+				}
+				assertRestored(t, inst, store, original)
+				return
+			}
+			snap, err := store.Load()
+			if got := snap.Records["demo"]; err != nil || calls != 1 || got.Owner == original.Owner || got.Status != model.Ready {
+				t.Fatalf("calls=%d snap=%+v err=%v", calls, snap, err)
+			}
+		})
+	}
+}
+
+func readOwnerOrEmpty(keg string) string {
+	owner, _ := readOwner(keg)
+	return owner
 }

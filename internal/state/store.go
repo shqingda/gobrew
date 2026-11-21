@@ -298,6 +298,25 @@ func (s *Session) Save(snap model.Snapshot) error {
 	})
 }
 
+// SaveWithJournal saves snap and replaces the journal, or deletes it when j
+// is nil, in one transaction: neither write can be durable without the other.
+func (s *Session) SaveWithJournal(snap model.Snapshot, j *Journal) error {
+	return s.update(func(tx *bolt.Tx) error {
+		current, err := load(tx)
+		if err != nil {
+			return err
+		}
+		snap.Generation = current.Generation + 1
+		if err = put(tx, "installed", snap); err != nil {
+			return err
+		}
+		if j == nil {
+			return tx.Bucket(bucket).Delete([]byte("operation"))
+		}
+		return put(tx, "operation", j)
+	})
+}
+
 func (s *Session) Journal() (*Journal, error) {
 	var j *Journal
 	err := s.view(func(tx *bolt.Tx) error {
@@ -393,24 +412,8 @@ func SecureDir(prefix, rel string) (string, error) {
 }
 
 func EnsureDir(prefix, rel string, mode os.FileMode) (string, error) {
-	path, err := SecureDir(prefix, rel)
+	path, created, err := MakeDirs(prefix, rel, mode)
 	if err != nil {
-		return "", err
-	}
-	var created []string
-	for dir := path; dir != prefix; dir = filepath.Dir(dir) {
-		if _, err := os.Lstat(dir); errors.Is(err, os.ErrNotExist) {
-			created = append(created, dir)
-		} else if err != nil {
-			return "", err
-		} else {
-			break
-		}
-	}
-	if err := os.MkdirAll(path, mode); err != nil {
-		return "", err
-	}
-	if _, err := SecureDir(prefix, rel); err != nil {
 		return "", err
 	}
 	// Persist each new directory's entry before a journal can reference it.
@@ -421,4 +424,31 @@ func EnsureDir(prefix, rel string, mode os.FileMode) (string, error) {
 		}
 	}
 	return path, nil
+}
+
+// MakeDirs is EnsureDir without the flush. It returns the directories it
+// created; a caller inside a journaled batch must persist their parents
+// before it commits state that relies on them.
+func MakeDirs(prefix, rel string, mode os.FileMode) (string, []string, error) {
+	path, err := SecureDir(prefix, rel)
+	if err != nil {
+		return "", nil, err
+	}
+	var created []string
+	for dir := path; dir != prefix; dir = filepath.Dir(dir) {
+		if _, err := os.Lstat(dir); errors.Is(err, os.ErrNotExist) {
+			created = append(created, dir)
+		} else if err != nil {
+			return "", nil, err
+		} else {
+			break
+		}
+	}
+	if err := os.MkdirAll(path, mode); err != nil {
+		return "", nil, err
+	}
+	if _, err := SecureDir(prefix, rel); err != nil {
+		return "", nil, err
+	}
+	return path, created, nil
 }

@@ -173,7 +173,7 @@ func TestApplyAndRecoveryBoundaries(t *testing.T) {
 				}
 				if phase != "before-move" {
 					for _, m := range j.Moves {
-						if err = inst.moveKeg(m, false); err != nil {
+						if _, err = inst.moveKeg(m, false); err != nil {
 							return err
 						}
 					}

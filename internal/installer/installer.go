@@ -14,8 +14,9 @@ const ownerFile = model.OwnerMarker
 
 type Installer struct {
 	Prefix string
-	// The filesystem barrier is replaceable in package-local fault tests.
-	syncDirectories func([]string) error
+	// The filesystem barriers for link and keg-move batches are replaceable
+	// in package-local fault tests.
+	syncDirectories, syncMoves func([]string) error
 }
 
 func newID() string {

@@ -143,15 +143,15 @@ func (i Installer) finishPackage(ctx context.Context, tx *state.Session, snap *m
 	updated.Status = model.Ready
 	updated.PostInstallError = ""
 	next.Records[name] = updated
-	if err = tx.Save(next); err != nil {
+	// Ready and the cleared pending links commit together. Recovery undoes
+	// pending links only while the record is not Ready, so either order of
+	// two commits was correct; one commit saves a database sync.
+	j.PendingLinks = nil
+	j.LinkPackage = ""
+	if err = tx.SaveWithJournal(next, j); err != nil {
 		return err
 	}
 	*snap = next
-	j.PendingLinks = nil
-	j.LinkPackage = ""
-	if err = tx.WriteJournal(j); err != nil {
-		return err
-	}
 	model.Emit(events, model.Event{Phase: "installed", Package: name})
 	return nil
 }

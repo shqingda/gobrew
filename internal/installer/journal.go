@@ -12,50 +12,94 @@ import (
 	"github.com/shqingda/gobrew/internal/state"
 )
 
-func (i Installer) moveKeg(m state.Move, undo bool) error {
+// moveKeg renames one journaled keg move and returns the directories whose
+// entries it may have changed. It persists nothing: moveKegs flushes the
+// whole batch before any caller commits state.
+func (i Installer) moveKeg(m state.Move, undo bool) ([]string, error) {
 	from, to := m.From, m.To
 	if undo {
 		from, to = to, from
 	}
 	if _, err := i.kegPath(from); err != nil {
-		return err
+		return nil, err
 	}
 	if _, err := i.kegPath(to); err != nil {
-		return err
+		return nil, err
 	}
+	// Include moves that are already done: a prior interrupted batch may have
+	// renamed them without reaching its barrier.
+	dirs := []string{filepath.Dir(from), filepath.Dir(to)}
 	if owns(to, m.Owner) && !owns(from, m.Owner) {
-		return nil
+		return dirs, nil
 	}
 	if _, err := os.Lstat(from); errors.Is(err, os.ErrNotExist) {
 		if owns(to, m.Owner) {
-			return nil
+			return dirs, nil
 		}
-		return fmt.Errorf("%w: missing owned keg %s", model.ErrConflict, from)
+		return nil, fmt.Errorf("%w: missing owned keg %s", model.ErrConflict, from)
 	} else if err != nil {
-		return err
+		return nil, err
 	}
 	if !owns(from, m.Owner) {
-		return fmt.Errorf("%w: keg ownership changed at %s", model.ErrConflict, from)
+		return nil, fmt.Errorf("%w: keg ownership changed at %s", model.ErrConflict, from)
 	}
 	if _, err := os.Lstat(to); err == nil {
-		return fmt.Errorf("%w: occupied destination %s", model.ErrConflict, to)
+		return nil, fmt.Errorf("%w: occupied destination %s", model.ErrConflict, to)
 	} else if !errors.Is(err, os.ErrNotExist) {
-		return err
+		return nil, err
 	}
-	if err := i.ensureParent(to); err != nil {
-		return err
+	rel, err := filepath.Rel(i.Prefix, filepath.Dir(to))
+	if err != nil {
+		return nil, err
 	}
-	if err := os.Rename(from, to); err != nil {
-		return err
+	_, created, err := state.MakeDirs(i.Prefix, rel, 0755)
+	if err != nil {
+		return nil, err
 	}
-	return errors.Join(platform.SyncDir(filepath.Dir(from)), platform.SyncDir(filepath.Dir(to)))
+	for _, dir := range created {
+		dirs = append(dirs, filepath.Dir(dir))
+	}
+	return dirs, os.Rename(from, to)
+}
+
+// moveKegs applies a journaled batch of keg moves, in reverse when undoing,
+// then persists every changed directory before one device barrier, as
+// changeLinks does for links. The journal already records each move, so an
+// interruption anywhere in the batch recovers as before.
+func (i Installer) moveKegs(moves []state.Move, undo bool) error {
+	var dirs []string
+	for step := range len(moves) {
+		n := step
+		if undo {
+			n = len(moves) - 1 - step
+		}
+		changed, err := i.moveKeg(moves[n], undo)
+		if err != nil {
+			return err
+		}
+		dirs = append(dirs, changed...)
+	}
+	paths := make([]string, 0, len(dirs))
+	for _, dir := range dirs {
+		if _, err := os.Lstat(dir); errors.Is(err, os.ErrNotExist) {
+			continue
+		} else if err != nil {
+			return err
+		}
+		paths = append(paths, dir)
+	}
+	if len(paths) == 0 {
+		return nil
+	}
+	if i.syncMoves != nil {
+		return i.syncMoves(paths)
+	}
+	return platform.SyncDirs(paths)
 }
 
 func (i Installer) switchFiles(j *state.Journal) error {
-	for _, m := range j.Moves {
-		if err := i.moveKeg(m, false); err != nil {
-			return err
-		}
+	if err := i.moveKegs(j.Moves, false); err != nil {
+		return err
 	}
 	return i.changeLinks(j.Links, false)
 }
@@ -105,10 +149,8 @@ func (i Installer) recover(tx *state.Session) error {
 	if err = i.changeLinks(j.Links, true); err != nil {
 		return err
 	}
-	for n := len(j.Moves) - 1; n >= 0; n-- {
-		if err = i.moveKeg(j.Moves[n], true); err != nil {
-			return err
-		}
+	if err = i.moveKegs(j.Moves, true); err != nil {
+		return err
 	}
 	if err = tx.Save(j.Before); err != nil {
 		return err
