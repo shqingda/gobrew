@@ -125,6 +125,18 @@ func TestInstalledNoopDoesNotClaimLatestWithoutCatalog(t *testing.T) {
 	}
 }
 
+// TestUpgradeOfACurrentFormulaUsesBrewsWording matches brew upgrade, which
+// does not suggest reinstall the way brew install does.
+func TestUpgradeOfACurrentFormulaUsesBrewsWording(t *testing.T) {
+	t.Setenv("GOBREW_NO_AUTO_UPDATE", "1")
+	a, _, _ := updateApp(t)
+	var stdout bytes.Buffer
+	code := a.run(context.Background(), []string{"upgrade", "demo"}, &stdout, BuildInfo{})
+	if output := a.stderr.(*bytes.Buffer).String(); code != 0 || output != "Warning: demo 1 already installed\n" {
+		t.Fatalf("upgrade no-op: exit=%d stderr=%q stdout=%s", code, output, &stdout)
+	}
+}
+
 // A local catalog fixture lets commands continue after a failed refresh without
 // making tests depend on a live Homebrew snapshot or weakening verification.
 func updateApp(t *testing.T) (*application, *updateFailure, string) {

@@ -112,6 +112,11 @@ func (a *application) renderInstall(w io.Writer, e *engine.Engine, request model
 			continue
 		}
 		version := r.Formula.PkgVersion()
+		if request.Action == "upgrade" {
+			// brew upgrade's own wording, without install's reinstall hint.
+			a.warn(fmt.Sprintf("%s %s already installed", name, version))
+			continue
+		}
 		a.warn(fmt.Sprintf("%s %s is already installed.\nTo reinstall %s, run:\n  gobrew reinstall %s", name, version, version, name))
 	}
 	for _, group := range []struct {
