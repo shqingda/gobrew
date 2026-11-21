@@ -1,12 +1,16 @@
 # 当前状态
 
-更新日期：2026-11-11（Asia/Taipei）。
+更新日期：2026-11-22（Asia/Taipei）。
 
 ## 版本
 
 最新正式版是 [v0.6.0](releases/v0.6.0.md)，于 2026-11-11 发布。发布流水线的全部门禁均已通过：代码检查（含 govulncheck）、macOS 15/26 实瓶测试、历史版本 smoke、对发布二进制本身的实瓶测试，以及 Homebrew 性能门槛。本版恢复了 `self`（[0003 决定](decisions/0003-restore-self-command.md)），其余命令仍是 Homebrew 命令的子集（[0002 决定](decisions/0002-homebrew-command-compatibility.md)）。
 
 首次推送的 v0.6.0 tag 有两项门禁失败：Go 1.27.3 的 `net/http` 存在 GO-2026-6859，以及历史版本 smoke 被错误地放在了带版本号的二进制上。两处都已修复，并在 `b012b5c` 上重新打了 tag；失败的那次没有发布任何资产。
+
+## 未发布（main 上，v0.7.0 草稿）
+
+v0.6.0 之后的改动见 [v0.7.0 草稿](releases/v0.7.0.md)。本地 `make check`、`scripts/smoke.sh` 和 `scripts/smoke-version.sh` 已通过；GitHub Actions 发布门禁未运行，未打 tag。
 
 ## 支持范围
 
@@ -17,6 +21,8 @@
   - 依赖解析与 ABI 检查。
   - pin、指定版本安装（`version-install`）。
   - 卸载时自动清理无用依赖、cleanup、doctor 与 PATH 诊断。
+  - 安装、升级、重装时自动升级过时的已装依赖方，与 brew 的 `upgrade_dependents` 一致；`GOBREW_NO_INSTALLED_DEPENDENTS_CHECK` 可关闭。
+  - `gobrew` 和 `gob` 的 zsh、bash、fish 补全（[0002 修订](decisions/0002-homebrew-command-compatibility.md)）。
 - **不做**：
   - Formula 开发工具。
   - 源码构建，以及 `--HEAD`。
@@ -25,9 +31,13 @@
 - **延后（按需求再排期）**：
   - 软件清单的导出与恢复。
   - `log` 等辅助入口（`config`、`leaves`、`desc`、`home` 已提供）。
-  - 依赖方仅版本过时时的自动升级。
   - Homebrew JSON 格式兼容。
   - 第三方 tap、`services`、Cask、漏洞查询。
+  - 可选、本轮评估后未做：`bundle dump/install` 子集、`log`、brew 的 `--json=v1/v2`、codesign 改为进程内签名。
+- **评估后不做**：
+  - 第三方 tap：没有签名元数据，违反签名约束。
+  - 跳过 OCI manifest、跳过第二次 SHA-256、去掉 `msync`、边下载边解压：会削弱摘要校验或持久化。
+  - 跳过或缓存证书初始化脚本。
 
 brew 只对 Cask 或 HEAD 安装起作用的参数（`--appdir` 等目标目录、`--language`、`--zap`、`--adopt`、`--[no-]binaries`、`--require-sha`、`--skip-cask-deps`、`--no-quit`、`--greedy*`、`--fetch-HEAD`）会被接受并忽略，与 brew 只给 Formula 时一样；与 `--formula` 同用时和 brew 一样报 `Options --formula and --appdir are mutually exclusive.`。所有互斥参数的报错都用 brew 的这句文案，按用法错误以 2 退出。
 
@@ -56,6 +66,10 @@ brew 只对 Cask 或 HEAD 安装起作用的参数（`--appdir` 等目标目录�
   - 没有 `doctor --list-checks`：brew 列出的是它自己的 `Diagnostic::Checks` 方法名，gobrew 的检查不是按这些方法组织的。
   - 没有 `update --force` 和 `update --auto-update`：它们调整的是 brew 基于 Git 的更新步骤，gobrew 每次 `update` 都完整下载并校验签名 catalog。
   - `version-install` 在原名下安装指定版本；brew 会把它提取成个人 tap 中的独立 Formula（如 `uv@0.13.5`）。
+  - 已安装且无变化时，警告是 `is already installed.`，不是 brew 的 `is already installed and up-to-date.`：这条路径不读 catalog，无法确认是否最新。
+  - 依赖方升级不做 brew 对非 core Formula 的 broken linkage 检查：gobrew 只有 core Formula。
+  - Ctrl-C 后 gobrew 在下一个安全点停止，并立即说明这一点；brew 直接退出。
+  - 等待另一个 gobrew 进程的锁时没有即时提示；超过 10 秒才报错，报错会说明原因和下一步。
 - **尚未实现的参数和输出**：
   - `info` 没有 `--HEAD` 相关内容和 Options。
   - 没有 `deps --os`、`--arch`：catalog 建立索引时只按本机平台规范化，没有保留其他平台的依赖数据。
@@ -72,6 +86,9 @@ brew 只对 Cask 或 HEAD 安装起作用的参数（`--appdir` 等目标目录�
 
 ## 已知限制
 
-- 冷安装的 Prepare 阶段在小包上仍慢于 nanobrew，见 [对比报告](nanobrew-comparison.md)。2026-11-01 已经减少了一次 GHCR 往返，与 nanobrew 的对比尚未重测。
+- 冷安装的 Prepare 阶段在小包上仍慢于 nanobrew，见 [对比报告](nanobrew-comparison.md)。2026-11-21 的 OCI 元数据预取与解压优化把 hello+jq 冷安装中位数从 2041 毫秒降到 1362 毫秒（[性能记录](performance.md)）；与 nanobrew 的对比需要 Actions，尚未重测。
+- 大包冷安装的 Apply 主要花在克隆树的逐 inode fsync 和每个包的多次状态提交上（`python@3.13`：约 19859 次 inode fsync）。这属于持久化边界，只做了测量，是否改动需单独提案并经用户决定。
+- `version-install` 对部分历史版本失败，报 `OCI index has no creation time`（例如 `oniguruma 6.9.9`）；原因未调查。
+- bash 补全需要已加载 bash-completion，与 brew 相同；macOS 自带的 bash 3.2 没有它。
 - 证书包初始化会完整运行上游脚本，在 M3 Pro 上约 6.5 秒。为了保留信任检查，这一步不跳过、也不缓存。
 - 专用质量工具 crapper、dryer、mutator 在本环境中不可用，从未运行，也没有评分。
