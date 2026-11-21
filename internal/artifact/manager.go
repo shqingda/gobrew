@@ -273,10 +273,6 @@ func (m *Manager) prepare(ctx context.Context, p model.Package, downloads, prepa
 	if err != nil {
 		return result, err
 	}
-	model.Emit(events, model.Event{Phase: "sync", Package: p.Formula.Name})
-	if err := platform.SyncTree(ctx, filepath.Join(stage, "tree")); err != nil {
-		return result, fmt.Errorf("sync prepared tree: %w", err)
-	}
 	size, err := logicalSize(filepath.Join(stage, "tree"))
 	if err != nil {
 		return result, err
@@ -291,11 +287,14 @@ func (m *Manager) prepare(ctx context.Context, p model.Package, downloads, prepa
 		return result, err
 	}
 	_, writeErr := marker.Write(b)
-	if err := errors.Join(writeErr, platform.SyncFile(marker), marker.Close()); err != nil {
+	if err := errors.Join(writeErr, marker.Close()); err != nil {
 		return result, err
 	}
-	if err := platform.SyncDir(stage); err != nil {
-		return result, err
+	// One pass persists the tree, the manifest and the stage directory
+	// before a single device barrier; only then is the entry published.
+	model.Emit(events, model.Event{Phase: "sync", Package: p.Formula.Name})
+	if err := platform.SyncTree(ctx, stage); err != nil {
+		return result, fmt.Errorf("sync prepared tree: %w", err)
 	}
 	if err := ctx.Err(); err != nil {
 		return result, err

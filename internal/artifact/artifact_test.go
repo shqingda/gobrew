@@ -8,6 +8,7 @@ import (
 	"crypto/sha256"
 	"encoding/binary"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -68,12 +69,18 @@ func TestPrepareCachesVerifiedIndependentTrees(t *testing.T) {
 	cfg := Config{CacheDir: filepath.Join(root, "cache"), Prefix: filepath.Join(root, "prefix"), Platform: model.Platform{OS: "darwin", Arch: "arm64", Major: 26}, HTTP: server.Client()}
 	manager := New(cfg)
 	plan := model.Plan{ID: "first", Prefix: cfg.Prefix, Platform: cfg.Platform, Packages: []model.Package{{Formula: model.Formula{Name: "demo", Version: "1.0"}, Bottle: model.Bottle{SHA256: hex.EncodeToString(digest[:]), URL: server.URL}}}}
+	barriers, _ := platform.SyncCounts()
 	prepared, err := manager.Prepare(context.Background(), plan, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if prepared.Packages[0].CacheHit || !prepared.Packages[0].LinkageChecked || len(prepared.Packages[0].RuntimeDependencies) != 1 {
 		t.Fatal("cold preparation or receipt incorrect")
+	}
+	// The download and its directory, one pass over the tree, manifest and
+	// stage, and the published entry's parent.
+	if after, _ := platform.SyncCounts(); after-barriers != 4 {
+		t.Fatalf("device barriers for one bottle = %d, want 4", after-barriers)
 	}
 	materialized := filepath.Join(root, "materialized")
 	if err := platform.CloneTree(context.Background(), prepared.Packages[0].Tree, materialized); err != nil {
@@ -105,6 +112,59 @@ func TestPrepareCachesVerifiedIndependentTrees(t *testing.T) {
 	manager.cfg.TreeBudget = 1
 	if removed, err := manager.Cleanup(context.Background()); err != nil || len(removed) != 0 {
 		t.Fatalf("leased tree evicted: %v %v", removed, err)
+	}
+}
+
+// TestPrepareIgnoresInterruptedCacheEntries covers what an interrupted
+// Prepare can leave behind: a stage directory that was never published, and a
+// published entry whose manifest is missing or torn. Neither is used.
+func TestPrepareIgnoresInterruptedCacheEntries(t *testing.T) {
+	for _, leftover := range []string{"stage", "no-manifest", "torn-manifest"} {
+		t.Run(leftover, func(t *testing.T) {
+			data := bottleFixture(t, []tarEntry{{name: "demo/1.0/bin/demo", body: "fresh"}, {name: "demo/1.0/INSTALL_RECEIPT.json", body: `{"runtime_dependencies":[]}`}})
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { _, _ = w.Write(data) }))
+			defer server.Close()
+			digest := sha256.Sum256(data)
+			root := t.TempDir()
+			cfg := Config{CacheDir: filepath.Join(root, "cache"), Prefix: filepath.Join(root, "prefix"), Platform: model.Platform{OS: "darwin", Arch: "arm64", Major: 26}, HTTP: server.Client()}
+			manager := New(cfg)
+			plan := model.Plan{ID: "p", Prefix: cfg.Prefix, Platform: cfg.Platform, Packages: []model.Package{{Formula: model.Formula{Name: "demo", Version: "1.0"}, Bottle: model.Bottle{SHA256: hex.EncodeToString(digest[:]), URL: server.URL}}}}
+			key := manager.treeKey(plan.Packages[0])
+			dir := filepath.Join(cfg.CacheDir, "trees", key)
+			if leftover == "stage" {
+				dir = filepath.Join(cfg.CacheDir, "trees", ".prepare-"+key+"-interrupted")
+			}
+			if err := os.MkdirAll(filepath.Join(dir, "tree", "bin"), 0755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(dir, "tree", "bin", "demo"), []byte("stale"), 0755); err != nil {
+				t.Fatal(err)
+			}
+			full, err := json.Marshal(treeManifest{Schema: relocationVersion, Key: key, LinkageChecked: true})
+			if err != nil {
+				t.Fatal(err)
+			}
+			switch leftover {
+			case "stage":
+				err = os.WriteFile(filepath.Join(dir, "manifest.json"), full, 0600)
+			case "torn-manifest":
+				err = os.WriteFile(filepath.Join(dir, "manifest.json"), full[:len(full)/2], 0600)
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			prepared, err := manager.Prepare(context.Background(), plan, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer manager.Release(prepared)
+			if prepared.Packages[0].CacheHit {
+				t.Fatal("used an interrupted cache entry")
+			}
+			if b, err := os.ReadFile(filepath.Join(prepared.Packages[0].Tree, "bin", "demo")); err != nil || string(b) != "fresh" {
+				t.Fatalf("prepared tree = %q, %v", b, err)
+			}
+		})
 	}
 }
 
