@@ -205,6 +205,20 @@ func (a *application) pathFindings(e *engine.Engine, records map[string]model.Re
 	return findings
 }
 
+// noEmoji follows brew's HOMEBREW_NO_EMOJI; GOBREW_NO_EMOJI works too.
+func noEmoji() bool {
+	return os.Getenv("GOBREW_NO_EMOJI") != "" || os.Getenv("HOMEBREW_NO_EMOJI") != ""
+}
+
+// installBadge is brew's default HOMEBREW_INSTALL_BADGE and its two spaces,
+// or nothing without emoji.
+func installBadge() string {
+	if noEmoji() {
+		return ""
+	}
+	return "🍺  "
+}
+
 // kegSummary matches Homebrew's "<keg>: N files, SIZE" line.
 func kegSummary(keg string) string {
 	files, size := diskUsage(keg)

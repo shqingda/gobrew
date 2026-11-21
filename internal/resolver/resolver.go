@@ -113,7 +113,7 @@ func Build(req model.Request, generation string, formulae map[string]model.Formu
 		}
 		record, installed := state.Records[name]
 		if installed && record.Status != model.Ready {
-			return fmt.Errorf("%w: %s has status %s", model.ErrNeedsRepair, name, record.Status)
+			return model.NotReady(name, record.Status)
 		}
 		if installed && !force && exact[name] {
 			// An explicit version replaces any other installed version.
@@ -149,7 +149,7 @@ func Build(req model.Request, generation string, formulae map[string]model.Formu
 			return fmt.Errorf("%w: %s is pinned at %s; run gobrew unpin %s first", model.ErrConflict, name, record.Formula.PkgVersion(), name)
 		}
 		if installed && record.Pinned && (Compare(record.Formula, f) != 0 || req.Action == "upgrade") {
-			return fmt.Errorf("%w: %s is pinned; unpin it before changing this dependency closure", model.ErrConflict, name)
+			return fmt.Errorf("%w: You must `gobrew unpin %s` as this change requires the latest version of pinned dependencies", model.ErrConflict, name)
 		}
 		if installed && Compare(record.Formula, f) > 0 && !exact[name] {
 			return fmt.Errorf("%w: refusing to downgrade %s", model.ErrConflict, name)

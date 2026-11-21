@@ -110,14 +110,11 @@ func (i Installer) ValidateState(prepared model.Prepared, snap model.Snapshot) e
 		if !ok {
 			return fmt.Errorf("%w: dependency %s is not installed; run `gobrew install %s`", model.ErrNeedsRepair, name, name)
 		}
-		if rec.Status == model.NeedsPostInstall {
-			return fmt.Errorf("%w: %s has not finished its post-install steps; run `gobrew postinstall %s`", model.ErrNeedsRepair, name, name)
-		}
 		if rec.Status != model.Ready {
-			return fmt.Errorf("%w: %s has status %s", model.ErrNeedsRepair, name, rec.Status)
+			return model.NotReady(name, rec.Status)
 		}
 		if rec.Formula.Name != name || !model.ValidPathComponent(name) || !validOwner(rec.Owner, name) || !model.ValidPathComponent(rec.Formula.PkgVersion()) || rec.Keg != filepath.Join(i.Prefix, "Cellar", name, rec.Formula.PkgVersion()) {
-			return fmt.Errorf("%w: invalid installed keg for %s", model.ErrNeedsRepair, name)
+			return fmt.Errorf("%w: the installed record of %s is invalid; run `gobrew doctor`", model.ErrNeedsRepair, name)
 		}
 		if _, err := i.kegPath(rec.Keg); err != nil {
 			return fmt.Errorf("%w: %s: %v", model.ErrNeedsRepair, name, err)

@@ -217,7 +217,7 @@ func (s Store) transaction(write bool, timeout time.Duration, fn func(*bolt.Tx) 
 	}
 	db, err := bolt.Open(s.path(), 0600, &bolt.Options{ReadOnly: !write, Timeout: timeout})
 	if err != nil {
-		return dbError(err)
+		return s.dbError(err)
 	}
 	if write {
 		writeTransactions.Add(1)
@@ -251,9 +251,9 @@ func (s Store) checkFile() error {
 }
 
 func empty() model.Snapshot { return model.Snapshot{Records: make(map[string]model.Record)} }
-func dbError(err error) error {
+func (s Store) dbError(err error) error {
 	if errors.Is(err, bolterrors.ErrTimeout) {
-		return model.ErrBusy
+		return fmt.Errorf("%w: another gobrew process is using %s; wait for it to finish and try again", model.ErrBusy, s.path())
 	}
 	return err
 }

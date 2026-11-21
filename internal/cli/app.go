@@ -36,6 +36,8 @@ type envelope struct {
 	Command       string     `json:"command"`
 	Data          any        `json:"data,omitempty"`
 	Error         *errorInfo `json:"error,omitempty"`
+	// Warnings are the "Warning:" lines text output writes to stderr.
+	Warnings []string `json:"warnings,omitempty"`
 }
 
 type usageError struct{ error }
@@ -100,6 +102,7 @@ type application struct {
 	stderr    io.Writer
 	hasResult bool
 	result    any
+	warnings  []string
 	render    func(io.Writer) error
 	// times records brew's --display-times for the current install, if asked.
 	times *installTimes
@@ -172,7 +175,7 @@ func (a *application) run(ctx context.Context, args []string, stdout io.Writer, 
 	// Cobra can reject an unknown command before parsing persistent flags.
 	jsonOutput := a.json || requestedJSON(args)
 	if jsonOutput {
-		value := envelope{SchemaVersion: 1, Command: a.command, Data: a.result}
+		value := envelope{SchemaVersion: 1, Command: a.command, Data: a.result, Warnings: a.warnings}
 		if err != nil {
 			value.Error = &errorInfo{Code: kind, Message: err.Error()}
 		}
@@ -221,7 +224,7 @@ func (a *application) run(ctx context.Context, args []string, stdout io.Writer, 
 // categories are model's error kinds. Messages built as "%w: detail" start
 // with the kind's own text ("not found: jq"), which suits the JSON code but
 // not a person; text output drops it. JSON keeps the full message.
-var categories = []error{model.ErrUnsupported, model.ErrNotFound, model.ErrConflict, model.ErrBusy}
+var categories = []error{model.ErrUnsupported, model.ErrNotFound, model.ErrConflict, model.ErrBusy, model.ErrNeedsRepair}
 
 // userMessage is the text shown after "Error: ".
 func userMessage(err error) string {
@@ -245,7 +248,7 @@ func errorHint(err error, command string) string {
 	switch {
 	case errors.Is(err, model.ErrRecoveryRequired):
 		return "Run `gobrew doctor --repair` to recover the interrupted operation."
-	case errors.Is(err, model.ErrNeedsRepair) && command != "doctor":
+	case errors.Is(err, model.ErrNeedsRepair) && command != "doctor" && !strings.Contains(err.Error(), "run `gobrew"):
 		return "Run `gobrew doctor` to see what needs repair."
 	}
 	return ""
@@ -409,7 +412,13 @@ func (a *application) getEngine() (*engine.Engine, error) {
 }
 
 // warn is brew's opoo: a "Warning:" line on stderr, never on stdout.
+// warn prints brew's "Warning:" line on stderr. JSON output keeps stderr
+// empty and carries the warning in the envelope instead.
 func (a *application) warn(text string) {
+	if a.json {
+		a.warnings = append(a.warnings, cleanText(text))
+		return
+	}
 	fmt.Fprintf(a.stderr, "%s: %s\n", label(a.stderr, "Warning", "33"), cleanText(text))
 }
 

@@ -260,10 +260,14 @@ func (i Installer) CleanupWith(ctx context.Context, opts CleanupOptions) ([]mode
 }
 
 // measure counts regular files and their bytes, like Homebrew's abv.
+// Measure counts a keg's regular files and bytes like brew's abv. gobrew's
+// ownership marker is not part of the formula, so it is not counted.
+func Measure(path string) model.Removed { return measure(path) }
+
 func measure(path string) model.Removed {
 	r := model.Removed{Path: path}
 	_ = filepath.WalkDir(path, func(_ string, d fs.DirEntry, err error) error {
-		if err == nil && d.Type().IsRegular() {
+		if err == nil && d.Type().IsRegular() && d.Name() != model.OwnerMarker {
 			if info, err := d.Info(); err == nil {
 				r.Files, r.Bytes = r.Files+1, r.Bytes+info.Size()
 			}

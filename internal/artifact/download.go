@@ -67,8 +67,8 @@ func (m *Manager) downloadLocked(ctx context.Context, p model.Package, events ch
 	}
 	model.Emit(events, model.Event{Phase: "download", Package: p.Formula.Name})
 	var n int64
-	retrying := func(attempt, attempts int, err error) {
-		model.Emit(events, model.Event{Phase: "output", Package: p.Formula.Name, Message: fmt.Sprintf("Retrying download of %s (attempt %d of %d) after: %v", p.Formula.Name, attempt, attempts, err)})
+	retrying := func(wait time.Duration, left int, err error) {
+		model.Emit(events, model.Event{Phase: "retry", Package: p.Formula.Name, Message: platform.RetryMessage(p.Formula.Name, wait, left) + "\n" + err.Error()})
 	}
 	err = platform.RetryWith(ctx, m.retryDelays, retrying, func() (err error) {
 		n, err = m.fetchBlob(ctx, &client, u, p, path, events)
@@ -212,7 +212,7 @@ func (w *progressWriter) Write(b []byte) (int, error) {
 	w.event.Completed += int64(len(b))
 	if w.events != nil && time.Since(w.last) >= 100*time.Millisecond {
 		w.last = time.Now()
-		model.Emit(w.events, w.event)
+		model.EmitProgress(w.events, w.event)
 	}
 	return len(b), nil
 }

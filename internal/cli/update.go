@@ -157,11 +157,13 @@ func (a *application) autoUpdate(ctx context.Context, e *engine.Engine, listOutd
 	if cause := ctx.Err(); cause != nil {
 		return cause
 	}
-	if !text {
+	if err = errors.Join(cliErr, err); err != nil {
+		if text || a.json {
+			a.warn("Auto-update failed: " + err.Error())
+		}
 		return nil
 	}
-	if err = errors.Join(cliErr, err); err != nil {
-		a.warn("auto-update failed: " + err.Error())
+	if !text {
 		return nil
 	}
 	if report.CLI.Changed {

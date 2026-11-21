@@ -201,6 +201,15 @@ const (
 	NeedsPostInstall = "needs-postinstall"
 )
 
+// NotReady is the ErrNeedsRepair for an installed formula whose status is not
+// Ready, naming the command that finishes it.
+func NotReady(name, status string) error {
+	if status == NeedsPostInstall {
+		return fmt.Errorf("%w: %s has not finished its post-install steps; run `gobrew postinstall %s`", ErrNeedsRepair, name, name)
+	}
+	return fmt.Errorf("%w: %s did not finish installing (status %s); run `gobrew reinstall %s`", ErrNeedsRepair, name, status, name)
+}
+
 type Snapshot struct {
 	Generation uint64            `json:"generation"`
 	Records    map[string]Record `json:"records"`
@@ -352,9 +361,24 @@ type Event struct {
 	At time.Time `json:"-"`
 }
 
-// Emit never lets a slow renderer block an installation. The caller owns and
-// closes the channel after the operation has returned; final results are returned.
+// Emit delivers an event even when the renderer is behind: a lost headline
+// would leave a stale line on screen. The renderer always drains the channel
+// until the caller closes it after the operation has returned; final results
+// are returned, not sent.
 func Emit(events chan<- Event, event Event) {
+	if events == nil {
+		return
+	}
+	if event.At.IsZero() {
+		event.At = time.Now()
+	}
+	events <- event
+}
+
+// EmitProgress sends a byte-count update unless the renderer is behind. A
+// later update or the phase's final event supersedes a dropped one, so a slow
+// terminal never slows a download.
+func EmitProgress(events chan<- Event, event Event) {
 	if events == nil {
 		return
 	}

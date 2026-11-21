@@ -90,7 +90,7 @@ func (m *Manager) Prepare(ctx context.Context, plan model.Plan, events chan<- mo
 	m.mu.Lock()
 	if _, exists := m.leases[plan.ID]; exists {
 		m.mu.Unlock()
-		return prepared, model.ErrBusy
+		return prepared, fmt.Errorf("%w: plan %s is already being prepared", model.ErrBusy, plan.ID)
 	}
 	m.leases[plan.ID] = nil
 	m.mu.Unlock()

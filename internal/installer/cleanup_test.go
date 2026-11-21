@@ -75,7 +75,7 @@ func TestCleanupWithLimitsDryRunAndPinsLikeBrew(t *testing.T) {
 	}
 	in := Installer{Prefix: prefix}
 	removed, err := in.CleanupWith(context.Background(), CleanupOptions{Formulae: []string{"uv"}, DryRun: true})
-	if err != nil || len(removed) != 1 || removed[0].Path != oldUV || removed[0].Files != 2 {
+	if err != nil || len(removed) != 1 || removed[0].Path != oldUV || removed[0].Files != 1 {
 		t.Fatalf("dry run = %+v, %v", removed, err)
 	}
 	if _, err := os.Stat(oldUV); err != nil {

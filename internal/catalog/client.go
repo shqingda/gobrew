@@ -138,8 +138,8 @@ func (c Client) Update(ctx context.Context) (Snapshot, error) {
 		return Snapshot{}, errors.New("catalog URL must use HTTPS")
 	}
 	var data []byte
-	retrying := func(attempt, attempts int, err error) {
-		model.Emit(c.Events, model.Event{Phase: "output", Message: fmt.Sprintf("Retrying download of the %s (attempt %d of %d) after: %v", catalogLabel, attempt, attempts, err)})
+	retrying := func(wait time.Duration, left int, err error) {
+		model.Emit(c.Events, model.Event{Phase: "retry", Message: platform.RetryMessage("the "+catalogLabel, wait, left) + "\n" + err.Error()})
 	}
 	err = platform.RetryWith(ctx, c.retryDelays, retrying, func() (err error) {
 		data, err = c.download(ctx, endpoint)
@@ -521,7 +521,7 @@ func (c *countingReader) Read(p []byte) (int, error) {
 	c.event.Completed += int64(n)
 	if c.events != nil && time.Since(c.last) >= 100*time.Millisecond {
 		c.last = time.Now()
-		model.Emit(c.events, c.event)
+		model.EmitProgress(c.events, c.event)
 	}
 	return n, err
 }

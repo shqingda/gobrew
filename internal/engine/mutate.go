@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/shqingda/gobrew/internal/installer"
 	"github.com/shqingda/gobrew/internal/model"
 )
 
@@ -46,12 +47,15 @@ func (e *Engine) PostInstall(ctx context.Context, names []string, events chan<- 
 	return e.installer().PostInstall(ctx, names, events)
 }
 
-func (e *Engine) Uninstall(ctx context.Context, names []string) ([]string, error) {
+// Uninstall removes the named formulae and the dependencies only they needed.
+// kegs maps each removed name to its keg's size, measured before removal for
+// brew's "Uninstalling <keg>... (N files, SIZE)".
+func (e *Engine) Uninstall(ctx context.Context, names []string) (removed []string, kegs map[string]model.Removed, err error) {
 	if err := e.checkMutation(); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	removed := slices.Clone(names)
-	err := e.installer().MutateRecords(ctx, func(s *model.Snapshot) error {
+	removed = slices.Clone(names)
+	err = e.installer().MutateRecords(ctx, func(s *model.Snapshot) error {
 		removing := make(map[string]bool)
 		for _, n := range names {
 			if _, ok := s.Records[n]; !ok {
@@ -84,38 +88,45 @@ func (e *Engine) Uninstall(ctx context.Context, names []string) ([]string, error
 			}
 			return fmt.Errorf("%w: %s\nUninstall the formulae that require it first, or keep it; gobrew never leaves an installed formula without its dependencies.", model.ErrConflict, strings.Join(refusals, "\n"))
 		}
+		kegs = make(map[string]model.Removed, len(names))
 		for _, n := range names {
+			kegs[n] = installer.Measure(s.Records[n].Keg)
 			delete(s.Records, n)
 		}
 		unused := orphaned(*s)
 		for _, n := range unused {
+			kegs[n] = installer.Measure(s.Records[n].Keg)
 			delete(s.Records, n)
 		}
 		removed = append(removed, unused...)
 		return nil
 	})
-	return removed, err
+	return removed, kegs, err
 }
-func (e *Engine) Autoremove(ctx context.Context, dryRun bool) ([]string, error) {
+
+// Autoremove removes dependencies nothing requested or pinned needs. Like
+// Uninstall, kegs holds each removed keg's size; a dry run measures nothing.
+func (e *Engine) Autoremove(ctx context.Context, dryRun bool) (removed []string, kegs map[string]model.Removed, err error) {
 	if dryRun {
 		snap, err := e.Installed()
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
-		return orphaned(snap), nil
+		return orphaned(snap), nil, nil
 	}
 	if err := e.checkMutation(); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	var removed []string
-	err := e.installer().MutateRecords(ctx, func(s *model.Snapshot) error {
+	err = e.installer().MutateRecords(ctx, func(s *model.Snapshot) error {
 		removed = orphaned(*s)
+		kegs = make(map[string]model.Removed, len(removed))
 		for _, name := range removed {
+			kegs[name] = installer.Measure(s.Records[name].Keg)
 			delete(s.Records, name)
 		}
 		return nil
 	})
-	return removed, err
+	return removed, kegs, err
 }
 func orphaned(s model.Snapshot) []string {
 	keep := make(map[string]bool)

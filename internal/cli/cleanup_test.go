@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"math"
 	"os"
 	"path/filepath"
@@ -28,7 +29,7 @@ func newCleanupFixture(t *testing.T) cleanupFixture {
 	for _, key := range []string{"GOBREW_NO_INSTALL_CLEANUP", "GOBREW_NO_CLEANUP_FORMULAE", "GOBREW_CLEANUP_PERIODIC_FULL_DAYS", "GOBREW_CLEANUP_MAX_AGE_DAYS", "GOBREW_NO_ENV_HINTS"} {
 		t.Setenv(key, "")
 	}
-	f := cleanupFixture{prefix: t.TempDir(), cache: t.TempDir()}
+	f := cleanupFixture{prefix: t.TempDir(), cache: t.TempDir(), app: application{stderr: io.Discard}}
 	if err := (state.Store{Prefix: f.prefix}).Initialize(); err != nil {
 		t.Fatal(err)
 	}
@@ -79,9 +80,11 @@ func TestAfterInstallCleanupFailureWarnsAndKeepsSuccessfulInstall(t *testing.T) 
 	if err := os.Mkdir(oldMarker, 0700); err != nil {
 		t.Fatal(err)
 	}
+	f.app.json = true // records warnings instead of printing them
 	notes := f.app.afterInstall(context.Background(), f.engine, result, nil)
-	if !strings.Contains(strings.Join(notes, "\n"), "Warning: cleanup failed:") {
-		t.Fatalf("cleanup failure was hidden: %v", notes)
+	// The failure is a warning on stderr (and in JSON), not a stdout note.
+	if len(f.app.warnings) != 1 || !strings.HasPrefix(f.app.warnings[0], "Cleanup failed:") || strings.Contains(strings.Join(notes, "\n"), "Cleanup failed") {
+		t.Fatalf("cleanup failure: warnings %q, notes %q", f.app.warnings, notes)
 	}
 	snap, err := f.engine.Installed()
 	if err != nil || snap.Records["demo"].Status != model.Ready || snap.Records["demo"].Formula.Version != "2" {

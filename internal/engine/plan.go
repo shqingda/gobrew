@@ -120,7 +120,7 @@ func (e *Engine) installedNoop(req model.Request, snap model.Snapshot) (model.Pl
 			return model.Plan{}, false, nil
 		}
 		if r.Status != model.Ready {
-			return model.Plan{}, false, fmt.Errorf("%w: %s", model.ErrNeedsRepair, name)
+			return model.Plan{}, false, model.NotReady(name, r.Status)
 		}
 		records[name] = r
 	}

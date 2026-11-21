@@ -37,14 +37,14 @@ func renderPlan(w io.Writer, plan model.Plan) error {
 		}
 	}
 	if len(plan.RuntimeChecks) > 0 {
-		_, err := fmt.Fprintln(w, "Reuse requires bottle minimum-version verification:", cleanText(strings.Join(plan.RuntimeChecks, ", ")))
+		_, err := fmt.Fprintln(w, "Kept at the installed version if the new bottles accept it:", cleanText(strings.Join(plan.RuntimeChecks, ", ")))
 		return err
 	}
 	return nil
 }
 
-// renderInstall follows Homebrew: one "<keg>: N files, SIZE" line per poured
-// keg, caveats, and an already-installed warning for unchanged requests.
+// renderInstall follows Homebrew: one "🍺  <keg>: N files, SIZE" line per
+// poured keg, caveats, and an already-installed warning for unchanged requests.
 func (a *application) renderInstall(w io.Writer, e *engine.Engine, request model.Request, result model.Result, notes []string) error {
 	var lines []string
 	records := map[string]model.Record{}
@@ -55,7 +55,7 @@ func (a *application) renderInstall(w io.Writer, e *engine.Engine, request model
 	}
 	for _, name := range result.Succeeded {
 		if r, ok := records[name]; ok && r.Keg != "" {
-			lines = append(lines, kegSummary(r.Keg))
+			lines = append(lines, installBadge()+kegSummary(r.Keg))
 		} else {
 			lines = append(lines, "Installed "+name)
 		}
@@ -103,10 +103,12 @@ func (a *application) renderInstall(w io.Writer, e *engine.Engine, request model
 		a.warn(name + version + " is not covered by Homebrew's signed metadata; its bottle was verified against GHCR and homebrew-core history.\n" +
 			"gobrew upgrade will replace it with the current version. To keep it: gobrew pin " + name)
 	}
-	// Homebrew warns only about the formulae the user named.
+	// Homebrew warns only about the formulae the user named, and not with
+	// --quiet. Unlike brew it does not say "and up-to-date": the installed
+	// no-op path does not read the catalog, so it cannot know.
 	for _, name := range result.Unchanged {
 		r, ok := records[name]
-		if !ok || !slices.Contains(request.Names, name) {
+		if !ok || !slices.Contains(request.Names, name) || a.quiet {
 			continue
 		}
 		version := r.Formula.PkgVersion()
@@ -172,13 +174,46 @@ func writeLines(w io.Writer, lines []string) error {
 	return nil
 }
 
+// cleanText removes terminal control from text gobrew did not write, such
+// as post-install output: whole escape sequences (CSI "ESC [ ... final",
+// "ESC ( B" and two-byte "ESC x"), then any other control character except
+// newline and tab.
 func cleanText(s string) string {
+	if !strings.ContainsFunc(s, unicode.IsControl) {
+		return s
+	}
+	var b strings.Builder
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if c == 0x1b && i+1 < len(s) {
+			i++
+			if s[i] == '[' {
+				// Parameter and intermediate bytes, then one final byte.
+				for i+1 < len(s) && s[i+1] >= 0x20 && s[i+1] <= 0x3f {
+					i++
+				}
+				if i+1 < len(s) && s[i+1] >= 0x40 && s[i+1] <= 0x7e {
+					i++
+				}
+			} else if s[i] >= 0x20 && s[i] <= 0x2f {
+				// Such as "ESC ( B": intermediate bytes, then a final byte.
+				for i+1 < len(s) && s[i+1] >= 0x20 && s[i+1] <= 0x2f {
+					i++
+				}
+				if i+1 < len(s) && s[i+1] >= 0x30 && s[i+1] <= 0x7e {
+					i++
+				}
+			}
+			continue
+		}
+		b.WriteByte(c)
+	}
 	return strings.Map(func(r rune) rune {
 		if unicode.IsControl(r) && r != '\n' && r != '\t' {
 			return -1
 		}
 		return r
-	}, s)
+	}, b.String())
 }
 
 func shellQuote(s string) string {

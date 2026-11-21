@@ -3,8 +3,11 @@ package platform
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"net"
+	"net/url"
+	"strings"
 	"syscall"
 	"time"
 )
@@ -33,19 +36,20 @@ func Retry(ctx context.Context, delays []time.Duration, fetch func() error) erro
 	return RetryWith(ctx, delays, nil, fetch)
 }
 
-// RetryWith is Retry that calls retrying, if not nil, before each repeated
-// attempt with that attempt's number, the total, and the failure it follows.
-func RetryWith(ctx context.Context, delays []time.Duration, retrying func(attempt, attempts int, err error), fetch func() error) error {
+// RetryWith is Retry that calls retrying, if not nil, before each wait with
+// the wait, the attempts left after it, and the failure it follows. Errors
+// name only the host they failed on.
+func RetryWith(ctx context.Context, delays []time.Duration, retrying func(wait time.Duration, left int, err error), fetch func() error) error {
 	if delays == nil {
 		delays = defaultRetryDelays
 	}
 	err := fetch()
 	for i, delay := range delays {
 		if err == nil || ctx.Err() != nil || !transient(err) {
-			return err
+			return HostOnly(err)
 		}
 		if retrying != nil {
-			retrying(i+2, len(delays)+1, err)
+			retrying(delay, len(delays)-i, HostOnly(err))
 		}
 		select {
 		case <-ctx.Done():
@@ -54,8 +58,41 @@ func RetryWith(ctx context.Context, delays []time.Duration, retrying func(attemp
 		}
 		err = fetch()
 	}
-	return err
+	return HostOnly(err)
 }
+
+// RetryMessage is brew's "Retrying download in 1s... (2 tries left)" for what.
+func RetryMessage(what string, wait time.Duration, left int) string {
+	tries := "tries"
+	if left == 1 {
+		tries = "try"
+	}
+	return fmt.Sprintf("Retrying download of %s in %s... (%d %s left)", what, wait, left, tries)
+}
+
+// HostOnly shortens a request error to the host it failed on. A *url.Error
+// carries the whole URL, which for a bottle is a long signed redirect that
+// says nothing to a person. errors.Is and errors.As still see the original.
+func HostOnly(err error) error {
+	var request *url.Error
+	if !errors.As(err, &request) {
+		return err
+	}
+	host := request.URL
+	if u, parseErr := url.Parse(request.URL); parseErr == nil && u.Host != "" {
+		host = u.Host
+	}
+	text := strings.Replace(err.Error(), request.Error(), host+": "+request.Err.Error(), 1)
+	return hostError{err, text}
+}
+
+type hostError struct {
+	err  error
+	text string
+}
+
+func (e hostError) Error() string { return e.text }
+func (e hostError) Unwrap() error { return e.err }
 
 func transient(err error) bool {
 	var server serverError

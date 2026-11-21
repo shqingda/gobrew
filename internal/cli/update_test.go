@@ -73,6 +73,10 @@ func TestCommandAutoUpdateTriggersAndFallsBackToLocalCatalog(t *testing.T) {
 			if (code != 0) != tc.wantFailure || !json.Valid(stdout.Bytes()) || a.stderr.(*bytes.Buffer).Len() != 0 {
 				t.Fatalf("exit=%d stdout=%s stderr=%s", code, &stdout, a.stderr)
 			}
+			// A failed refresh is a JSON warning, not stderr text.
+			if tc.wantRefresh && !strings.Contains(stdout.String(), `"warnings":["Auto-update failed:`) {
+				t.Fatalf("refresh failure missing from JSON: %s", &stdout)
+			}
 			if (requests.catalogCalls == 1) != tc.wantRefresh || requests.catalogCalls > 1 {
 				t.Fatalf("catalog refreshes=%d, want refresh=%v", requests.catalogCalls, tc.wantRefresh)
 			}
@@ -299,7 +303,7 @@ func TestAutoUpdateRunsOnlyWhenStaleAndNeverBlocksTheCommand(t *testing.T) {
 		t.Fatal(err)
 	}
 	out := stderr.String()
-	for _, want := range []string{"==> Auto-updating gobrew...", "`$GOBREW_NO_AUTO_UPDATE=1`", "Warning: auto-update failed"} {
+	for _, want := range []string{"==> Auto-updating gobrew...", "`$GOBREW_NO_AUTO_UPDATE=1`", "Warning: Auto-update failed"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("missing %q in %q", want, out)
 		}

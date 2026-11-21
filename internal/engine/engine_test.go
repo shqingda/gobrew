@@ -54,7 +54,7 @@ func TestUninstallRemovesUnusedDependencies(t *testing.T) {
 				t.Fatal(err)
 			}
 			e := New(Config{Prefix: prefix})
-			removed, err := e.Uninstall(context.Background(), []string{"jq"})
+			removed, _, err := e.Uninstall(context.Background(), []string{"jq"})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -334,10 +334,10 @@ func TestUninstallProtectsDependentsAndAutoremoveRoots(t *testing.T) {
 		t.Fatal(err)
 	}
 	e := New(Config{Prefix: prefix})
-	if _, err = e.Uninstall(context.Background(), []string{"lib"}); !errors.Is(err, model.ErrConflict) {
+	if _, _, err = e.Uninstall(context.Background(), []string{"lib"}); !errors.Is(err, model.ErrConflict) {
 		t.Fatalf("removed required library: %v", err)
 	}
-	names, err := e.Autoremove(context.Background(), true)
+	names, _, err := e.Autoremove(context.Background(), true)
 	if err != nil || len(names) != 1 || names[0] != "orphan" {
 		t.Fatalf("%v %v", names, err)
 	}

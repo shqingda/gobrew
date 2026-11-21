@@ -127,7 +127,7 @@ func (i Installer) changeLinked(s *model.Snapshot, names []string, linked, allow
 			continue
 		}
 		if !owns(rec.Keg, rec.Owner) {
-			return nil, fmt.Errorf("%w: %s", model.ErrNeedsRepair, name)
+			return nil, fmt.Errorf("%w: the keg of %s is missing or was changed outside gobrew; run `gobrew reinstall %s`", model.ErrNeedsRepair, name, name)
 		}
 		if _, err := i.kegPath(rec.Keg); err != nil {
 			return nil, err

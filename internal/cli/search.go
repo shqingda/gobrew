@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"os"
 	"slices"
 	"strconv"
 	"strings"
@@ -83,7 +82,6 @@ func (a *application) searchCommand() *cobra.Command {
 		cmd.Flags().BoolVar(&databases[i], db.name, false, "Search for text in the given database")
 	}
 	cmd.MarkFlagsMutuallyExclusive(names...)
-	cmd.Example = "  gobrew search jq\n  gobrew search --desc json\n  gobrew search '/^python@/'"
 	return cmd
 }
 
@@ -199,7 +197,7 @@ func renderSearch(w io.Writer, formulae []model.Formula, installed map[string]bo
 		names[i], widths[i] = cleanText(f.Name), len(f.Name)
 		if p.tty && installed[f.Name] {
 			mark := " \u2714"
-			if os.Getenv("GOBREW_NO_EMOJI") != "" {
+			if noEmoji() {
 				mark = " (installed)"
 			}
 			if p.color {

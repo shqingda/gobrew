@@ -19,6 +19,7 @@ import (
 // Only the event goroutine in withEvents calls it.
 type progress struct {
 	w        io.Writer
+	file     *os.File // w when it is a terminal, to follow its width
 	tty      bool
 	color    bool
 	width    int
@@ -28,6 +29,7 @@ type progress struct {
 	finished map[string]bool
 	shown    bool
 	drawn    time.Time
+	started  time.Time // first download, for the speed
 	// running is the package whose post-install step, or the step, started
 	// at since; step is set while a "step" event's stage runs.
 	running string
@@ -42,16 +44,24 @@ func newProgress(w io.Writer) *progress {
 	p := &progress{w: w, total: map[string]int64{}, done: map[string]int64{}, finished: map[string]bool{}, batches: map[string][]model.Event{}}
 	if f, ok := w.(*os.File); ok {
 		if size, err := unix.IoctlGetWinsize(int(f.Fd()), unix.TIOCGWINSZ); err == nil {
-			p.tty, p.width = true, int(size.Col)
-			p.color = colorAllowed()
+			p.tty, p.width, p.file = true, int(size.Col), f
 		}
 	}
+	p.color = colorAllowed(p.tty)
 	return p
 }
 
-// colorAllowed follows NO_COLOR, Homebrew's HOMEBREW_NO_COLOR and TERM=dumb.
-func colorAllowed() bool {
-	return os.Getenv("NO_COLOR") == "" && os.Getenv("HOMEBREW_NO_COLOR") == "" && os.Getenv("GOBREW_NO_COLOR") == "" && os.Getenv("TERM") != "dumb"
+// colorAllowed is brew's Tty.color?: NO_COLOR (and HOMEBREW_NO_COLOR or
+// GOBREW_NO_COLOR) wins, then HOMEBREW_COLOR or GOBREW_COLOR forces color
+// even when not writing to a terminal, else a terminal unless TERM=dumb.
+func colorAllowed(tty bool) bool {
+	switch {
+	case os.Getenv("NO_COLOR") != "" || os.Getenv("HOMEBREW_NO_COLOR") != "" || os.Getenv("GOBREW_NO_COLOR") != "":
+		return false
+	case os.Getenv("GOBREW_COLOR") != "" || os.Getenv("HOMEBREW_COLOR") != "":
+		return true
+	}
+	return tty && os.Getenv("TERM") != "dumb"
 }
 
 // colorful reports whether w is a terminal that may receive color.
@@ -62,6 +72,9 @@ func (p *progress) event(event model.Event) error {
 	switch event.Phase {
 	case "download":
 		if _, seen := p.total[name]; !seen {
+			if len(p.order) == 0 {
+				p.started = time.Now()
+			}
 			p.total[name], p.order = 0, append(p.order, name)
 			if err := p.title("Downloading " + name); err != nil {
 				return err
@@ -93,7 +106,8 @@ func (p *progress) event(event model.Event) error {
 		}
 		return writeLines(p.w, dependentLines(event.Phase, batch, false))
 	case "cache":
-		return p.title("Using prepared " + name)
+		// A bottle prepared earlier pours without downloading or extracting.
+		return p.title("Pouring " + name)
 	case "extract":
 		p.finished[name] = true
 		return p.title("Pouring " + name)
@@ -111,6 +125,20 @@ func (p *progress) event(event model.Event) error {
 		}
 		// Logs have no live timer, so record how long the step took.
 		_, err := fmt.Fprintf(p.w, "Post-install for %s finished in %.1fs\n", name, elapsed.Seconds())
+		return err
+	case "retry":
+		// brew's "==> Retrying download in 1s... (2 tries left)", then why.
+		title, reason, _ := strings.Cut(event.Message, "\n")
+		if err := p.title(cleanText(title)); err != nil {
+			return err
+		}
+		if reason == "" {
+			return nil
+		}
+		if err := p.clear(); err != nil {
+			return err
+		}
+		_, err := fmt.Fprintln(p.w, cleanText(reason))
 		return err
 	case "output":
 		if err := p.clear(); err != nil {
@@ -201,13 +229,30 @@ func (p *progress) draw(force bool) error {
 		return nil
 	}
 	p.drawn = time.Now()
+	// A resized window takes effect at the next redraw.
+	if p.file != nil {
+		if size, err := unix.IoctlGetWinsize(int(p.file.Fd()), unix.TIOCGWINSZ); err == nil && size.Col > 0 {
+			p.width = int(size.Col)
+		}
+	}
 	tail := " " + humanBytes(done)
 	fraction := 0.0
 	if total > 0 {
 		fraction = min(float64(done)/float64(total), 1)
 		tail = fmt.Sprintf(" %5.1f%% %s/%s", fraction*100, humanBytes(done), humanBytes(total))
 	}
-	bar := max(p.width-len(tail)-1, 10)
+	if elapsed := time.Since(p.started); elapsed >= time.Second {
+		tail += " " + humanBytes(int64(float64(done)/elapsed.Seconds())) + "/s"
+	}
+	// The line must fit, or the terminal wraps it and "\r" cannot redraw it.
+	bar := p.width - len(tail) - 1
+	if bar < 10 {
+		bar = 0
+		tail = strings.TrimPrefix(tail, " ")
+		if p.width > 1 && len(tail) >= p.width {
+			tail = tail[:p.width-1]
+		}
+	}
 	filled := int(fraction * float64(bar))
 	line := strings.Repeat("#", filled) + strings.Repeat(" ", bar-filled) + tail
 	p.shown = true

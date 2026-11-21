@@ -617,7 +617,7 @@ func conflictLines(f model.Formula) []string {
 func dependencyLines(f model.Formula, r model.Record, installed bool, records map[string]model.Record, tty bool) []string {
 	// brew's ✔ and ✘; GOBREW_NO_EMOJI (HOMEBREW_NO_EMOJI) spells them out.
 	installedMark, missingMark := "\u2714", "\u2718"
-	if os.Getenv("GOBREW_NO_EMOJI") != "" {
+	if noEmoji() {
 		installedMark, missingMark = "(installed)", "(missing)"
 	}
 	required, recommended, optional := declaredGroups(f)

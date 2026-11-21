@@ -52,9 +52,10 @@ func (a *application) selfCommand() *cobra.Command {
 		if err != nil {
 			return err
 		}
-		message := "gobrew is up to date: " + result.Version
+		// The same words as gobrew update.
+		message := "gobrew " + result.Version + " is already up to date."
 		if result.Changed {
-			message = "Updated gobrew to " + result.Version
+			message = "==> Updated gobrew to " + result.Version + "; the new version runs from the next command."
 		}
 		a.message(result, message)
 		return nil

@@ -76,11 +76,12 @@ func TestDownloadRetriesTransportFailuresFromTheStart(t *testing.T) {
 	close(events)
 	var retries []string
 	for e := range events {
-		if e.Phase == "output" {
+		if e.Phase == "retry" {
 			retries = append(retries, e.Message)
 		}
 	}
-	if len(retries) != 2 || !strings.HasPrefix(retries[1], "Retrying download of demo (attempt 3 of 4)") {
+	// brew's wording, and the reason names the host, never the full URL.
+	if len(retries) != 2 || !strings.HasPrefix(retries[1], "Retrying download of demo in 1ms... (2 tries left)\n") || strings.Contains(retries[0], "http://") {
 		t.Fatalf("retry messages = %q", retries)
 	}
 	if got, err := os.ReadFile(path); err != nil || string(got) != string(body) {

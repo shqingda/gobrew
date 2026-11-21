@@ -56,11 +56,6 @@ func (a *application) installCommand(action string) *cobra.Command {
 	cmd.Flags().BoolP("no-ask", "y", false, "Do not ask for confirmation (gobrew never asks)")
 	cmd.Flags().Bool("yes", false, "Alias of --no-ask")
 	cmd.Flags().Bool("force-bottle", false, "Install from a bottle (gobrew always does)")
-	cmd.Example = map[string]string{
-		"install":   "  gobrew install jq\n  gobrew install --dry-run node",
-		"reinstall": "  gobrew reinstall jq",
-		"upgrade":   "  gobrew upgrade\n  gobrew upgrade jq --dry-run",
-	}[action]
 	return cmd
 }
 
@@ -93,6 +88,13 @@ func (a *application) install(ctx context.Context, request model.Request, dryRun
 	e, err := a.getEngine()
 	if err != nil {
 		return err
+	}
+	// A first install creates the prefix before anything is downloaded, so a
+	// prefix that needs sudo without a terminal fails at once.
+	if action == "install" && !dryRun {
+		if err = a.ensureInitialized(ctx, e); err != nil {
+			return err
+		}
 	}
 	// Planning may fetch a missing catalog, but must not run automatic updates
 	// (which also replace the managed CLI). Reinstall and version-install do not
@@ -152,11 +154,6 @@ func (a *application) install(ctx context.Context, request model.Request, dryRun
 			return nil
 		})
 		return nil
-	}
-	if action == "install" {
-		if err = a.ensureInitialized(ctx, e); err != nil {
-			return err
-		}
 	}
 	var result model.Result
 	err = a.withEvents(func(events chan<- model.Event) error {
@@ -234,38 +231,60 @@ func (a *application) uninstall(ctx context.Context, names []string) error {
 	if err != nil {
 		return err
 	}
-	removed, err := e.Uninstall(ctx, names)
+	removed, kegs, err := e.Uninstall(ctx, names)
 	if err != nil {
 		return err
 	}
+	// brew's uninstall, then the autoremove it runs: requested kegs first,
+	// then the unneeded dependencies under their own heading.
 	a.setResult(removed, func(w io.Writer) error {
-		var unused []string
+		var requested, unused []string
 		for _, name := range removed {
-			if !slices.Contains(names, name) {
+			if slices.Contains(names, name) {
+				requested = append(requested, name)
+			} else {
 				unused = append(unused, name)
-				continue
-			}
-			if _, err := fmt.Fprintf(w, "Uninstalled %s\n", cleanText(name)); err != nil {
-				return err
 			}
 		}
-		if len(unused) == 0 {
-			return nil
+		lines := uninstallingLines(requested, kegs)
+		if len(unused) > 0 {
+			lines = append(lines, autoremoveLines(unused, kegs, false)...)
 		}
-		label := "dependencies"
-		if len(unused) == 1 {
-			label = "dependency"
-		}
-		lines := []string{fmt.Sprintf("==> Autoremoved %d unused %s:", len(unused), label)}
-		for _, name := range unused {
-			lines = append(lines, "Uninstalled "+name)
-		}
-		if err := writeLines(w, lines); err != nil {
-			return err
-		}
-		return nil
+		return writeLines(w, lines)
 	})
 	return nil
+}
+
+// uninstallingLines are brew's "Uninstalling <keg>... (N files, SIZE)".
+func uninstallingLines(names []string, kegs map[string]model.Removed) []string {
+	lines := make([]string, 0, len(names))
+	for _, name := range names {
+		k, ok := kegs[name]
+		if !ok || k.Path == "" {
+			lines = append(lines, "Uninstalling "+cleanText(name)+"...")
+			continue
+		}
+		lines = append(lines, "Uninstalling "+cleanText(k.Path)+"... ("+abv(k.Files, k.Bytes)+")")
+	}
+	return lines
+}
+
+// autoremoveLines follow brew's Cleanup.autoremove: the heading, the sorted
+// names, then each keg's uninstall line unless this is a dry run.
+func autoremoveLines(names []string, kegs map[string]model.Removed, dryRun bool) []string {
+	names = slices.Sorted(slices.Values(names))
+	verb := "Autoremoving"
+	if dryRun {
+		verb = "Would autoremove"
+	}
+	lines := []string{fmt.Sprintf("==> %s %d unneeded %s:", verb, len(names), pluralize("formula", len(names), false))}
+	for _, name := range names {
+		lines = append(lines, cleanText(name))
+	}
+	if dryRun {
+		return lines
+	}
+	return append(lines, uninstallingLines(names, kegs)...)
 }
 
 func (a *application) linkCommand(linked bool) *cobra.Command {

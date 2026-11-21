@@ -3,8 +3,11 @@ package platform
 import (
 	"context"
 	"errors"
+	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
+	"syscall"
 	"testing"
 	"time"
 
@@ -135,5 +138,19 @@ func TestWriteFileAtomicReplacesWithoutLeftovers(t *testing.T) {
 	entries, err := os.ReadDir(dir)
 	if err != nil || len(entries) != 1 {
 		t.Fatalf("leftover entries %v: %v", entries, err)
+	}
+}
+
+func TestHostOnlyKeepsTheCauseAndDropsTheURL(t *testing.T) {
+	cause := &url.Error{Op: "Get", URL: "https://pkg-containers.githubusercontent.com/ghcr1/blobs/sha256:abc?se=2026&sig=secret", Err: syscall.ECONNRESET}
+	err := HostOnly(fmt.Errorf("download jq: %w", cause))
+	if got := err.Error(); got != "download jq: pkg-containers.githubusercontent.com: "+syscall.ECONNRESET.Error() {
+		t.Fatalf("message = %q", got)
+	}
+	if !errors.Is(err, syscall.ECONNRESET) || !transient(err) {
+		t.Fatal("lost the cause")
+	}
+	if plain := errors.New("x"); HostOnly(plain) != plain {
+		t.Fatal("changed an error without a URL")
 	}
 }

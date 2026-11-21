@@ -23,28 +23,18 @@ func (a *application) autoremoveCommand() *cobra.Command {
 		if err != nil {
 			return err
 		}
-		names, err := e.Autoremove(ctx, dryRun)
+		names, kegs, err := e.Autoremove(ctx, dryRun)
 		if err != nil {
 			return err
 		}
 		if names == nil {
 			names = []string{}
 		}
-		// brew's headings: "==> Autoremoving 2 unneeded formulae:", or
-		// "Would autoremove" for a dry run, then one name per line.
 		a.setResult(names, func(w io.Writer) error {
 			if len(names) == 0 {
-				return writeLines(w, []string{"No unused dependencies."})
+				return nil // brew autoremove prints nothing then.
 			}
-			noun := "formulae"
-			if len(names) == 1 {
-				noun = "formula"
-			}
-			verb := "Autoremoving"
-			if dryRun {
-				verb = "Would autoremove"
-			}
-			return writeLines(w, append([]string{fmt.Sprintf("==> %s %d unneeded %s:", verb, len(names), noun)}, names...))
+			return writeLines(w, autoremoveLines(names, kegs, dryRun))
 		})
 		return nil
 	})
@@ -262,7 +252,8 @@ func (a *application) installCleanup(ctx context.Context, e *engine.Engine, resu
 	if len(formulae) > 0 {
 		removed, err := e.Cleanup(ctx, engine.CleanupOptions{Formulae: formulae, Skip: skip})
 		if err != nil {
-			return []string{"Warning: cleanup failed: " + err.Error()}
+			a.warn("Cleanup failed: " + err.Error())
+			return nil
 		}
 		if len(removed) > 0 {
 			lines = append(append(lines, "==> Cleanup"), removedLines(removed, e.Prefix(), false)...)
@@ -280,7 +271,8 @@ func (a *application) installCleanup(ctx context.Context, e *engine.Engine, resu
 			err = e.MarkCleaned()
 		}
 		if err != nil {
-			return append(lines, "Warning: cleanup failed: "+err.Error())
+			a.warn("Cleanup failed: " + err.Error())
+			return lines
 		}
 		lines = append(lines, removedLines(removed, e.Prefix(), false)...)
 	}

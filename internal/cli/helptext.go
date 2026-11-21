@@ -25,13 +25,17 @@ const environmentHelp = `Environment variables read by gobrew:
   GOBREW_NO_MODIFY_PATH              Do not add gobrew to shell startup files on first install
   GOBREW_NO_PATH_SHADOW_CHECK        Do not warn when other commands shadow installed ones
   GOBREW_NO_ENV_HINTS                Hide hints about these variables
-  GOBREW_NO_EMOJI                    Print words instead of ✔ and ✘
+  GOBREW_NO_EMOJI                    Omit the 🍺 install badge and print words instead of ✔ and ✘
+                                     (HOMEBREW_NO_EMOJI works too)
   GOBREW_NO_COLOR                    Disable color (NO_COLOR and HOMEBREW_NO_COLOR work too)
+  GOBREW_COLOR                       Force color even when not writing to a terminal
+                                     (HOMEBREW_COLOR works too; the NO_COLOR variables win)
   GOBREW_NO_ANALYTICS                Do not fetch install counts for info
   GOBREW_NO_GITHUB_API               Do not call the GitHub API (also disables install counts)
   GOBREW_INSTALL_BIN_DIR             Used by install.sh: install the gobrew CLI into this directory
   HOMEBREW_GITHUB_API_TOKEN          GitHub token for API requests (GITHUB_TOKEN works too)
   HOMEBREW_PREFIX                    Homebrew's prefix for PATH advice (default /opt/homebrew)
+  COLUMNS                            Output width when not writing to a terminal
 `
 
 // helpTopics are `gobrew help <topic>` pages that are not commands.
@@ -39,26 +43,33 @@ var helpTopics = map[string]string{"environment": environmentHelp, "env": enviro
 
 // examples are shown in each command's help, as in brew's manual.
 var examples = map[string]string{
-	"install":   "  gobrew install jq\n  gobrew install --dry-run ffmpeg\n  gobrew install --only-dependencies wget",
-	"upgrade":   "  gobrew upgrade\n  gobrew upgrade jq --dry-run",
-	"reinstall": "  gobrew reinstall jq",
-	"uninstall": "  gobrew uninstall jq",
-	"search":    "  gobrew search jq\n  gobrew search --desc \"json processor\"\n  gobrew search /^lib.*ssl$/",
-	"info":      "  gobrew info jq\n  gobrew info --installed --json",
-	"list":      "  gobrew list\n  gobrew list --versions\n  gobrew list jq",
-	"deps":      "  gobrew deps --tree ffmpeg\n  gobrew deps --installed",
-	"uses":      "  gobrew uses --installed openssl@3",
-	"outdated":  "  gobrew outdated\n  gobrew outdated --verbose",
-	"update":    "  gobrew update",
-	"cleanup":   "  gobrew cleanup\n  gobrew cleanup --dry-run\n  gobrew cleanup --prune=all",
-	"doctor":    "  gobrew doctor\n  gobrew doctor --repair",
-	"link":      "  gobrew link jq\n  gobrew link --force --dry-run openssl@3",
-	"pin":       "  gobrew pin node\n  gobrew upgrade   # leaves node as it is",
-	"self":      "  gobrew self update\n  gobrew self uninstall",
-	"config":    "  gobrew config",
-	"leaves":    "  gobrew leaves --installed-on-request",
-	"desc":      "  gobrew desc jq\n  gobrew desc --search json",
-	"home":      "  gobrew home jq",
+	"install":        "  gobrew install jq\n  gobrew install --dry-run ffmpeg\n  gobrew install --only-dependencies wget",
+	"upgrade":        "  gobrew upgrade\n  gobrew upgrade jq --dry-run",
+	"reinstall":      "  gobrew reinstall jq",
+	"uninstall":      "  gobrew uninstall jq",
+	"search":         "  gobrew search jq\n  gobrew search --desc \"json processor\"\n  gobrew search /^lib.*ssl$/",
+	"info":           "  gobrew info jq\n  gobrew info --installed --json",
+	"list":           "  gobrew list\n  gobrew list --versions\n  gobrew list jq",
+	"deps":           "  gobrew deps --tree ffmpeg\n  gobrew deps --installed",
+	"uses":           "  gobrew uses --installed openssl@3",
+	"outdated":       "  gobrew outdated\n  gobrew outdated --verbose",
+	"update":         "  gobrew update",
+	"cleanup":        "  gobrew cleanup\n  gobrew cleanup --dry-run\n  gobrew cleanup --prune=all",
+	"doctor":         "  gobrew doctor\n  gobrew doctor --repair",
+	"link":           "  gobrew link jq\n  gobrew link --force --dry-run openssl@3",
+	"pin":            "  gobrew pin node\n  gobrew upgrade   # leaves node as it is",
+	"unpin":          "  gobrew unpin node",
+	"unlink":         "  gobrew unlink jq\n  gobrew unlink --dry-run openssl@3",
+	"autoremove":     "  gobrew autoremove --dry-run\n  gobrew autoremove",
+	"postinstall":    "  gobrew postinstall ca-certificates",
+	"self":           "  gobrew self update\n  gobrew self uninstall",
+	"self install":   "  gobrew self install\n  gobrew self install --bin-dir ~/bin",
+	"self update":    "  gobrew self update",
+	"self uninstall": "  gobrew self uninstall",
+	"config":         "  gobrew config",
+	"leaves":         "  gobrew leaves --installed-on-request",
+	"desc":           "  gobrew desc jq\n  gobrew desc --search json",
+	"home":           "  gobrew home jq",
 }
 
 // addHelpText adds examples and longer descriptions to the built commands.
@@ -68,6 +79,11 @@ func addHelpText(root *cobra.Command) {
 	for _, command := range root.Commands() {
 		if example, ok := examples[command.Name()]; ok {
 			command.Example = example
+		}
+		for _, sub := range command.Commands() {
+			if example, ok := examples[command.Name()+" "+sub.Name()]; ok {
+				sub.Example = example
+			}
 		}
 		if command.Name() == "uninstall" {
 			command.Long = "Remove packages while retaining configuration and data.\n" +
