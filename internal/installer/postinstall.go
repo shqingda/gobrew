@@ -127,18 +127,20 @@ func (i Installer) finishPackage(ctx context.Context, tx *state.Session, snap *m
 	if err != nil {
 		return fail(err)
 	}
-	for _, c := range changes {
-		if err = checkLink(i.Prefix, c); err != nil {
-			return fail(err)
+	if err = checkLinks(i.Prefix, changes); err != nil {
+		return fail(err)
+	}
+	// With no link changes there is nothing for recovery to undo, so the
+	// journal is written only together with Ready below.
+	if len(changes) > 0 {
+		j.PendingLinks = changes
+		j.LinkPackage = name
+		if err = tx.WriteJournal(j); err != nil {
+			return err
 		}
-	}
-	j.PendingLinks = changes
-	j.LinkPackage = name
-	if err = tx.WriteJournal(j); err != nil {
-		return err
-	}
-	if err = i.changeLinks(changes, false); err != nil {
-		return fail(errors.Join(err, i.recover(tx)))
+		if err = i.changeLinks(changes, false); err != nil {
+			return fail(errors.Join(err, i.recover(tx)))
+		}
 	}
 	updated.Status = model.Ready
 	updated.PostInstallError = ""

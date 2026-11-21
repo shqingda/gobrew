@@ -180,7 +180,7 @@ func TestApplyAndRecoveryBoundaries(t *testing.T) {
 				}
 				if phase == "partial-links" {
 					// A process can stop between link renames and the batch barrier.
-					if err = setLink(prefix, j.Links[0], false); err != nil {
+					if err = (Installer{Prefix: prefix}).changeLinks(j.Links[:1], false); err != nil {
 						return err
 					}
 				} else if phase == "after-links" || phase == "postinstall" {

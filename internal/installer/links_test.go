@@ -352,3 +352,96 @@ func TestRestoreLinksRecreatesOnlyMissingClaimedLinks(t *testing.T) {
 		t.Fatalf("second restore = %v, %v", again, err)
 	}
 }
+
+// TestLinkBatchPersistsNewParentDirectories links into directories that do
+// not exist yet, including a top-level one. Their entries join the batch's
+// single barrier instead of one barrier per new directory.
+func TestLinkBatchPersistsNewParentDirectories(t *testing.T) {
+	prefix, tree := t.TempDir(), t.TempDir()
+	s := state.Store{Prefix: prefix}
+	if err := s.Initialize(); err != nil {
+		t.Fatal(err)
+	}
+	for _, rel := range []string{"Frameworks/Demo.framework/Demo", "share/demo/deep/file"} {
+		if err := os.MkdirAll(filepath.Join(tree, filepath.Dir(rel)), 0755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(tree, rel), []byte("x"), 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := os.Lstat(filepath.Join(prefix, "Frameworks")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("fixture needs a missing top-level directory: %v", err)
+	}
+	var synced [][]string
+	inst := Installer{Prefix: prefix, syncDirectories: func(paths []string) error {
+		synced = append(synced, slices.Clone(paths))
+		return platform.SyncDirs(paths)
+	}}
+	before := platformBarriers()
+	if _, err := inst.Apply(context.Background(), onePackage(prefix, tree, model.Formula{Name: "demo", Version: "1"}), nil); err != nil {
+		t.Fatal(err)
+	}
+	if len(synced) != 1 {
+		t.Fatalf("link batches = %v", synced)
+	}
+	for _, want := range []string{prefix, filepath.Join(prefix, "Frameworks"), filepath.Join(prefix, "Frameworks", "Demo.framework"), filepath.Join(prefix, "share"), filepath.Join(prefix, "share", "demo"), filepath.Join(prefix, "share", "demo", "deep")} {
+		if !slices.Contains(synced[0], want) {
+			t.Fatalf("batch omits %s: %v", want, synced[0])
+		}
+	}
+	// Staging, the marker, the keg move and the link batch; no barrier per
+	// new link directory.
+	if got := platformBarriers() - before; got > 6 {
+		t.Fatalf("device barriers = %d", got)
+	}
+	if target, err := os.Readlink(filepath.Join(prefix, "share", "demo", "deep", "file")); err != nil || target != filepath.Join(prefix, "Cellar", "demo", "1", "share", "demo", "deep", "file") {
+		t.Fatalf("link = %q, %v", target, err)
+	}
+}
+
+func platformBarriers() uint64 {
+	barriers, _ := platform.SyncCounts()
+	return barriers
+}
+
+// TestLinkBatchRejectsSymlinkedParents keeps links from following a parent
+// directory that is a symlink, whether it leaves the prefix or stays inside.
+func TestLinkBatchRejectsSymlinkedParents(t *testing.T) {
+	for _, inside := range []bool{false, true} {
+		t.Run(fmt.Sprint(inside), func(t *testing.T) {
+			prefix, tree, outside := t.TempDir(), t.TempDir(), t.TempDir()
+			s := state.Store{Prefix: prefix}
+			if err := s.Initialize(); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.MkdirAll(filepath.Join(tree, "share", "demo", "deep"), 0755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(tree, "share", "demo", "deep", "file"), []byte("x"), 0644); err != nil {
+				t.Fatal(err)
+			}
+			target := outside
+			if inside {
+				target = filepath.Join(prefix, "var")
+			}
+			if err := os.Symlink(target, filepath.Join(prefix, "share", "demo")); err != nil {
+				t.Fatal(err)
+			}
+			_, err := (Installer{Prefix: prefix}).Apply(context.Background(), onePackage(prefix, tree, model.Formula{Name: "demo", Version: "1"}), nil)
+			if err == nil {
+				t.Fatal("linked through a symlinked parent")
+			}
+			entries, err := os.ReadDir(target)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(entries) != 0 {
+				t.Fatalf("wrote through the symlink: %v", entries)
+			}
+			if snap, err := s.Load(); err != nil || snap.RecoveryRequired || len(snap.Records) != 0 {
+				t.Fatalf("state = %+v, %v", snap, err)
+			}
+		})
+	}
+}

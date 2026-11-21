@@ -107,7 +107,7 @@ func TestInterruptedUpgradeAndReinstallRestoreTheOldKeg(t *testing.T) {
 					switch {
 					case len(j.Links) == 0:
 					case stop == "partial-links":
-						return setLink(inst.Prefix, j.Links[0], false)
+						return inst.changeLinks(j.Links[:1], false)
 					case stop == "after-links":
 						return inst.changeLinks(j.Links, false)
 					}

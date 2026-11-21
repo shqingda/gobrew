@@ -132,12 +132,3 @@ func (i Installer) ValidateState(prepared model.Prepared, snap model.Snapshot) e
 	}
 	return nil
 }
-
-func (i Installer) ensureParent(path string) error {
-	rel, err := filepath.Rel(i.Prefix, filepath.Dir(path))
-	if err != nil {
-		return err
-	}
-	_, err = state.EnsureDir(i.Prefix, rel, 0755)
-	return err
-}

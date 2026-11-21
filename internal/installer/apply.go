@@ -120,10 +120,8 @@ func (i Installer) stage(ctx context.Context, p model.Prepared, before model.Sna
 	if err != nil {
 		return nil, err
 	}
-	for _, c := range j.Links {
-		if err = checkLink(i.Prefix, c); err != nil {
-			return nil, err
-		}
+	if err = checkLinks(i.Prefix, j.Links); err != nil {
+		return nil, err
 	}
 	success = true
 	return j, nil

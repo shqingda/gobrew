@@ -103,32 +103,20 @@ func linkChanges(before, after model.Snapshot) ([]state.LinkChange, error) {
 	return changes, nil
 }
 
-func readLink(path string) (*string, error) {
-	info, err := os.Lstat(path)
-	if errors.Is(err, os.ErrNotExist) {
-		return nil, nil
-	}
-	if err != nil {
-		return nil, err
-	}
-	if info.Mode()&os.ModeSymlink == 0 {
-		return nil, fmt.Errorf("%w: refusing to replace %s", model.ErrConflict, path)
-	}
-	s, err := os.Readlink(path)
-	return &s, err
-}
 func same(a, b *string) bool { return a == nil && b == nil || a != nil && b != nil && *a == *b }
-func checkLink(prefix string, c state.LinkChange) error {
-	path, err := state.SecurePath(prefix, c.Path)
-	if err != nil {
-		return err
-	}
-	cur, err := readLink(path)
-	if err != nil {
-		return err
-	}
-	if !same(cur, c.Before) {
-		return fmt.Errorf("%w: foreign or modified link %s", model.ErrConflict, path)
+
+// checkLinks confirms that every link is still in its journaled old state.
+func checkLinks(prefix string, changes []state.LinkChange) (err error) {
+	dirs := newLinkDirs(prefix)
+	defer func() { err = errors.Join(err, dirs.close()) }()
+	for _, c := range changes {
+		cur, path, err := dirs.read(c.Path)
+		if err != nil {
+			return err
+		}
+		if !same(cur, c.Before) {
+			return fmt.Errorf("%w: foreign or modified link %s", model.ErrConflict, path)
+		}
 	}
 	return nil
 }
@@ -136,7 +124,9 @@ func checkLink(prefix string, c state.LinkChange) error {
 // changeLinks is called only after the whole batch is in the durable journal.
 // Namespace updates may be interrupted individually; commit waits for all
 // changed directories and a device barrier, rather than flushing each link.
-func (i Installer) changeLinks(changes []state.LinkChange, undo bool) error {
+func (i Installer) changeLinks(changes []state.LinkChange, undo bool) (err error) {
+	dirs := newLinkDirs(i.Prefix)
+	defer func() { err = errors.Join(err, dirs.close()) }()
 	parents := make(map[string]bool)
 	for step := range len(changes) {
 		n := step
@@ -144,16 +134,28 @@ func (i Installer) changeLinks(changes []state.LinkChange, undo bool) error {
 			n = len(changes) - 1 - step
 		}
 		change := changes[n]
-		if err := setLink(i.Prefix, change, undo); err != nil {
+		created, err := dirs.set(change, undo)
+		if err != nil {
 			return err
 		}
 		parents[filepath.Dir(change.Path)] = true
+		// A new parent directory's own entry joins the same barrier.
+		for _, dir := range created {
+			rel, err := filepath.Rel(i.Prefix, filepath.Dir(dir))
+			if err != nil {
+				return err
+			}
+			parents[rel] = true
+		}
 	}
 	paths := make([]string, 0, len(parents))
 	for rel := range parents {
-		path, err := state.SecureDir(i.Prefix, rel)
-		if err != nil {
-			return err
+		path := i.Prefix
+		if rel != "." {
+			var err error
+			if path, err = state.SecureDir(i.Prefix, rel); err != nil {
+				return err
+			}
 		}
 		if _, err := os.Lstat(path); errors.Is(err, os.ErrNotExist) {
 			// Recovery may encounter a not-yet-created link whose old state
@@ -175,38 +177,142 @@ func (i Installer) changeLinks(changes []state.LinkChange, undo bool) error {
 	return platform.SyncDirs(paths)
 }
 
-func setLink(prefix string, c state.LinkChange, undo bool) error {
+// linkDirs holds a link batch's parent directories. Each is opened once,
+// after SecureDir has checked that it and every ancestor are real
+// directories. Links are then read and replaced by name through that handle,
+// so a parent swapped for a symlink later in the batch cannot redirect them.
+type linkDirs struct {
+	prefix  string
+	open    map[string]*os.Root
+	missing map[string]bool
+}
+
+func newLinkDirs(prefix string) *linkDirs {
+	return &linkDirs{prefix: prefix, open: make(map[string]*os.Root), missing: make(map[string]bool)}
+}
+
+// root returns the opened directory rel, or nil when it does not exist.
+func (d *linkDirs) root(rel string) (*os.Root, error) {
+	if r, ok := d.open[rel]; ok {
+		return r, nil
+	}
+	if d.missing[rel] {
+		return nil, nil
+	}
+	path := d.prefix
+	if rel != "." {
+		var err error
+		if path, err = state.SecureDir(d.prefix, rel); err != nil {
+			return nil, err
+		}
+	}
+	info, err := os.Lstat(path)
+	if errors.Is(err, os.ErrNotExist) {
+		d.missing[rel] = true
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	if !info.IsDir() {
+		return nil, fmt.Errorf("unsafe directory %s", path)
+	}
+	r, err := os.OpenRoot(path)
+	if err != nil {
+		return nil, err
+	}
+	// The handle must be the directory that was checked, not a replacement.
+	if opened, err := r.Stat("."); err != nil || !os.SameFile(info, opened) {
+		return nil, errors.Join(fmt.Errorf("directory changed while opening: %s", path), err, r.Close())
+	}
+	d.open[rel] = r
+	return r, nil
+}
+
+func (d *linkDirs) close() error {
+	var err error
+	for _, r := range d.open {
+		err = errors.Join(err, r.Close())
+	}
+	return err
+}
+
+// set changes one journaled link. It returns the parent directories it
+// created; changeLinks persists them with the batch, before its barrier.
+func (d *linkDirs) set(c state.LinkChange, undo bool) ([]string, error) {
 	expected, target := c.Before, c.After
 	if undo {
 		expected, target = target, expected
 	}
-	path, err := state.SecurePath(prefix, c.Path)
+	cur, path, err := d.read(c.Path)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	cur, err := readLink(path)
-	if err != nil {
-		return err
-	}
+	dir, name := filepath.Dir(c.Path), filepath.Base(c.Path)
+	r := d.open[dir]
 	if same(cur, target) {
-		return nil
+		return nil, nil
 	}
 	if !same(cur, expected) {
-		return fmt.Errorf("%w: modified link %s", model.ErrConflict, path)
+		return nil, fmt.Errorf("%w: modified link %s", model.ErrConflict, path)
 	}
 	if target == nil {
-		return os.Remove(path)
+		return nil, r.Remove(name)
 	}
-	if err = (Installer{Prefix: prefix}).ensureParent(path); err != nil {
-		return err
+	var created []string
+	if r == nil {
+		if _, created, err = state.MakeDirs(d.prefix, dir, 0755); err != nil {
+			return nil, err
+		}
+		// MakeDirs may have created ancestors that other links also use.
+		clear(d.missing)
+		if r, err = d.root(dir); err != nil {
+			return created, err
+		}
+		if r == nil {
+			return created, fmt.Errorf("directory vanished after creation: %s", filepath.Dir(path))
+		}
 	}
-	tmp := path + ".gobrew-" + newID()
-	if err = os.Symlink(*target, tmp); err != nil {
-		return err
+	if cur == nil {
+		// Nothing is there, so creating the link is already atomic; it
+		// fails rather than replace an entry that appeared meanwhile.
+		if err = r.Symlink(*target, name); errors.Is(err, os.ErrExist) {
+			err = fmt.Errorf("%w: modified link %s", model.ErrConflict, path)
+		}
+		return created, err
 	}
-	defer os.Remove(tmp)
-	if err = os.Rename(tmp, path); err != nil {
-		return err
+	tmp := name + ".gobrew-" + newID()
+	if err = r.Symlink(*target, tmp); err != nil {
+		return created, err
 	}
-	return nil
+	if err = r.Rename(tmp, name); err != nil {
+		return created, errors.Join(err, r.Remove(tmp))
+	}
+	return created, nil
+}
+
+// read returns the target of the link at rel, or nil when nothing is there,
+// and the link's full path. Anything but a symlink is a conflict.
+func (d *linkDirs) read(rel string) (*string, string, error) {
+	if !filepath.IsLocal(rel) {
+		return nil, "", fmt.Errorf("unsafe path %q", rel)
+	}
+	path := filepath.Join(d.prefix, rel)
+	r, err := d.root(filepath.Dir(rel))
+	if err != nil || r == nil {
+		return nil, path, err
+	}
+	name := filepath.Base(rel)
+	info, err := r.Lstat(name)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, path, nil
+	}
+	if err != nil {
+		return nil, path, err
+	}
+	if info.Mode()&os.ModeSymlink == 0 {
+		return nil, path, fmt.Errorf("%w: refusing to replace %s", model.ErrConflict, path)
+	}
+	s, err := r.Readlink(name)
+	return &s, path, err
 }

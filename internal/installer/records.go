@@ -31,10 +31,8 @@ func (i Installer) MutateRecords(ctx context.Context, fn func(*model.Snapshot) e
 		if err != nil {
 			return err
 		}
-		for _, c := range changes {
-			if err = checkLink(i.Prefix, c); err != nil {
-				return err
-			}
+		if err = checkLinks(i.Prefix, changes); err != nil {
+			return err
 		}
 		j := &state.Journal{ID: newID(), Phase: "switching", Before: before, After: after, Links: changes}
 		for name, rec := range before.Records {
@@ -104,10 +102,8 @@ func (i Installer) PreviewLinked(names []string, linked bool) ([]model.LinkResul
 	if err != nil {
 		return nil, err
 	}
-	for _, c := range changes {
-		if err = checkLink(i.Prefix, c); err != nil {
-			return nil, err
-		}
+	if err = checkLinks(i.Prefix, changes); err != nil {
+		return nil, err
 	}
 	return results, nil
 }
