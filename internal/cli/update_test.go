@@ -345,23 +345,14 @@ func TestUpgradeMinimumVersionSkipsFormulaeAtOrAboveIt(t *testing.T) {
 	}
 }
 
-func TestCompatibilityFlagsAreAccepted(t *testing.T) {
-	t.Setenv("GOBREW_NO_AUTO_UPDATE", "1")
-	for _, action := range []string{"install", "reinstall", "upgrade"} {
-		a, requests, _ := updateApp(t)
-		var stdout bytes.Buffer
-		if code := a.run(context.Background(), []string{action, "demo", "--dry-run", "--json", "-y", "--yes", "--force-bottle"}, &stdout, BuildInfo{}); code != 0 || requests.calls != 0 {
-			t.Fatalf("%s: exit=%d requests=%d stdout=%s stderr=%s", action, code, requests.calls, &stdout, a.stderr)
-		}
-	}
-}
-
+// TestCaskOnlyFlagsAreIgnoredLikeHomebrew also covers the accepted no-op
+// compatibility flags -y, --yes and --force-bottle.
 func TestCaskOnlyFlagsAreIgnoredLikeHomebrew(t *testing.T) {
 	t.Setenv("GOBREW_NO_AUTO_UPDATE", "1")
 	for _, args := range [][]string{
-		{"install", "demo", "--dry-run", "--appdir=/Applications", "--language", "zh", "--zap", "--adopt", "--no-binaries", "--require-sha", "--skip-cask-deps", "--fetch-HEAD"},
-		{"reinstall", "demo", "--dry-run", "--fontdir=/x", "--binaries", "--adopt"},
-		{"upgrade", "demo", "--dry-run", "-g", "--greedy-latest", "--greedy-auto-updates", "--no-quit", "--fetch-HEAD", "--vst3-plugindir", "/x"},
+		{"install", "demo", "--dry-run", "-y", "--yes", "--force-bottle", "--appdir=/Applications", "--language", "zh", "--zap", "--adopt", "--no-binaries", "--require-sha", "--skip-cask-deps", "--fetch-HEAD"},
+		{"reinstall", "demo", "--dry-run", "--force-bottle", "--fontdir=/x", "--binaries", "--adopt"},
+		{"upgrade", "demo", "--dry-run", "-y", "--force-bottle", "-g", "--greedy-latest", "--greedy-auto-updates", "--no-quit", "--fetch-HEAD", "--vst3-plugindir", "/x"},
 		{"outdated", "--formula", "-g", "--greedy-latest", "--greedy-auto-updates", "--fetch-HEAD"},
 	} {
 		a, requests, _ := updateApp(t)

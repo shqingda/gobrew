@@ -71,6 +71,7 @@ func assertRestored(t *testing.T, inst Installer, store state.Store, original mo
 // at each journal boundary, as a crash would, and recovers in a new session.
 // Reinstall reuses the keg path, so it also backs the old keg up.
 func TestInterruptedUpgradeAndReinstallRestoreTheOldKeg(t *testing.T) {
+	t.Parallel()
 	for _, version := range []string{"2", "1"} {
 		for _, stop := range []string{"before-move", "after-backup", "after-move", "partial-links", "after-links"} {
 			t.Run("v"+version+"/"+stop, func(t *testing.T) {
@@ -131,6 +132,7 @@ func TestInterruptedUpgradeAndReinstallRestoreTheOldKeg(t *testing.T) {
 // TestInterruptedUninstallRestoresTheKegFromTrash stops an uninstall after
 // its keg moved to the trash, before or after its links were removed.
 func TestInterruptedUninstallRestoresTheKegFromTrash(t *testing.T) {
+	t.Parallel()
 	for _, stop := range []string{"after-move", "after-links"} {
 		t.Run(stop, func(t *testing.T) {
 			inst, store, original := installedDemo(t)
@@ -177,6 +179,7 @@ func TestInterruptedUninstallRestoresTheKegFromTrash(t *testing.T) {
 // TestUnknownJournalPhaseIsNeverGuessed keeps a journal that this version
 // does not understand, and the files it describes, for repair.
 func TestUnknownJournalPhaseIsNeverGuessed(t *testing.T) {
+	t.Parallel()
 	inst, store, original := installedDemo(t)
 	err := store.WithLock(context.Background(), func(tx *state.Session) error {
 		before, err := tx.Load()
@@ -204,6 +207,7 @@ func TestUnknownJournalPhaseIsNeverGuessed(t *testing.T) {
 // package's pending links changed but before Ready and the cleared journal
 // committed together, as a crash would.
 func TestInterruptedPendingLinksBeforeReadyCommitRollBack(t *testing.T) {
+	t.Parallel()
 	inst, store, original := installedDemo(t)
 	extra := filepath.Join(original.Keg, "bin", "extra")
 	if err := os.WriteFile(extra, []byte("generated"), 0755); err != nil {
@@ -250,6 +254,7 @@ func TestInterruptedPendingLinksBeforeReadyCommitRollBack(t *testing.T) {
 // keg moves (backup, then publish) share one barrier after both renames, and
 // that a failed barrier restores the old keg.
 func TestKegMoveBatchBarrierAndFailureRollback(t *testing.T) {
+	t.Parallel()
 	for _, fail := range []bool{false, true} {
 		t.Run(fmt.Sprint(fail), func(t *testing.T) {
 			inst, store, original := installedDemo(t)

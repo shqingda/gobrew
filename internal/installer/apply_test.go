@@ -14,6 +14,7 @@ import (
 )
 
 func TestPrivateDirectoryAliasesCannotRedirectWrites(t *testing.T) {
+	t.Parallel()
 	for _, kind := range []string{"staging", "backups", "trash"} {
 		t.Run(kind, func(t *testing.T) {
 			prefix, tree, outside := t.TempDir(), t.TempDir(), t.TempDir()
@@ -79,6 +80,7 @@ func TestPrivateDirectoryAliasesCannotRedirectWrites(t *testing.T) {
 }
 
 func TestRecoveryRejectsPathsOutsidePrefix(t *testing.T) {
+	t.Parallel()
 	prefix, outside := t.TempDir(), t.TempDir()
 	s := state.Store{Prefix: prefix}
 	if err := s.Initialize(); err != nil {
@@ -106,6 +108,7 @@ func TestRecoveryRejectsPathsOutsidePrefix(t *testing.T) {
 }
 
 func TestApplyRechecksExistingDependencyOwnership(t *testing.T) {
+	t.Parallel()
 	prefix, tree := t.TempDir(), t.TempDir()
 	s := state.Store{Prefix: prefix}
 	if err := s.Initialize(); err != nil {
@@ -143,6 +146,7 @@ func TestApplyRechecksExistingDependencyOwnership(t *testing.T) {
 }
 
 func TestApplyAndRecoveryBoundaries(t *testing.T) {
+	t.Parallel()
 	for _, phase := range []string{"before-move", "after-move", "partial-links", "after-links", "postinstall"} {
 		t.Run(phase, func(t *testing.T) {
 			prefix := t.TempDir()
@@ -223,6 +227,7 @@ func TestApplyAndRecoveryBoundaries(t *testing.T) {
 }
 
 func TestInstallPreservesConfigurationAndRejectsStalePlan(t *testing.T) {
+	t.Parallel()
 	prefix := t.TempDir()
 	s := state.Store{Prefix: prefix}
 	if err := s.Initialize(); err != nil {
@@ -263,6 +268,7 @@ func TestInstallPreservesConfigurationAndRejectsStalePlan(t *testing.T) {
 }
 
 func TestReservedMarkerCannotFollowBottleSymlink(t *testing.T) {
+	t.Parallel()
 	prefix := t.TempDir()
 	s := state.Store{Prefix: prefix}
 	if err := s.Initialize(); err != nil {
@@ -290,6 +296,7 @@ func TestReservedMarkerCannotFollowBottleSymlink(t *testing.T) {
 // An explicit downgrade leaves the newer keg behind. Installing that version
 // again may reuse the path only when gobrew's marker proves ownership.
 func TestLeftoverOwnedKegIsReplacedButForeignKegIsNot(t *testing.T) {
+	t.Parallel()
 	for _, foreign := range []bool{false, true} {
 		prefix := t.TempDir()
 		if err := (state.Store{Prefix: prefix}).Initialize(); err != nil {

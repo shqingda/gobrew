@@ -13,6 +13,7 @@ import (
 )
 
 func TestPrunePrefixRemovesOnlyItsOwnLeftovers(t *testing.T) {
+	t.Parallel()
 	prefix := t.TempDir()
 	store := state.Store{Prefix: prefix}
 	if err := store.Initialize(); err != nil {

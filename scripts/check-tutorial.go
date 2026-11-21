@@ -16,6 +16,7 @@ import (
 	"regexp"
 	"runtime"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -76,13 +77,35 @@ func run() error {
 	if err := command(root, "test", "-race", "./..."); err != nil {
 		return err
 	}
-	for _, example := range examples {
+	// One build links every program with the race detector. Each race
+	// binary takes about a second to start on macOS, so the programs run in
+	// parallel; their output is printed in tutorial order.
+	bin := filepath.Join(root, "bin") + string(filepath.Separator)
+	if err := command(root, "build", "-race", "-o", bin, "./..."); err != nil {
+		return err
+	}
+	type outcome struct {
+		output []byte
+		err    error
+	}
+	results := make([]outcome, len(examples))
+	var wg sync.WaitGroup
+	for n, example := range examples {
 		if example.test {
 			continue
 		}
-		fmt.Printf("\n[%s]\n", example.name)
-		if err := command(root, "run", "-race", "./"+example.name); err != nil {
-			return err
+		wg.Go(func() {
+			results[n].output, results[n].err = runProgram(filepath.Join(bin, example.name), root)
+		})
+	}
+	wg.Wait()
+	for n, example := range examples {
+		if example.test {
+			continue
+		}
+		fmt.Printf("\n[%s]\n%s", example.name, results[n].output)
+		if results[n].err != nil {
+			return results[n].err
 		}
 	}
 	fmt.Printf("\nAll %d examples passed formatting, compilation, vet, and race checks.\n", len(examples))
@@ -146,6 +169,18 @@ func readExamples(data []byte) ([]example, error) {
 		return nil, fmt.Errorf("no tutorial examples found")
 	}
 	return examples, nil
+}
+
+func runProgram(program, dir string) ([]byte, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, program)
+	cmd.Dir = dir
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return output, fmt.Errorf("%s: %w", filepath.Base(program), err)
+	}
+	return output, nil
 }
 
 func command(dir string, args ...string) error {

@@ -27,6 +27,7 @@ func (responses historyResponses) RoundTrip(r *http.Request) (*http.Response, er
 }
 
 func TestHistoricalPlanLoadsDependenciesAbsentFromCurrentClosure(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	host := model.Platform{OS: "darwin", Arch: "arm64", Major: 15}
 	cache, prefix := t.TempDir(), t.TempDir()

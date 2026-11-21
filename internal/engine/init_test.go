@@ -15,6 +15,7 @@ import (
 )
 
 func TestInitReportsMissingPrivilegeWithoutSideEffects(t *testing.T) {
+	t.Parallel()
 	if os.Geteuid() == 0 {
 		t.Skip("root can write any parent")
 	}
@@ -33,6 +34,7 @@ func TestInitReportsMissingPrivilegeWithoutSideEffects(t *testing.T) {
 }
 
 func TestInitCompletesOnlyPristineLayouts(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct {
 		name  string
 		setup func(prefix string) error
@@ -78,6 +80,7 @@ func TestInitCompletesOnlyPristineLayouts(t *testing.T) {
 }
 
 func TestConcurrentInitAgreesOnOnePrefix(t *testing.T) {
+	t.Parallel()
 	prefix := filepath.Join(t.TempDir(), "prefix")
 	errs := make([]error, 8)
 	var wg sync.WaitGroup
@@ -94,6 +97,7 @@ func TestConcurrentInitAgreesOnOnePrefix(t *testing.T) {
 }
 
 func TestOnlyVersionInstallRequestsChooseVersions(t *testing.T) {
+	t.Parallel()
 	formulae := map[string]model.Formula{"python@3.13": {Name: "python@3.13", Version: "3.13.9"}, "uv": {Name: "uv", Version: "0.13.6", Revision: 1}}
 	e := New(Config{HTTP: &http.Client{Transport: noNetwork{t}}})
 	host := model.Platform{OS: "darwin", Arch: "arm64", Major: 26}

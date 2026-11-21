@@ -10,6 +10,7 @@ import (
 // A successful operation keeps exit status zero when releasing its cache
 // leases fails afterwards; a failed one reports both errors.
 func TestCloseFailureAfterSuccessIsAWarning(t *testing.T) {
+	t.Parallel()
 	ok := model.Result{Succeeded: []string{"jq"}}
 	result, err := closeOperation(ok, nil, errors.New("cache cleanup: permission denied"))
 	if err != nil || len(result.Warnings) != 1 || len(result.Succeeded) != 1 {

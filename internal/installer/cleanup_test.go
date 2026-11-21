@@ -3,6 +3,7 @@ package installer
 import (
 	"context"
 	"encoding/binary"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -13,6 +14,7 @@ import (
 )
 
 func TestCleanupRejectsAliasedOwnershipMarker(t *testing.T) {
+	t.Parallel()
 	for _, kind := range []string{"Cellar", "backups"} {
 		t.Run(kind, func(t *testing.T) {
 			prefix := t.TempDir()
@@ -45,6 +47,7 @@ func TestCleanupRejectsAliasedOwnershipMarker(t *testing.T) {
 }
 
 func TestCleanupWithLimitsDryRunAndPinsLikeBrew(t *testing.T) {
+	t.Parallel()
 	prefix := t.TempDir()
 	s := state.Store{Prefix: prefix}
 	if err := s.Initialize(); err != nil {
@@ -129,6 +132,7 @@ func machoImporting(lib string) []byte {
 }
 
 func TestCleanupKeepsKegsThatInstalledBinariesImport(t *testing.T) {
+	t.Parallel()
 	prefix := t.TempDir()
 	s := state.Store{Prefix: prefix}
 	if err := s.Initialize(); err != nil {
@@ -167,4 +171,60 @@ func TestCleanupKeepsKegsThatInstalledBinariesImport(t *testing.T) {
 	if _, err := os.Stat(imported); err != nil {
 		t.Fatal("removed a keg an installed binary imports:", err)
 	}
+}
+
+// BenchmarkCleanupHundredKegs measures cleanup after an install with 100
+// installed kegs of 20 files each, half of them Mach-O. Without an old keg
+// nothing is scanned; one old keg makes cleanup read every keg's imports.
+// Run with: go test ./internal/installer -run '^$' -bench CleanupHundredKegs
+func BenchmarkCleanupHundredKegs(b *testing.B) {
+	prefix := b.TempDir()
+	s := state.Store{Prefix: prefix}
+	if err := s.Initialize(); err != nil {
+		b.Fatal(err)
+	}
+	owner := func(name string) string { return strings.Repeat("a", 32) + ":" + name }
+	keg := func(name, version string) string {
+		path := filepath.Join(prefix, "Cellar", name, version)
+		if err := os.MkdirAll(filepath.Join(path, "bin"), 0755); err != nil {
+			b.Fatal(err)
+		}
+		for n := range 20 {
+			body := []byte("text")
+			if n%2 == 0 {
+				body = machoImporting(filepath.Join(prefix, "opt", "dep", "lib", "libdep.dylib"))
+			}
+			if err := os.WriteFile(filepath.Join(path, "bin", fmt.Sprintf("f%d", n)), body, 0755); err != nil {
+				b.Fatal(err)
+			}
+		}
+		if err := os.WriteFile(filepath.Join(path, ownerFile), []byte(owner(name)), 0600); err != nil {
+			b.Fatal(err)
+		}
+		return path
+	}
+	records := map[string]model.Record{}
+	for n := range 100 {
+		name := fmt.Sprintf("pkg%03d", n)
+		records[name] = model.Record{Formula: model.Formula{Name: name, Version: "2"}, Keg: keg(name, "2"), Owner: owner(name), Status: model.Ready}
+	}
+	if err := s.WithLock(context.Background(), func(tx *state.Session) error { return tx.Save(model.Snapshot{Records: records}) }); err != nil {
+		b.Fatal(err)
+	}
+	inst := Installer{Prefix: prefix}
+	b.Run("no-old-kegs", func(b *testing.B) {
+		for b.Loop() {
+			if removed, err := inst.CleanupWith(context.Background(), CleanupOptions{DryRun: true}); err != nil || len(removed) != 0 {
+				b.Fatal(removed, err)
+			}
+		}
+	})
+	keg("pkg000", "1")
+	b.Run("one-old-keg", func(b *testing.B) {
+		for b.Loop() {
+			if removed, err := inst.CleanupWith(context.Background(), CleanupOptions{DryRun: true}); err != nil || len(removed) != 1 {
+				b.Fatal(removed, err)
+			}
+		}
+	})
 }

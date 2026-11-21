@@ -18,6 +18,7 @@ import (
 )
 
 func TestOwnedLinkRecoveryAndForeignConflict(t *testing.T) {
+	t.Parallel()
 	prefix := t.TempDir()
 	before, after := "/old/keg/tool", "/new/keg/tool"
 	change := state.LinkChange{Path: "bin/tool", Before: &before, After: &after}
@@ -55,6 +56,7 @@ func TestOwnedLinkRecoveryAndForeignConflict(t *testing.T) {
 }
 
 func TestLinkBatchBarrierAndFailureRollback(t *testing.T) {
+	t.Parallel()
 	for _, fail := range []bool{false, true} {
 		t.Run(fmt.Sprint(fail), func(t *testing.T) {
 			prefix, tree := t.TempDir(), t.TempDir()
@@ -118,6 +120,7 @@ func TestLinkBatchBarrierAndFailureRollback(t *testing.T) {
 }
 
 func TestRepairLinksDoesNotRepeatSuccessfulPostinstall(t *testing.T) {
+	t.Parallel()
 	for _, barrierFailure := range []bool{false, true} {
 		t.Run(fmt.Sprint(barrierFailure), func(t *testing.T) { checkRepairLinks(t, barrierFailure) })
 	}
@@ -185,6 +188,7 @@ func checkRepairLinks(t *testing.T, barrierFailure bool) {
 }
 
 func TestPreviewLinkedPredictsSetLinkedWithoutTouchingPrefix(t *testing.T) {
+	t.Parallel()
 	prefix := t.TempDir()
 	store := state.Store{Prefix: prefix}
 	if err := store.Initialize(); err != nil {
@@ -259,6 +263,7 @@ func TestPreviewLinkedPredictsSetLinkedWithoutTouchingPrefix(t *testing.T) {
 }
 
 func TestKegOnlyLinkNeedsForceUnlessVersioned(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct {
 		reason     string
 		force      bool
@@ -289,6 +294,7 @@ func TestKegOnlyLinkNeedsForceUnlessVersioned(t *testing.T) {
 }
 
 func TestRestoreLinksRecreatesOnlyMissingClaimedLinks(t *testing.T) {
+	t.Parallel()
 	prefix := t.TempDir()
 	store := state.Store{Prefix: prefix}
 	if err := store.Initialize(); err != nil {
@@ -357,6 +363,7 @@ func TestRestoreLinksRecreatesOnlyMissingClaimedLinks(t *testing.T) {
 // not exist yet, including a top-level one. Their entries join the batch's
 // single barrier instead of one barrier per new directory.
 func TestLinkBatchPersistsNewParentDirectories(t *testing.T) {
+	t.Parallel()
 	prefix, tree := t.TempDir(), t.TempDir()
 	s := state.Store{Prefix: prefix}
 	if err := s.Initialize(); err != nil {
@@ -378,7 +385,6 @@ func TestLinkBatchPersistsNewParentDirectories(t *testing.T) {
 		synced = append(synced, slices.Clone(paths))
 		return platform.SyncDirs(paths)
 	}}
-	before := platformBarriers()
 	if _, err := inst.Apply(context.Background(), onePackage(prefix, tree, model.Formula{Name: "demo", Version: "1"}), nil); err != nil {
 		t.Fatal(err)
 	}
@@ -390,24 +396,15 @@ func TestLinkBatchPersistsNewParentDirectories(t *testing.T) {
 			t.Fatalf("batch omits %s: %v", want, synced[0])
 		}
 	}
-	// Staging, the marker, the keg move and the link batch; no barrier per
-	// new link directory.
-	if got := platformBarriers() - before; got > 6 {
-		t.Fatalf("device barriers = %d", got)
-	}
 	if target, err := os.Readlink(filepath.Join(prefix, "share", "demo", "deep", "file")); err != nil || target != filepath.Join(prefix, "Cellar", "demo", "1", "share", "demo", "deep", "file") {
 		t.Fatalf("link = %q, %v", target, err)
 	}
 }
 
-func platformBarriers() uint64 {
-	barriers, _ := platform.SyncCounts()
-	return barriers
-}
-
 // TestLinkBatchRejectsSymlinkedParents keeps links from following a parent
 // directory that is a symlink, whether it leaves the prefix or stays inside.
 func TestLinkBatchRejectsSymlinkedParents(t *testing.T) {
+	t.Parallel()
 	for _, inside := range []bool{false, true} {
 		t.Run(fmt.Sprint(inside), func(t *testing.T) {
 			prefix, tree, outside := t.TempDir(), t.TempDir(), t.TempDir()

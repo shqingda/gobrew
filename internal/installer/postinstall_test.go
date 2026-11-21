@@ -15,6 +15,7 @@ import (
 )
 
 func TestPostInstallRejectsMissingTransitiveDependency(t *testing.T) {
+	t.Parallel()
 	prefix, tree := t.TempDir(), t.TempDir()
 	s := state.Store{Prefix: prefix}
 	if err := s.Initialize(); err != nil {
@@ -45,6 +46,7 @@ func TestPostInstallRejectsMissingTransitiveDependency(t *testing.T) {
 }
 
 func TestPostinstallRecoveryPreservesPromotionsAndCompletedStatus(t *testing.T) {
+	t.Parallel()
 	for _, completed := range []bool{false, true} {
 		t.Run(fmt.Sprint(completed), func(t *testing.T) {
 			prefix, tree := t.TempDir(), t.TempDir()
@@ -118,6 +120,7 @@ func (failingReader) Read(p []byte) (int, error) {
 }
 
 func TestFailedConfigCopyLeavesNoDestination(t *testing.T) {
+	t.Parallel()
 	dst := filepath.Join(t.TempDir(), "config")
 	if err := copyConfig(failingReader{}, dst, 0644); err == nil {
 		t.Fatal("expected read error")
@@ -128,6 +131,7 @@ func TestFailedConfigCopyLeavesNoDestination(t *testing.T) {
 }
 
 func TestPostInstallSyncFailureDoesNotPublishCompletion(t *testing.T) {
+	t.Parallel()
 	prefix, tree := t.TempDir(), t.TempDir()
 	s := state.Store{Prefix: prefix}
 	if err := s.Initialize(); err != nil {
@@ -161,6 +165,7 @@ func TestPostInstallSyncFailureDoesNotPublishCompletion(t *testing.T) {
 }
 
 func TestPostInstallCancellationPreservesCauseAndRepairState(t *testing.T) {
+	t.Parallel()
 	for _, repair := range []bool{false, true} {
 		t.Run(fmt.Sprint(repair), func(t *testing.T) {
 			prefix, tree := t.TempDir(), t.TempDir()
@@ -228,6 +233,7 @@ func TestPostInstallCancellationPreservesCauseAndRepairState(t *testing.T) {
 }
 
 func TestSkipOptionsLeaveTheKegUnlinkedAndHooksUnrun(t *testing.T) {
+	t.Parallel()
 	prefix, tree := t.TempDir(), t.TempDir()
 	s := state.Store{Prefix: prefix}
 	if err := s.Initialize(); err != nil {
@@ -272,6 +278,7 @@ func TestSkipOptionsLeaveTheKegUnlinkedAndHooksUnrun(t *testing.T) {
 }
 
 func TestPostInstallOutputKeepsAnUnterminatedLastLine(t *testing.T) {
+	t.Parallel()
 	events := make(chan model.Event, 8)
 	o := &outputEvents{events: events, name: "demo"}
 	_, _ = o.Write([]byte("first\nlast without newline"))

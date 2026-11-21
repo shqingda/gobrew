@@ -42,6 +42,7 @@ func depNames(deps []model.DeclaredDependency) []string {
 }
 
 func TestDependencyOrderIsTopologicalLikeBrew(t *testing.T) {
+	t.Parallel()
 	got, err := dependencyOrder("wget", mapSource(wgetDeps), DepsOptions{}, nil)
 	if err != nil {
 		t.Fatal(err)
@@ -68,6 +69,7 @@ func TestDependencyOrderIsTopologicalLikeBrew(t *testing.T) {
 }
 
 func TestDependencyTreePrunesRepeatsAndMarksCycles(t *testing.T) {
+	t.Parallel()
 	var cycle error
 	full, err := dependencyTree("libidn2", mapSource(wgetDeps), map[string]bool{}, DepsOptions{}, &cycle)
 	if err != nil || cycle != nil {
@@ -104,6 +106,7 @@ func TestDependencyTreePrunesRepeatsAndMarksCycles(t *testing.T) {
 }
 
 func TestDepsPreferRecordedRuntimeDependenciesWhenInstalled(t *testing.T) {
+	t.Parallel()
 	records := map[string]model.Record{
 		"jq":        {Dependencies: []model.RuntimeDependency{{Name: "homebrew/core/oniguruma"}}},
 		"oniguruma": {Dependencies: []model.RuntimeDependency{{Name: "gone"}}},
@@ -118,6 +121,7 @@ func TestDepsPreferRecordedRuntimeDependenciesWhenInstalled(t *testing.T) {
 }
 
 func TestEveryFormulaDepsPicksTheSourcePerFormula(t *testing.T) {
+	t.Parallel()
 	cat := catalog.Snapshot{Formulae: map[string]model.Formula{
 		"app":  {Name: "app", Dependencies: []string{"lib"}},
 		"lib":  {Name: "lib", Dependencies: []string{"base"}},
@@ -143,6 +147,7 @@ func TestEveryFormulaDepsPicksTheSourcePerFormula(t *testing.T) {
 }
 
 func TestDepsOptionsSelectLikeBrew(t *testing.T) {
+	t.Parallel()
 	test := model.DeclaredDependency{Name: "t", Test: true}
 	if (DepsOptions{IncludeTest: true}).keep(test, false) || !(DepsOptions{IncludeTest: true}).keep(test, true) {
 		t.Fatal("test dependencies must only count at the root")
@@ -162,6 +167,7 @@ func TestDepsOptionsSelectLikeBrew(t *testing.T) {
 }
 
 func TestMergeRepeatsKeepsTheWeakestTags(t *testing.T) {
+	t.Parallel()
 	got := mergeRepeats([]model.DeclaredDependency{
 		{Name: "a", Build: true}, {Name: "b", Build: true}, {Name: "c", Optional: true}, {Name: "d", Optional: true},
 		{Name: "a"}, {Name: "b", Build: true, Test: true}, {Name: "c", Recommended: true}, {Name: "d", Optional: true, NoLinkage: true},
@@ -173,6 +179,7 @@ func TestMergeRepeatsKeepsTheWeakestTags(t *testing.T) {
 }
 
 func TestMissingPrunesSatisfiedDependencies(t *testing.T) {
+	t.Parallel()
 	current := model.Formula{Name: "lib", Version: "2", Dependencies: []string{"base"}}
 	cat := catalog.Snapshot{Formulae: map[string]model.Formula{
 		"app":   {Name: "app", Dependencies: []string{"lib", "stale"}},
@@ -192,6 +199,7 @@ func TestMissingPrunesSatisfiedDependencies(t *testing.T) {
 }
 
 func TestDependencyGraphVisitsEachFormulaOnce(t *testing.T) {
+	t.Parallel()
 	got, err := dependencyGraph([]string{"libidn2"}, mapSource(wgetDeps), DepsOptions{})
 	if err != nil {
 		t.Fatal(err)
@@ -206,6 +214,7 @@ func TestDependencyGraphVisitsEachFormulaOnce(t *testing.T) {
 }
 
 func TestDeclaredUsesFollowsBrewFilters(t *testing.T) {
+	t.Parallel()
 	cat := catalog.Snapshot{Formulae: map[string]model.Formula{
 		"app":  {Name: "app", DeclaredDependencies: []model.DeclaredDependency{{Name: "mid"}, {Name: "tool", Build: true}}},
 		"mid":  {Name: "mid", DeclaredDependencies: []model.DeclaredDependency{{Name: "base", Recommended: true}, {Name: "check", Test: true}}},

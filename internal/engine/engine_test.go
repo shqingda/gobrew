@@ -28,6 +28,7 @@ func ownedRecord(t *testing.T, prefix, name string) model.Record {
 }
 
 func TestUninstallRemovesUnusedDependencies(t *testing.T) {
+	t.Parallel()
 	for _, retain := range []string{"none", "requested", "pinned", "shared"} {
 		t.Run(retain, func(t *testing.T) {
 			prefix := t.TempDir()
@@ -84,6 +85,7 @@ func TestUninstallRemovesUnusedDependencies(t *testing.T) {
 }
 
 func TestNoopRejectsUnhealthyDependencyClosure(t *testing.T) {
+	t.Parallel()
 	for _, damage := range []string{"missing-keg", "missing-marker", "symlink-marker", "hardlink-marker", "not-ready", "missing-record"} {
 		t.Run(damage, func(t *testing.T) {
 			prefix := t.TempDir()
@@ -152,6 +154,7 @@ func TestNoopRejectsUnhealthyDependencyClosure(t *testing.T) {
 }
 
 func TestInstalledNoopNeedsNeitherCatalogNorNetwork(t *testing.T) {
+	t.Parallel()
 	prefix := t.TempDir()
 	store := state.Store{Prefix: prefix}
 	if err := store.Initialize(); err != nil {
@@ -198,6 +201,7 @@ func TestInstalledNoopNeedsNeitherCatalogNorNetwork(t *testing.T) {
 }
 
 func TestNoopRecoversInterruptedLinkSwitch(t *testing.T) {
+	t.Parallel()
 	prefix := t.TempDir()
 	s := state.Store{Prefix: prefix}
 	if err := s.Initialize(); err != nil {
@@ -272,6 +276,7 @@ func TestNoopRecoversInterruptedLinkSwitch(t *testing.T) {
 }
 
 func TestDoctorReportsRecoveryAndOwnershipWithoutMutation(t *testing.T) {
+	t.Parallel()
 	for _, damage := range []string{"pending-journal", "missing-marker"} {
 		t.Run(damage, func(t *testing.T) {
 			prefix := t.TempDir()
@@ -315,6 +320,7 @@ func TestDoctorReportsRecoveryAndOwnershipWithoutMutation(t *testing.T) {
 }
 
 func TestUninstallProtectsDependentsAndAutoremoveRoots(t *testing.T) {
+	t.Parallel()
 	prefix := t.TempDir()
 	s := state.Store{Prefix: prefix}
 	if err := s.Initialize(); err != nil {
@@ -344,6 +350,7 @@ func TestUninstallProtectsDependentsAndAutoremoveRoots(t *testing.T) {
 }
 
 func TestExplicitInstallPromotesDependencyLocally(t *testing.T) {
+	t.Parallel()
 	prefix := t.TempDir()
 	s := state.Store{Prefix: prefix}
 	if err := s.Initialize(); err != nil {
@@ -376,6 +383,7 @@ func TestExplicitInstallPromotesDependencyLocally(t *testing.T) {
 }
 
 func TestOutdatedBelowComparesPkgVersions(t *testing.T) {
+	t.Parallel()
 	prefix := t.TempDir()
 	s := state.Store{Prefix: prefix}
 	if err := s.Initialize(); err != nil {
