@@ -1,0 +1,25 @@
+# python@3.13 Apply, M3 Pro, macOS 27.2.1, warm cache, fresh prefix /tmp/gpp per run, GOBREW_NO_INSTALL_CLEANUP=1.
+# old = 04caad7; new = c810453 (B1 + C) in the first block, cf5bfca (links) in the second. Alternating rounds.
+# stage_ms = ca-certificates stage column (stage start to first post-install); link_ms = sum of per-package link columns.
+## B1 + C
+old r1 stage_ms=2164.1 link_ms=223.8 barriers=451 tx=39 apply=9.70s
+new r1 stage_ms=2176.0 link_ms=165.0 barriers=431 tx=32 apply=9.82s
+old r2 stage_ms=2345.7 link_ms=237.3 barriers=451 tx=39 apply=10.05s
+new r2 stage_ms=2206.9 link_ms=176.6 barriers=431 tx=32 apply=9.85s
+old r3 stage_ms=2160.8 link_ms=236.0 barriers=451 tx=39 apply=10.79s
+new r3 stage_ms=2140.4 link_ms=194.9 barriers=431 tx=32 apply=12.09s
+old r4 stage_ms=2068.4 link_ms=258.8 barriers=451 tx=39 apply=10.61s
+new r4 stage_ms=2115.9 link_ms=164.8 barriers=431 tx=32 apply=9.41s
+old r5 stage_ms=2241.9 link_ms=222.0 barriers=451 tx=39 apply=9.54s
+new r5 stage_ms=2069.8 link_ms=168.3 barriers=431 tx=32 apply=9.24s
+## links
+old r1 stage_ms=2154.7 link_ms=218.1 barriers=451 tx=39 apply=9.48s
+new r1 stage_ms=685.4 link_ms=111.2 barriers=71 tx=25 apply=8.23s
+old r2 stage_ms=2081.9 link_ms=221.8 barriers=451 tx=39 apply=9.65s
+new r2 stage_ms=624.4 link_ms=105.4 barriers=71 tx=25 apply=7.99s
+old r3 stage_ms=2162.5 link_ms=212.9 barriers=451 tx=39 apply=9.07s
+new r3 stage_ms=618.5 link_ms=104.0 barriers=71 tx=25 apply=7.51s
+old r4 stage_ms=2167.3 link_ms=211.0 barriers=451 tx=39 apply=8.95s
+new r4 stage_ms=648.5 link_ms=102.0 barriers=71 tx=25 apply=7.32s
+old r5 stage_ms=2189.1 link_ms=224.8 barriers=451 tx=39 apply=9.05s
+new r5 stage_ms=738.3 link_ms=105.0 barriers=71 tx=25 apply=8.22s

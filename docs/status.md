@@ -87,7 +87,7 @@ brew 只对 Cask 或 HEAD 安装起作用的参数（`--appdir` 等目标目录�
 ## 已知限制
 
 - 冷安装的 Prepare 阶段在小包上仍慢于 nanobrew，见 [对比报告](nanobrew-comparison.md)。2026-11-21 的 OCI 元数据预取与解压优化把 hello+jq 冷安装中位数从 2041 毫秒降到 1362 毫秒（[性能记录](performance.md)）；与 nanobrew 的对比需要 Actions，尚未重测。
-- 大包的 Apply（证书脚本之外）主要花在创建和校验链接上：`python@3.13` 有 3713 个链接，约 0.7–0.9 秒。克隆树的逐 inode fsync 约 0.2 秒，状态提交约 0.25 秒。持久化边界的选项见 [0004 提案](decisions/0004-apply-persistence-boundary.md)，待用户决定。
+- 大包的 Apply（证书脚本之外）在 2026-11-22 优化后：`python@3.13` 从 stage 到首个 post-install 约 0.65 秒，其中克隆树的 clonefile 和逐 inode fsync 约 0.38 秒，3712 个链接约 0.2 秒。克隆树只刷目录（0004 选项 A）经用户决定不做，见 [0004](decisions/0004-apply-persistence-boundary.md)。
 - bash 补全需要已加载 bash-completion，与 brew 相同；macOS 自带的 bash 3.2 没有它。
 - 证书包初始化会完整运行上游脚本，在 M3 Pro 上约 6.5 秒。为了保留信任检查，这一步不跳过、也不缓存。
 - 专用质量工具 crapper、dryer、mutator 在本环境中不可用，从未运行，也没有评分。

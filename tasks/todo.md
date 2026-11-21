@@ -15,7 +15,11 @@
   - 回退：CDN 连接预热、gzip 外层加大缓冲，均无可测收益。
   - 未做：每个 bottle 的设备屏障从 6 次减为 4 次。需要先补中断恢复测试。
   - 未做：100 包清理场景。
-  - 只测量：Apply 的持久化边界。数据和选项见 [0004 提案](../docs/decisions/0004-apply-persistence-boundary.md)，待用户决定。
+  - Apply 的持久化边界：先测量，写成 [0004 提案](../docs/decisions/0004-apply-persistence-boundary.md)，已由用户决定，见下一项。
+- [x] 阶段 3 追加：0004 提案（用户 2026-11-22 批准 B1、C 和链接优化；A、B2 不做）。
+  - B1、C（`c810453`）：Ready 与清除待定链接合为一次提交；keg 移动一批只执行一次屏障。补了中断恢复和屏障失败的测试。
+  - 链接优化（`cf5bfca`）：新建的链接父目录并入批次屏障；每个父目录每批只检查并打开一次；新链接直接创建。补了新建顶层目录和符号链接父目录的测试。
+  - 已验证：`make check`、`smoke.sh`、`smoke-version.sh`，以及临时 prefix 中的真实依赖方升级。`python@3.13` 从 stage 到首个 post-install 2162 → 648 毫秒，设备屏障 451 → 71。
 - [x] 阶段 4：输出与体验（`834da62`）。
   - 跳过：relocate、签名、链接阶段的单独标题。brew 只显示 Pouring。
   - 跳过：进度条 `[n/N]` 和开始时就计入全部下载总量。catalog 中没有 bottle 大小。
