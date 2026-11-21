@@ -33,7 +33,7 @@ gobrew 面向官方 Homebrew core 预编译软件的快速安装和可靠管理�
 
 因库变化导致依赖方无法正常运行时，必要的重装、升级或明确拒绝操作属于正确性要求，不能省略。现有依赖与 ABI 检查继续保留。
 
-仍能正常运行、仅版本过时的依赖方，其自动升级不再作为当前 P0 必做项；先延后评估，避免安装一个软件时扩大变更范围和耗时。对应 `GOBREW_NO_INSTALLED_DEPENDENTS_CHECK` 开关不单独列为必做项。此次只调整范围，不宣称已实现完整的损坏链接检测或修复。
+~~仍能正常运行、仅版本过时的依赖方，其自动升级不再作为当前 P0 必做项；先延后评估。~~ 2026-11-21 用户决定按 brew 实现：`install`、`upgrade`、`reinstall` 点名的 Formula 被安装或升级后，同一个计划也升级它们过时的已装依赖方。被 pin 的依赖方只警告，没有 bottle 的依赖方跳过。设置 `GOBREW_NO_INSTALLED_DEPENDENTS_CHECK` 时不检查。brew 只对非 core Formula 检查损坏链接，gobrew 只有 core Formula，所以不做这一项。
 
 ## 必须保留的能力与验证
 

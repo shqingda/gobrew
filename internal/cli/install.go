@@ -102,6 +102,12 @@ func (a *application) install(ctx context.Context, request model.Request, dryRun
 	if action == "install" {
 		request.NoInstallUpgrade = os.Getenv("GOBREW_NO_INSTALL_UPGRADE") != ""
 	}
+	if os.Getenv("GOBREW_NO_INSTALLED_DEPENDENTS_CHECK") != "" {
+		request.NoInstalledDependentsCheck = true
+		if !a.quiet && !a.json && os.Getenv("GOBREW_NO_ENV_HINTS") == "" {
+			a.warn("`GOBREW_NO_INSTALLED_DEPENDENTS_CHECK` is set: not checking for outdated\ndependents or dependents with broken linkage!")
+		}
+	}
 	if action == "upgrade" && a.minimumVersion != "" {
 		skip, err := a.notBelowMinimum(ctx, e, request.Names[0])
 		if err != nil {
@@ -122,7 +128,26 @@ func (a *application) install(ctx context.Context, request model.Request, dryRun
 		if err != nil {
 			return err
 		}
-		a.setResult(plan, func(w io.Writer) error { return renderPlan(w, plan) })
+		batches := planDependentEvents(plan)
+		if !a.quiet && !a.json {
+			// Like brew, the warnings go to stderr before the plan.
+			for _, phase := range []string{"pinned-dependent", "skipped-dependent"} {
+				if batch := batches[phase]; len(batch) > 0 {
+					if err := writeLines(a.stderr, dependentLines(phase, batch, true)); err != nil {
+						return err
+					}
+				}
+			}
+		}
+		a.setResult(plan, func(w io.Writer) error {
+			if err := renderPlan(w, plan); err != nil {
+				return err
+			}
+			if batch := batches["dependent"]; len(batch) > 0 {
+				return writeLines(w, dependentLines("dependent", batch, true))
+			}
+			return nil
+		})
 		return nil
 	}
 	if action == "install" {

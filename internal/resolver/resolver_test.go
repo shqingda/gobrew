@@ -91,7 +91,9 @@ func TestCompatibleOutdatedDependentIsNotUpgradedIncidentally(t *testing.T) {
 		"app": {Formula: oldApp, Status: model.Ready, Dependencies: []model.RuntimeDependency{{Name: "lib", Version: "1"}}},
 	}}
 	for _, action := range []string{"install", "upgrade"} {
-		plan, err := Build(model.Request{Action: action, Names: []string{"lib"}}, "snapshot", map[string]model.Formula{"lib": newLib, "app": newApp}, snapshot, host, "/opt/gobrew")
+		// The dependents check is brew's opt-in-by-default behavior; without
+		// it, a compatible ABI must not drag the dependent along.
+		plan, err := Build(model.Request{Action: action, Names: []string{"lib"}, NoInstalledDependentsCheck: true}, "snapshot", map[string]model.Formula{"lib": newLib, "app": newApp}, snapshot, host, "/opt/gobrew")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -459,5 +461,94 @@ func TestBottleTagsFollowHomebrew(t *testing.T) {
 		if ok != (tc.want != "") || b.Tag != tc.want {
 			t.Errorf("BottleFor(%q) = %q, %v; want %q", tc.tag, b.Tag, ok, tc.want)
 		}
+	}
+}
+
+// brew upgrades outdated installed dependents of the formulae it installs or
+// upgrades, reports pinned ones, skips those without a bottle, and leaves them
+// all alone with HOMEBREW_NO_INSTALLED_DEPENDENTS_CHECK.
+func TestOutdatedInstalledDependentsAreUpgradedLikeBrew(t *testing.T) {
+	abi := 1
+	oldLib, newLib := formula("lib", "1"), formula("lib", "2")
+	oldLib.CompatibilityVersion, newLib.CompatibilityVersion = &abi, &abi
+	noBottle := formula("nobottle", "2", "lib")
+	noBottle.Bottles = nil
+	catalog := map[string]model.Formula{
+		"lib": newLib, "app": formula("app", "2", "lib"), "tool": formula("tool", "2", "app"),
+		"pinned": formula("pinned", "2", "lib"), "current": formula("current", "1", "lib"),
+		"nobottle": noBottle, "other": formula("other", "2"),
+	}
+	needs := func(name string) []model.RuntimeDependency {
+		return []model.RuntimeDependency{{Name: name, Version: "1"}}
+	}
+	state := model.Snapshot{Records: map[string]model.Record{
+		"lib":      {Formula: oldLib, Status: model.Ready},
+		"app":      {Formula: formula("app", "1", "lib"), Status: model.Ready, Dependencies: needs("lib")},
+		"tool":     {Formula: formula("tool", "1", "app"), Status: model.Ready, Dependencies: needs("app")},
+		"pinned":   {Formula: formula("pinned", "1", "lib"), Status: model.Ready, Pinned: true, Dependencies: needs("lib")},
+		"current":  {Formula: formula("current", "1", "lib"), Status: model.Ready, Dependencies: needs("lib")},
+		"nobottle": {Formula: formula("nobottle", "1", "lib"), Status: model.Ready, Dependencies: needs("lib")},
+		"other":    {Formula: formula("other", "1"), Status: model.Ready},
+	}}
+	for _, action := range []string{"install", "upgrade"} {
+		plan, err := Build(model.Request{Action: action, Names: []string{"lib"}}, "snapshot", catalog, state, host, "/opt/gobrew")
+		if err != nil {
+			t.Fatal(err)
+		}
+		var names []string
+		for _, p := range plan.Packages {
+			names = append(names, p.Formula.Name)
+		}
+		if !slices.Equal(names, []string{"lib", "app", "tool"}) {
+			t.Fatalf("%s planned %v", action, names)
+		}
+		if plan.Dependents["app"] != "1" || plan.Dependents["tool"] != "1" || len(plan.Dependents) != 2 {
+			t.Fatalf("%s dependents = %v", action, plan.Dependents)
+		}
+		if !slices.Equal(plan.PinnedDependents, []string{"pinned 1"}) || !slices.Equal(plan.SkippedDependents, []string{"nobottle"}) {
+			t.Fatalf("%s pinned %v skipped %v", action, plan.PinnedDependents, plan.SkippedDependents)
+		}
+		for _, p := range plan.Packages {
+			if p.Formula.Name != "lib" && p.Requested {
+				t.Fatalf("%s marked dependent %s as requested", action, p.Formula.Name)
+			}
+		}
+	}
+	plan, err := Build(model.Request{Action: "install", Names: []string{"lib"}, NoInstalledDependentsCheck: true}, "snapshot", catalog, state, host, "/opt/gobrew")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(plan.Packages) != 1 || plan.Dependents != nil || plan.PinnedDependents != nil {
+		t.Fatalf("opt-out still checked dependents: %+v", plan)
+	}
+	// An up-to-date named formula changes nothing, so it checks nothing.
+	upToDate := state
+	upToDate.Records = map[string]model.Record{"lib": {Formula: newLib, Status: model.Ready}, "app": state.Records["app"]}
+	plan, err = Build(model.Request{Action: "install", Names: []string{"lib"}}, "snapshot", catalog, upToDate, host, "/opt/gobrew")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(plan.Packages) != 0 || plan.Dependents != nil {
+		t.Fatalf("up-to-date install planned %+v", plan)
+	}
+	// A versioned formula does not trigger the check, as in brew.
+	versioned := map[string]model.Formula{"python@3": formula("python@3", "2"), "app": formula("app", "2", "python@3")}
+	vstate := model.Snapshot{Records: map[string]model.Record{
+		"python@3": {Formula: formula("python@3", "1"), Status: model.Ready},
+		"app":      {Formula: formula("app", "1", "python@3"), Status: model.Ready, Dependencies: needs("python@3")},
+	}}
+	vabi := 1
+	f := versioned["python@3"]
+	f.CompatibilityVersion = &vabi
+	versioned["python@3"] = f
+	r := vstate.Records["python@3"]
+	r.Formula.CompatibilityVersion = &vabi
+	vstate.Records["python@3"] = r
+	plan, err = Build(model.Request{Action: "upgrade", Names: []string{"python@3"}}, "snapshot", versioned, vstate, host, "/opt/gobrew")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(plan.Packages) != 1 || plan.Dependents != nil {
+		t.Fatalf("versioned formula checked dependents: %+v", plan)
 	}
 }

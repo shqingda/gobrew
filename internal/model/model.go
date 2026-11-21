@@ -235,6 +235,9 @@ type Request struct {
 	// IncludeTest also installs the test dependencies the named formulae
 	// declare, like brew install --include-test.
 	IncludeTest bool `json:"include_test,omitempty"`
+	// NoInstalledDependentsCheck leaves outdated installed dependents of the
+	// named formulae alone (Homebrew's HOMEBREW_NO_INSTALLED_DEPENDENTS_CHECK).
+	NoInstalledDependentsCheck bool `json:"no_installed_dependents_check,omitempty"`
 }
 
 // MarksRequested reports whether the named formulae become requested roots.
@@ -270,6 +273,14 @@ type Plan struct {
 	// they are pinned or NoInstallUpgrade is set, and pinned outdated formulae
 	// that upgrade skipped. Homebrew reports named ones as errors.
 	Held []string `json:"held,omitempty"`
+	// Dependents maps outdated installed dependents of the named formulae,
+	// which the plan upgrades like brew's dependents check, to their
+	// installed version.
+	Dependents map[string]string `json:"dependents,omitempty"`
+	// PinnedDependents ("name version") are outdated dependents left alone
+	// because they are pinned; SkippedDependents have no bottle for this host.
+	PinnedDependents  []string `json:"pinned_dependents,omitempty"`
+	SkippedDependents []string `json:"skipped_dependents,omitempty"`
 }
 
 type PreparedPackage struct {
@@ -301,6 +312,11 @@ type Result struct {
 	// Warnings are problems after the outcome was decided, such as failing to
 	// release cache leases or evict old entries. They never change the result.
 	Warnings []string `json:"warnings,omitempty"`
+	// Dependents, PinnedDependents and SkippedDependents copy the plan's
+	// dependents check, so clients can report it after the operation.
+	Dependents        map[string]string `json:"dependents,omitempty"`
+	PinnedDependents  []string          `json:"pinned_dependents,omitempty"`
+	SkippedDependents []string          `json:"skipped_dependents,omitempty"`
 }
 
 // Removed describes one path cleanup removed, or would remove in a dry run.

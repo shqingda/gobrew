@@ -36,3 +36,30 @@ func TestProgressRendersHomebrewStyle(t *testing.T) {
 		t.Fatalf("terminal output = %q", out)
 	}
 }
+
+// The dependents check prints brew's wording: one aligned block of version
+// changes, the opt-out hint, and pinned dependents as one warning.
+func TestDependentLinesFollowBrew(t *testing.T) {
+	t.Setenv("GOBREW_NO_ENV_HINTS", "")
+	batch := []model.Event{{Package: "app", Message: "1.0 -> 1.1", Completed: 1}, {Package: "longer-tool", Message: "10.2_1 -> 10.3"}}
+	got := dependentLines("dependent", batch, false)
+	want := []string{
+		"==> Upgrading 2 dependents of upgraded formula:",
+		"Disable this behaviour by setting `GOBREW_NO_INSTALLED_DEPENDENTS_CHECK=1`.",
+		"Hide these hints with `GOBREW_NO_ENV_HINTS=1` (see `gobrew help environment`).",
+		"app          1.0    -> 1.1",
+		"longer-tool  10.2_1 -> 10.3",
+	}
+	if strings.Join(got, "\n") != strings.Join(want, "\n") {
+		t.Fatalf("got\n%s\nwant\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
+	}
+	t.Setenv("GOBREW_NO_ENV_HINTS", "1")
+	got = dependentLines("dependent", batch[:1], true)
+	if strings.Join(got, "\n") != "==> Would upgrade 1 dependent of upgraded formula:\napp 1.0 -> 1.1" {
+		t.Fatalf("dry run = %q", got)
+	}
+	got = dependentLines("pinned-dependent", []model.Event{{Package: "a 1.0"}, {Package: "b 2.0"}}, false)
+	if strings.Join(got, "\n") != "Warning: Not upgrading 2 pinned dependents:\na 1.0, b 2.0" {
+		t.Fatalf("pinned = %q", got)
+	}
+}

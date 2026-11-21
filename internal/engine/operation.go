@@ -103,6 +103,7 @@ func (e *Engine) Execute(ctx context.Context, req model.Request, events chan<- m
 	for _, name := range slices.Sorted(maps.Keys(plan.Upgrading)) {
 		model.Emit(events, model.Event{Phase: "outdated", Package: name, Message: plan.Upgrading[name]})
 	}
+	emitDependents(plan, events)
 	start = time.Now()
 	p, err := e.Prepare(ctx, plan, events)
 	timings.Prepare = float64(time.Since(start)) / float64(time.Millisecond)
@@ -118,6 +119,7 @@ func (e *Engine) Execute(ctx context.Context, req model.Request, events chan<- m
 	result, err = e.Apply(ctx, p, events)
 	timings.Apply = float64(time.Since(start)) / float64(time.Millisecond)
 	result.Held = plan.Held
+	result.Dependents, result.PinnedDependents, result.SkippedDependents = plan.Dependents, plan.PinnedDependents, plan.SkippedDependents
 	for _, pkg := range plan.Packages {
 		if pkg.Historic && slices.Contains(result.Succeeded, pkg.Formula.Name) {
 			result.Historic = append(result.Historic, pkg.Formula.Name)
@@ -147,4 +149,26 @@ func closeOperation(result model.Result, err, closeErr error) (model.Result, err
 	}
 	result.Warnings = append(result.Warnings, closeErr.Error())
 	return result, nil
+}
+
+// emitDependents reports the plan's dependents check before preparing, in
+// brew's order: pinned and unbottled dependents, then the ones upgraded.
+// Total carries the count so a renderer can print one heading.
+func emitDependents(plan model.Plan, events chan<- model.Event) {
+	for _, entry := range plan.PinnedDependents {
+		model.Emit(events, model.Event{Phase: "pinned-dependent", Package: entry, Total: int64(len(plan.PinnedDependents))})
+	}
+	for _, name := range plan.SkippedDependents {
+		model.Emit(events, model.Event{Phase: "skipped-dependent", Package: name, Total: int64(len(plan.SkippedDependents))})
+	}
+	newVersions := map[string]string{}
+	for _, pkg := range plan.Packages {
+		newVersions[pkg.Formula.Name] = pkg.Formula.PkgVersion()
+	}
+	// Completed counts the other formulae installed, for brew's "of upgraded
+	// formula(e)" wording.
+	others := int64(len(plan.Packages) - len(plan.Dependents))
+	for _, name := range slices.Sorted(maps.Keys(plan.Dependents)) {
+		model.Emit(events, model.Event{Phase: "dependent", Package: name, Message: plan.Dependents[name] + " -> " + newVersions[name], Completed: others, Total: int64(len(plan.Dependents))})
+	}
 }

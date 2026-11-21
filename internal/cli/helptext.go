@@ -15,6 +15,9 @@ const environmentHelp = `Environment variables read by gobrew:
   GOBREW_AUTO_UPDATE_SECS            Seconds between automatic refreshes (default 86400)
   GOBREW_NO_INSTALL_UPGRADE          Do not upgrade already installed formulae named to install
   GOBREW_NO_INSTALL_CLEANUP          Do not clean up after install, upgrade and reinstall
+  GOBREW_NO_INSTALLED_DEPENDENTS_CHECK
+                                     Do not upgrade outdated installed dependents of the
+                                     formulae installed, upgraded or reinstalled
   GOBREW_NO_CLEANUP_FORMULAE         Comma-separated formulae never cleaned up
   GOBREW_CLEANUP_MAX_AGE_DAYS        Prune cache entries unused for longer (default 120)
   GOBREW_CLEANUP_PERIODIC_FULL_DAYS  Days between automatic full cleanups (default 30)

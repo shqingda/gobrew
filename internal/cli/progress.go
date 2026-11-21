@@ -3,8 +3,10 @@ package cli
 import (
 	"fmt"
 	"io"
+	"maps"
 	"math"
 	"os"
+	"slices"
 	"strings"
 	"time"
 
@@ -31,10 +33,13 @@ type progress struct {
 	running string
 	step    string
 	since   time.Time
+	// batches collects the dependents check's events until each list is
+	// complete, so it prints as one aligned block like brew's.
+	batches map[string][]model.Event
 }
 
 func newProgress(w io.Writer) *progress {
-	p := &progress{w: w, total: map[string]int64{}, done: map[string]int64{}, finished: map[string]bool{}}
+	p := &progress{w: w, total: map[string]int64{}, done: map[string]int64{}, finished: map[string]bool{}, batches: map[string][]model.Event{}}
 	if f, ok := w.(*os.File); ok {
 		if size, err := unix.IoctlGetWinsize(int(f.Fd()), unix.TIOCGWINSZ); err == nil {
 			p.tty, p.width = true, int(size.Col)
@@ -76,6 +81,17 @@ func (p *progress) event(event model.Event) error {
 		}
 		_, err := fmt.Fprintf(p.w, "%s %s is already installed but outdated (so it will be upgraded).\n", name, cleanText(event.Message))
 		return err
+	case "dependent", "pinned-dependent", "skipped-dependent":
+		batch := append(p.batches[event.Phase], event)
+		p.batches[event.Phase] = batch
+		if int64(len(batch)) < event.Total {
+			return nil
+		}
+		delete(p.batches, event.Phase)
+		if err := p.clear(); err != nil {
+			return err
+		}
+		return writeLines(p.w, dependentLines(event.Phase, batch, false))
 	case "cache":
 		return p.title("Using prepared " + name)
 	case "extract":
@@ -214,4 +230,99 @@ func humanBytes(n int64) string {
 		return fmt.Sprintf("%.0f%s", size, unit)
 	}
 	return fmt.Sprintf("%.1f%s", size, unit)
+}
+
+// dependentLines renders brew's dependents check: the pinned warning, the
+// unbottled warning, or the heading and aligned version changes. writeLines
+// colors the "==>" and "Warning:" prefixes.
+func dependentLines(phase string, batch []model.Event, dryRun bool) []string {
+	var lines []string
+	switch phase {
+	case "pinned-dependent":
+		names := make([]string, len(batch))
+		for i, e := range batch {
+			names[i] = e.Package
+		}
+		lines = append(lines, "Warning: Not upgrading "+fmt.Sprint(len(batch))+" pinned "+pluralize("dependent", len(batch), false)+":", strings.Join(names, ", "))
+	case "skipped-dependent":
+		lines = append(lines, "Warning: The following dependents of upgraded formulae are outdated but will not", "be upgraded because they are not bottled:")
+		for _, e := range batch {
+			lines = append(lines, "  "+e.Package)
+		}
+	case "dependent":
+		verb := "Upgrading"
+		if dryRun {
+			verb = "Would upgrade"
+		}
+		others := int(batch[0].Completed)
+		lines = append(lines, "==> "+verb+" "+pluralize("dependent", len(batch), true)+" of upgraded "+pluralize("formula", others, false)+":")
+		if os.Getenv("GOBREW_NO_ENV_HINTS") == "" {
+			lines = append(lines, "Disable this behaviour by setting `GOBREW_NO_INSTALLED_DEPENDENTS_CHECK=1`.", "Hide these hints with `GOBREW_NO_ENV_HINTS=1` (see `gobrew help environment`).")
+		}
+		changes := make([][2]string, len(batch))
+		for i, e := range batch {
+			changes[i] = [2]string{e.Package, e.Message}
+		}
+		lines = append(lines, versionChanges(changes)...)
+	}
+	return lines
+}
+
+// versionChanges aligns brew's "name  old -> new" lines: names padded to the
+// longest, and one space instead of two when there is a single change.
+func versionChanges(changes [][2]string) []string {
+	nameWidth, oldWidth := 0, 0
+	split := make([][2]string, len(changes))
+	for i, c := range changes {
+		nameWidth = max(nameWidth, len(c[0]))
+		old, updated, _ := strings.Cut(c[1], " -> ")
+		split[i] = [2]string{old, updated}
+		oldWidth = max(oldWidth, len(old))
+	}
+	separator := "  "
+	if len(changes) == 1 {
+		separator = " "
+	}
+	lines := make([]string, len(changes))
+	for i, c := range changes {
+		version := fmt.Sprintf("%-*s -> %s", oldWidth, split[i][0], split[i][1])
+		lines[i] = strings.TrimRight(fmt.Sprintf("%-*s", nameWidth, c[0])+separator+version, " ")
+	}
+	return lines
+}
+
+// pluralize is brew's Utils.pluralize for the stems gobrew prints.
+func pluralize(stem string, count int, includeCount bool) string {
+	suffix := "s"
+	if stem == "formula" {
+		suffix = "e"
+	}
+	if count == 1 {
+		suffix = ""
+	}
+	if includeCount {
+		return fmt.Sprint(count) + " " + stem + suffix
+	}
+	return stem + suffix
+}
+
+// planDependentEvents turns a plan's dependents check into the events Execute
+// emits, for a dry run that prints the same block without executing.
+func planDependentEvents(plan model.Plan) map[string][]model.Event {
+	batches := map[string][]model.Event{}
+	for _, entry := range plan.PinnedDependents {
+		batches["pinned-dependent"] = append(batches["pinned-dependent"], model.Event{Package: entry})
+	}
+	for _, name := range plan.SkippedDependents {
+		batches["skipped-dependent"] = append(batches["skipped-dependent"], model.Event{Package: name})
+	}
+	versions := map[string]string{}
+	for _, pkg := range plan.Packages {
+		versions[pkg.Formula.Name] = pkg.Formula.PkgVersion()
+	}
+	others := int64(len(plan.Packages) - len(plan.Dependents))
+	for _, name := range slices.Sorted(maps.Keys(plan.Dependents)) {
+		batches["dependent"] = append(batches["dependent"], model.Event{Package: name, Message: plan.Dependents[name] + " -> " + versions[name], Completed: others})
+	}
+	return batches
 }

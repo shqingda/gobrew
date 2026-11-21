@@ -213,6 +213,42 @@ func Build(req model.Request, generation string, formulae map[string]model.Formu
 			delete(selected, root)
 		}
 	}
+	dependents := map[string]string{}
+	if !req.NoInstalledDependentsCheck && !req.OnlyDependencies {
+		// brew's dependents check: after installing or upgrading the named
+		// formulae, upgrade their outdated installed dependents too. Like brew,
+		// versioned core formulae (name@version) and explicit versions do not
+		// trigger it, pinned dependents are reported instead, and a dependent
+		// without a bottle is skipped rather than failing the plan.
+		var changed []string
+		for _, name := range roots {
+			if _, ok := selected[name]; ok && !exact[name] && !strings.Contains(name, "@") {
+				changed = append(changed, name)
+			}
+		}
+		for _, name := range installedDependents(changed, state) {
+			if _, ok := selected[name]; ok {
+				continue
+			}
+			record := state.Records[name]
+			f, ok := formulae[name]
+			if !ok || f.Disabled || record.Status != model.Ready || Compare(record.Formula, f) >= 0 {
+				continue
+			}
+			if record.Pinned {
+				plan.PinnedDependents = append(plan.PinnedDependents, name+" "+record.Formula.PkgVersion())
+				continue
+			}
+			if _, err := selectBottle(f, host, prefix, false); err != nil {
+				plan.SkippedDependents = append(plan.SkippedDependents, name)
+				continue
+			}
+			if err := visit(name, true); err != nil {
+				return plan, fmt.Errorf("dependent %s: %w", name, err)
+			}
+			dependents[name] = record.Formula.PkgVersion()
+		}
+	}
 	// Old receipt edges remain authoritative for the reverse graph, even if
 	// today's recipe removed a dependency. Iterate to include newly affected
 	// dependents and their forward dependencies in the same checked plan.
@@ -369,6 +405,14 @@ func Build(req model.Request, generation string, formulae map[string]model.Formu
 			plan.Upgrading[name] = version
 		}
 	}
+	for name, version := range dependents {
+		if _, changed := selected[name]; changed {
+			if plan.Dependents == nil {
+				plan.Dependents = map[string]string{}
+			}
+			plan.Dependents[name] = version
+		}
+	}
 	for name := range requested {
 		if rec, ok := state.Records[name]; ok && !rec.Requested && req.MarksRequested() {
 			if _, changed := selected[name]; !changed {
@@ -432,4 +476,45 @@ func neededBy(name string, selected map[string]model.Package, canonical func(str
 		}
 	}
 	return false
+}
+
+// installedDependents lists, in name order, every installed formula that
+// needs one of names at runtime, directly or through other installed
+// formulae, like brew's runtime_installed_formula_dependents. Receipt edges
+// win; a record without them falls back to its recipe's dependencies.
+func installedDependents(names []string, state model.Snapshot) []string {
+	users := map[string][]string{}
+	for name, record := range state.Records {
+		deps := map[string]bool{}
+		for _, dep := range record.Dependencies {
+			deps[strings.TrimPrefix(dep.Name, "homebrew/core/")] = true
+		}
+		if len(record.Dependencies) == 0 {
+			for _, dep := range record.Formula.Dependencies {
+				deps[strings.TrimPrefix(dep, "homebrew/core/")] = true
+			}
+		}
+		for dep := range deps {
+			users[dep] = append(users[dep], name)
+		}
+	}
+	seen := map[string]bool{}
+	queue := slices.Clone(names)
+	for _, name := range names {
+		seen[name] = true
+	}
+	var found []string
+	for len(queue) > 0 {
+		name := queue[0]
+		queue = queue[1:]
+		for _, user := range users[name] {
+			if !seen[user] {
+				seen[user] = true
+				found = append(found, user)
+				queue = append(queue, user)
+			}
+		}
+	}
+	sort.Strings(found)
+	return found
 }
