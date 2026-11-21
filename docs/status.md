@@ -8,9 +8,9 @@
 
 首次推送的 v0.6.0 tag 有两项门禁失败：Go 1.27.3 的 `net/http` 存在 GO-2026-6859，以及历史版本 smoke 被错误地放在了带版本号的二进制上。两处都已修复，并在 `b012b5c` 上重新打了 tag；失败的那次没有发布任何资产。
 
-## 未发布（main 上，v0.7.0 草稿）
+## 待发布（main 上，v0.7.0）
 
-v0.6.0 之后的改动见 [v0.7.0 草稿](releases/v0.7.0.md)。本地 `make check`、`scripts/smoke.sh` 和 `scripts/smoke-version.sh` 已通过；GitHub Actions 发布门禁未运行，未打 tag。
+v0.6.0 之后的改动见 [v0.7.0 发布说明](releases/v0.7.0.md)，已定稿。本地 `make check`、`scripts/smoke.sh`、`scripts/smoke-version.sh` 和真实依赖方升级已通过；用户已在本机安装测试版。GitHub Actions 发布门禁未运行，未打 tag，等待用户确认发版。
 
 ## 支持范围
 
