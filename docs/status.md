@@ -4,13 +4,17 @@
 
 ## 版本
 
-最新正式版是 [v0.6.0](releases/v0.6.0.md)，于 2026-11-11 发布。发布流水线的全部门禁均已通过：代码检查（含 govulncheck）、macOS 15/26 实瓶测试、历史版本 smoke、对发布二进制本身的实瓶测试，以及 Homebrew 性能门槛。本版恢复了 `self`（[0003 决定](decisions/0003-restore-self-command.md)），其余命令仍是 Homebrew 命令的子集（[0002 决定](decisions/0002-homebrew-command-compatibility.md)）。
+最新正式版是 [v0.7.0](releases/v0.7.0.md)，于 2026-11-22 发布（tag 指向 `9455107`）。发布流水线的全部门禁一次通过：代码检查（含 govulncheck）、macOS 15/26 实瓶测试、历史版本 smoke、对发布二进制本身的实瓶测试，以及 Homebrew 性能门槛（hello、jq、ca-certificates 中位数：冷安装 16.0 秒对 brew 25.3 秒，热重装 14.6 秒对 24.4 秒；两者都包含约 6.5 秒的证书脚本）。
 
-首次推送的 v0.6.0 tag 有两项门禁失败：Go 1.27.3 的 `net/http` 存在 GO-2026-6859，以及历史版本 smoke 被错误地放在了带版本号的二进制上。两处都已修复，并在 `b012b5c` 上重新打了 tag；失败的那次没有发布任何资产。
+发布资产：`gobrew_0.7.0_darwin_arm64.tar.gz`（SHA-256 `8d20cca85ecbde493f4e79524717f66648be8a7da4669e4dd9b15e940e5a25d8`）、`checksums.txt`、`benchmark.json`、`install.sh`、`uninstall.sh`。下载后已核对校验和，压缩包内的程序报告 `gobrew v0.7.0`。
 
-## 待发布（main 上，v0.7.0）
+未验证：从 v0.6.0 运行 `gob update` 升到 v0.7.0。
 
-v0.6.0 之后的改动见 [v0.7.0 发布说明](releases/v0.7.0.md)，已定稿。本地 `make check`、`scripts/smoke.sh`、`scripts/smoke-version.sh` 和真实依赖方升级已通过；用户已在本机安装测试版。GitHub Actions 发布门禁未运行，未打 tag，等待用户确认发版。
+上一版 [v0.6.0](releases/v0.6.0.md) 于 2026-11-11 发布。
+
+## 未发布（main 上）
+
+- `upgrade` 遇到已是最新的 Formula 时，与 brew 一样只警告 `<name> <version> already installed`（`e3ce298`）。
 
 ## 支持范围
 
