@@ -97,7 +97,7 @@ func TestHistoricalPlanLoadsDependenciesAbsentFromCurrentClosure(t *testing.T) {
 		"ghcr.io/token": `{"token":"fixture"}`,
 		"ghcr.io/v2/homebrew/core/demo/tags/list":                                           `{"tags":["1"]}`,
 		"ghcr.io/v2/homebrew/core/demo/manifests/1":                                         string(index),
-		"api.github.com/repos/Homebrew/homebrew-core/commits":                               `[{"sha":"` + commit + `"}]`,
+		"api.github.com/repos/Homebrew/homebrew-core/commits":                               `[{"sha":"` + commit + `","commit":{"message":"demo: update 1 bottle."}}]`,
 		"raw.githubusercontent.com/Homebrew/homebrew-core/" + commit + "/Formula/d/demo.rb": "class Demo < Formula\n  url \"https://example.test/demo/1.tar.gz\"\n  bottle do\n    sha256 cellar: :any_skip_relocation, arm64_sequoia: \"" + digest + "\"\n  end\nend\n",
 	}
 	e := New(Config{Prefix: prefix, CacheDir: cache, Platform: host, HTTP: &http.Client{Transport: responses}})

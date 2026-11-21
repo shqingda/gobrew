@@ -1,11 +1,13 @@
 package catalog
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -49,7 +51,9 @@ func fakeHistory(t *testing.T, recipe string) History {
 				t.Errorf("unexpected commit query %s", r.URL.RawQuery)
 			}
 			// Newest first, like the GitHub API.
-			_, _ = w.Write([]byte(`[{"sha":"` + strings.Repeat("c", 40) + `"},{"sha":"` + bottleSHA + `"},{"sha":"` + strings.Repeat("b", 40) + `"}]`))
+			_, _ = w.Write([]byte(`[{"sha":"` + strings.Repeat("c", 40) + `","commit":{"message":"uv: update 0.13.5 bottle."}},` +
+				`{"sha":"` + bottleSHA + `","commit":{"message":"uv: update 0.13.5 bottle.\n\nSigned-off-by: BrewTestBot"}},` +
+				`{"sha":"` + strings.Repeat("b", 40) + `","commit":{"message":"uv 0.13.5"}}]`))
 		case r.URL.Path == "/Homebrew/homebrew-core/"+strings.Repeat("b", 40)+"/Formula/u/uv.rb",
 			r.URL.Path == "/Homebrew/homebrew-core/"+strings.Repeat("c", 40)+"/Formula/u/uv.rb":
 			_, _ = w.Write([]byte(stale))
@@ -168,5 +172,84 @@ func TestFormulaPathAcceptsOnlyTheFormulaInHomebrewCore(t *testing.T) {
 		if _, err := formulaPath(source, "uv"); (err == nil) != ok {
 			t.Errorf("formulaPath(%q) = %v, want ok=%v", source, err, ok)
 		}
+	}
+}
+
+// TestHistoryFindsAHostBottleAddedToAnOlderIndex follows the real oniguruma
+// 6.9.9 contract. Older bottle uploads wrote a date-only creation time, and
+// `brew pr-upload --keep-old` later added arm64_sequoia to the same index
+// without changing its annotations. The commit that records that digest is
+// eleven months newer than the index, behind a page of unrelated commits.
+func TestHistoryFindsAHostBottleAddedToAnOlderIndex(t *testing.T) {
+	const (
+		sequoiaDigest = "378cec2d71c33ca25809db43e9fdd46957b3459fcd5b337c519fc74cc2cfdc20"
+		sonomaDigest  = "53913ccbdad8ce504d0266fc20a867f2fc306d7331d066f2895f48d167102a24"
+		laterBottle   = "5ce6fb6484e7e6c2d7a0b2bbde7c3e3e60b5f8e1"
+		firstBottle   = "4ea1c8e0460000000000000000000000000000aa"
+	)
+	tab := `{"runtime_dependencies":[]}`
+	recipe := func(lines string) string {
+		return "class Oniguruma < Formula\n  url \"https://github.com/kkos/oniguruma/releases/download/v6.9.9/onig-6.9.9.tar.gz\"\n\n  bottle do\n" + lines + "  end\nend\n"
+	}
+	sonomaLine := `    sha256 cellar: :any, arm64_sonoma: "` + sonomaDigest + "\"\n"
+	sequoiaLine := `    sha256 cellar: :any, arm64_sequoia: "` + sequoiaDigest + "\"\n"
+	index := map[string]any{
+		"schemaVersion": 2,
+		"annotations": map[string]string{
+			"org.opencontainers.image.created": "2023-10-14",
+			"org.opencontainers.image.source":  "https://github.com/homebrew/homebrew-core/blob/0bef7da99efeb82e89861c090f1a1c2bbaec263a/Formula/o/oniguruma.rb",
+		},
+		"manifests": []map[string]any{
+			{"annotations": map[string]string{"org.opencontainers.image.ref.name": "6.9.9.arm64_sonoma", "sh.brew.bottle.digest": sonomaDigest, "sh.brew.tab": tab}},
+			{"annotations": map[string]string{"org.opencontainers.image.ref.name": "6.9.9.arm64_sequoia", "sh.brew.bottle.digest": sequoiaDigest, "sh.brew.tab": tab}},
+		},
+	}
+	commit := func(sha, message string) map[string]any {
+		return map[string]any{"sha": sha, "commit": map[string]string{"message": message}}
+	}
+	// Newest first, like the GitHub API; page 1 is full of unrelated commits.
+	var all []map[string]any
+	for i := range 100 {
+		all = append(all, commit(strings.Repeat("e", 38)+strconv.Itoa(10+i), "oniguruma: style"))
+	}
+	all = append(all,
+		commit(strings.Repeat("d", 40), "oniguruma 6.9.10"),
+		commit(laterBottle, "oniguruma: update 6.9.9 bottle."),
+		commit(strings.Repeat("a", 40), "oniguruma: standardize autoreconf and configure steps"),
+		commit(firstBottle, "oniguruma: update 6.9.9 bottle."),
+		commit(strings.Repeat("b", 40), "oniguruma 6.9.9"),
+	)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		q := r.URL.Query()
+		switch r.URL.Path {
+		case "/token":
+			_, _ = w.Write([]byte(`{"token":"t"}`))
+		case "/v2/homebrew/core/oniguruma/tags/list":
+			_, _ = w.Write([]byte(`{"tags":["6.9.8","6.9.9","6.9.10"]}`))
+		case "/v2/homebrew/core/oniguruma/manifests/6.9.9":
+			_ = json.NewEncoder(w).Encode(index)
+		case "/repos/Homebrew/homebrew-core/commits":
+			if q.Get("path") != "Formula/o/oniguruma.rb" || q.Get("since") != "2023-10-13T00:00:00Z" || q.Has("until") || q.Get("per_page") != "100" {
+				t.Errorf("unexpected commit query %s", r.URL.RawQuery)
+			}
+			page, _ := strconv.Atoi(cmp.Or(q.Get("page"), "1"))
+			_ = json.NewEncoder(w).Encode(all[min(len(all), (page-1)*100):min(len(all), page*100)])
+		case "/Homebrew/homebrew-core/" + firstBottle + "/Formula/o/oniguruma.rb":
+			_, _ = w.Write([]byte(recipe(sonomaLine)))
+		case "/Homebrew/homebrew-core/" + laterBottle + "/Formula/o/oniguruma.rb":
+			_, _ = w.Write([]byte(recipe(sequoiaLine + sonomaLine)))
+		default:
+			t.Errorf("unexpected request %s", r.URL)
+			http.NotFound(w, r)
+		}
+	}))
+	t.Cleanup(server.Close)
+	h := History{HTTP: server.Client(), Platform: model.Platform{OS: "darwin", Arch: "arm64", Major: 27}, GHCR: server.URL, API: server.URL, Raw: server.URL}
+	f, err := h.Formula(context.Background(), model.Formula{Name: "oniguruma", Version: "6.9.10"}, "6.9.9")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if b := f.Bottles["arm64_sequoia"]; f.Version != "6.9.9" || len(f.Bottles) != 1 || b.SHA256 != sequoiaDigest || b.Cellar != ":any" {
+		t.Fatalf("wrong bottle: %+v", f)
 	}
 }

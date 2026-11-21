@@ -38,8 +38,11 @@ type History struct {
 
 const (
 	maxHistoryBody = 4 << 20
-	// The bottle commit lands after the bottles are built and uploaded.
-	bottleCommitWindow = 7 * 24 * time.Hour
+	// The formula file's commits after the bottle build are listed in pages of
+	// this size; a full last page means older commits were not seen.
+	commitPageSize, maxCommitPages = 100, 10
+	// At most this many bottle commits for the version are read.
+	maxBottleCommits = 10
 )
 
 var (
@@ -96,9 +99,9 @@ func (h History) Formula(ctx context.Context, current model.Formula, version str
 	if index.SchemaVersion != 2 {
 		return model.Formula{}, errors.New("unsupported OCI index schema")
 	}
-	created, err := time.Parse(time.RFC3339, index.Annotations["org.opencontainers.image.created"])
+	created, err := indexCreated(index.Annotations["org.opencontainers.image.created"])
 	if err != nil {
-		return model.Formula{}, errors.New("OCI index has no creation time")
+		return model.Formula{}, err
 	}
 	path, err := formulaPath(index.Annotations["org.opencontainers.image.source"], current.Name)
 	if err != nil {
@@ -131,7 +134,7 @@ func (h History) Formula(ctx context.Context, current model.Formula, version str
 	if err != nil {
 		return model.Formula{}, fmt.Errorf("%w: %s %s: %v", model.ErrUnsupported, current.Name, version, err)
 	}
-	recipe, cellar, err := h.bottleCommit(ctx, path, created, best, ghcr[best].digest)
+	recipe, cellar, err := h.bottleCommit(ctx, path, created, current.Name, pkgVersion, best, ghcr[best].digest)
 	if err != nil {
 		return model.Formula{}, fmt.Errorf("verify %s %s against homebrew-core: %w", current.Name, version, err)
 	}
@@ -243,22 +246,63 @@ func (h History) bestTag(platforms map[string]bottlePlatform) (string, error) {
 	return best, nil
 }
 
-// bottleCommit finds the homebrew-core commit whose bottle block records this
-// digest for tag, searching the formula file's history after the bottle build.
-func (h History) bottleCommit(ctx context.Context, path string, created time.Time, tag, digest string) (string, string, error) {
-	query := url.Values{"path": {path}, "since": {created.UTC().Format(time.RFC3339)}, "until": {created.Add(bottleCommitWindow).UTC().Format(time.RFC3339)}, "per_page": {"30"}}
-	var commits []struct {
-		SHA string `json:"sha"`
+// indexCreated returns the earliest time the bottle commit can have. Homebrew
+// writes the bottle file's mtime as RFC 3339; older uploads wrote only the
+// local date, which can start up to a day before that date in UTC.
+func indexCreated(value string) (time.Time, error) {
+	if t, err := time.Parse(time.RFC3339, value); err == nil {
+		return t, nil
 	}
+	if t, err := time.Parse(time.DateOnly, value); err == nil {
+		return t.Add(-24 * time.Hour), nil
+	}
+	return time.Time{}, errors.New("OCI index has no creation time")
+}
+
+// bottleCommit finds the oldest homebrew-core commit whose bottle block
+// records this digest for tag. The search starts at the index creation time
+// and has no upper bound: `brew pr-upload --keep-old` adds bottles for a new
+// macOS to an existing index months later without changing its annotations.
+// Commit messages only select which files to read; the digest in the file at
+// that commit is the check.
+func (h History) bottleCommit(ctx context.Context, path string, created time.Time, name, pkgVersion, tag, digest string) (string, string, error) {
 	auth := ""
 	if h.Token != "" {
 		auth = "Bearer " + h.Token
 	}
-	if err := h.getJSON(ctx, cmp.Or(h.API, "https://api.github.com")+"/repos/Homebrew/homebrew-core/commits?"+query.Encode(), auth, "application/vnd.github+json", &commits); err != nil {
-		return "", "", fmt.Errorf("%w (set HOMEBREW_GITHUB_API_TOKEN if GitHub rate limits anonymous requests)", err)
+	type commit struct {
+		SHA    string `json:"sha"`
+		Commit struct {
+			Message string `json:"message"`
+		} `json:"commit"`
+	}
+	var commits []commit
+	for page := 1; ; page++ {
+		if page > maxCommitPages {
+			return "", "", fmt.Errorf("more than %d commits to %s since the bottle build", maxCommitPages*commitPageSize, path)
+		}
+		query := url.Values{"path": {path}, "since": {created.UTC().Format(time.RFC3339)}, "per_page": {strconv.Itoa(commitPageSize)}, "page": {strconv.Itoa(page)}}
+		var batch []commit
+		if err := h.getJSON(ctx, cmp.Or(h.API, "https://api.github.com")+"/repos/Homebrew/homebrew-core/commits?"+query.Encode(), auth, "application/vnd.github+json", &batch); err != nil {
+			return "", "", fmt.Errorf("%w (set HOMEBREW_GITHUB_API_TOKEN if GitHub rate limits anonymous requests)", err)
+		}
+		commits = append(commits, batch...)
+		if len(batch) < commitPageSize {
+			break
+		}
 	}
 	slices.Reverse(commits) // oldest first: the first bottle commit for this build
-	for _, c := range commits[:min(len(commits), 10)] {
+	// Homebrew's bottle merge writes "<name>: update|add <pkg_version> bottle."
+	subjects := []string{name + ": update " + pkgVersion + " bottle", name + ": add " + pkgVersion + " bottle"}
+	read := 0
+	for _, c := range commits {
+		subject, _, _ := strings.Cut(c.Commit.Message, "\n")
+		if !slices.ContainsFunc(subjects, func(s string) bool { return strings.HasPrefix(subject, s) }) {
+			continue
+		}
+		if read++; read > maxBottleCommits {
+			break
+		}
 		if _, err := hex.DecodeString(c.SHA); err != nil || len(c.SHA) != 40 {
 			return "", "", errors.New("invalid commit identifier from GitHub")
 		}

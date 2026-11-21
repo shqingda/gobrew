@@ -88,7 +88,6 @@ brew 只对 Cask 或 HEAD 安装起作用的参数（`--appdir` 等目标目录�
 
 - 冷安装的 Prepare 阶段在小包上仍慢于 nanobrew，见 [对比报告](nanobrew-comparison.md)。2026-11-21 的 OCI 元数据预取与解压优化把 hello+jq 冷安装中位数从 2041 毫秒降到 1362 毫秒（[性能记录](performance.md)）；与 nanobrew 的对比需要 Actions，尚未重测。
 - 大包冷安装的 Apply 主要花在克隆树的逐 inode fsync 和每个包的多次状态提交上（`python@3.13`：约 19859 次 inode fsync）。这属于持久化边界，只做了测量，是否改动需单独提案并经用户决定。
-- `version-install` 对部分历史版本失败，报 `OCI index has no creation time`（例如 `oniguruma 6.9.9`）；原因未调查。
 - bash 补全需要已加载 bash-completion，与 brew 相同；macOS 自带的 bash 3.2 没有它。
 - 证书包初始化会完整运行上游脚本，在 M3 Pro 上约 6.5 秒。为了保留信任检查，这一步不跳过、也不缓存。
 - 专用质量工具 crapper、dryer、mutator 在本环境中不可用，从未运行，也没有评分。
