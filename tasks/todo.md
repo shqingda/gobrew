@@ -8,7 +8,8 @@
   - 偏差：`info --analytics` 只补了注释。brew 在这里用 `onoe`，退出 0；没有 CLI 级的假 catalog 测试夹具，所以没加测试。
   - 偏差：pwsh 断言移到阶段 5，因为上游 shellenv 已改。
 - [x] 阶段 2：过时依赖方升级（`f65a8f5`）。
-  - 未验证：真实 bottle 的依赖方升级。`version-install oniguruma 6.9.9` 报 `OCI index has no creation time`，`jq 1.8.1` 报 homebrew-core 提交不匹配；已用单元测试覆盖。
+  - 已验证（2026-11-22，`04caad7`，临时 prefix）：真实 bottle 的依赖方升级。`version-install jq 1.8.1` 后 `reinstall oniguruma`：pin 时只警告；`GOBREW_NO_INSTALLED_DEPENDENTS_CHECK=1` 时跳过；`--dry-run` 输出 `Would upgrade`；否则 jq 升到 1.8.2，并清理旧 keg。
+  - 前置修复（`33a26bf`）：`version-install` 接受只有日期的 OCI 创建时间，查找 bottle 提交时不再限 7 天。原先 `oniguruma 6.9.9` 和 `jq 1.8.1` 因此失败。
 - [x] 阶段 3：测量与性能（`bd8be92`）。
   - 保留：OCI 元数据预取、解压缓存父目录 Root、重定位跳过多余 chmod、清理无候选时跳过 Mach-O 扫描。hello+jq 冷安装中位数 2041 → 1362 毫秒。
   - 回退：CDN 连接预热、gzip 外层加大缓冲，均无可测收益。
