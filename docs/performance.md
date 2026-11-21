@@ -33,8 +33,8 @@
 `python@3.13` 冷安装（7 个包），`--debug` 的一次结果：
 
 - Prepare 5.56 秒，Apply 9.83 秒；493 次设备屏障、19859 次 inode fsync、39 次状态写事务。
-- Apply 中：stage（7 个包的 clonefile 加逐 inode fsync）约 2.1 秒；ca-certificates 的 post-install 约 7.1 秒，其中证书初始化脚本约 6.6 秒；其余包的链接与提交各约 30–40 毫秒。
-- 主要成本是 `CloneTree` 之后对克隆树逐个 inode fsync，以及每个包的多次状态提交。这两项属于持久化边界，按约束本轮不改；是否改为“克隆后只刷目录加一次设备屏障”或合并提交，需单独提案并经用户决定。
+- Apply 中：从第一个包 stage 到首个 post-install 约 2.1 秒；ca-certificates 的 post-install 约 7.1 秒，其中证书初始化脚本约 6.6 秒；其余包的链接与提交各约 30–40 毫秒。
+- 2026-11-22 补测（预热缓存，插桩分步计时）推翻了“主要是克隆树 fsync”的判断：7 个树的 clonefile 加逐 inode fsync 只有约 0.28 秒；创建和校验 3713 个链接约 0.7 秒；状态提交约 0.25 秒。冷安装这段约是预热时的两倍，原因未确认。数据与选项见 [0004 提案](decisions/0004-apply-persistence-boundary.md)。
 
 ## 2026-11-11：只读查询按 key 读取、未变化的 update 复用索引
 

@@ -14,7 +14,7 @@
   - 回退：CDN 连接预热、gzip 外层加大缓冲，均无可测收益。
   - 未做：每个 bottle 的设备屏障从 6 次减为 4 次。需要先补中断恢复测试。
   - 未做：100 包清理场景。
-  - 只测量：Apply 的克隆树逐 inode fsync 和逐包提交（持久化边界），待用户决定。
+  - 只测量：Apply 的持久化边界。数据和选项见 [0004 提案](../docs/decisions/0004-apply-persistence-boundary.md)，待用户决定。
 - [x] 阶段 4：输出与体验（`834da62`）。
   - 跳过：relocate、签名、链接阶段的单独标题。brew 只显示 Pouring。
   - 跳过：进度条 `[n/N]` 和开始时就计入全部下载总量。catalog 中没有 bottle 大小。
