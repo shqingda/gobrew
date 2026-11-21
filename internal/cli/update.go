@@ -188,6 +188,13 @@ func (a *application) updateCLI(ctx context.Context) (cliUpdate, error) {
 		return cliUpdate{Skipped: "this executable is not a managed installation; run 'gobrew self install' first"}, nil
 	}
 	result, err := manager.Update(ctx)
+	if err == nil {
+		// Installations from before completions shipped get them on update.
+		// Neither failure fails the update; the next update retries.
+		if writeCompletions(manager.BinDir) == nil {
+			_ = a.refreshPath(a.pathEnv(manager.BinDir, filepath.Clean(a.config.Prefix)))
+		}
+	}
 	return cliUpdate{Result: result}, err
 }
 
@@ -209,7 +216,19 @@ func (a *application) installCLI(ctx context.Context, binDir string) (cliUpdate,
 	if err != nil {
 		return cliUpdate{Result: result}, err
 	}
-	return cliUpdate{Result: result, Installed: true, Note: a.setupPath(a.pathEnv(binDir, filepath.Clean(a.config.Prefix)), binDir)}, nil
+	var notes []string
+	if err := writeCompletions(binDir); err != nil {
+		notes = append(notes, "Could not write shell completions: "+err.Error())
+	}
+	env := a.pathEnv(binDir, filepath.Clean(a.config.Prefix))
+	note := a.setupPath(env, binDir)
+	if note == "" {
+		note = a.refreshPath(env)
+	}
+	if note != "" {
+		notes = append(notes, note)
+	}
+	return cliUpdate{Result: result, Installed: true, Note: strings.Join(notes, "\n")}, nil
 }
 
 // outdatedCommand mirrors brew outdated [--verbose] [formula...].

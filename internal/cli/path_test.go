@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/shqingda/gobrew/internal/model"
+	"github.com/shqingda/gobrew/internal/shellconfig"
 	"github.com/shqingda/gobrew/internal/state"
 )
 
@@ -24,7 +25,7 @@ func TestPathSetupTouchesOnlyTheDefaultPrefixAndOnlyWhenMissing(t *testing.T) {
 	t.Setenv("PATH", "/usr/bin:/bin")
 	note := a.setupPath(env, "")
 	data, err := os.ReadFile(rc)
-	if err != nil || !strings.Contains(string(data), "'/home/me/.local/bin':'/opt/gobrew/bin':'/opt/gobrew/sbin':\"$PATH\"") {
+	if err != nil || !strings.Contains(string(data), "'/home/me/.local/bin':'/opt/gobrew/bin':'/opt/gobrew/sbin'\"${PATH+:$PATH}\"") {
 		t.Fatalf("startup file = %q, %v", data, err)
 	}
 	if !strings.Contains(note, "Added gobrew to PATH in ~/.zshrc") || !strings.Contains(note, "exec zsh") {
@@ -134,5 +135,45 @@ func TestShadowCaveatMatchesHomebrew(t *testing.T) {
 	t.Setenv("GOBREW_NO_PATH_SHADOW_CHECK", "1")
 	if text := shadowText(prefix, r); text != "" {
 		t.Fatalf("disabled check printed %q", text)
+	}
+}
+
+func TestCompletionsAreWrittenForBothNamesAndRefreshOnlyExistingBlocks(t *testing.T) {
+	bin := t.TempDir()
+	if err := os.Mkdir(filepath.Join(bin, ".gobrew"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := writeCompletions(bin); err != nil {
+		t.Fatal(err)
+	}
+	for name, want := range map[string]string{"_gobrew": "#compdef gobrew gob\n", "gobrew.bash": "complete -o default -F __start_gob gob", "gobrew.fish": "complete -c gob -e"} {
+		data, err := os.ReadFile(filepath.Join(completionsDir(bin), name))
+		if err != nil || !strings.Contains(string(data), want) {
+			t.Fatalf("%s lacks %q: %v", name, want, err)
+		}
+	}
+	if err := writeCompletions(bin); err != nil {
+		t.Fatal("rewrite:", err)
+	}
+	rc := filepath.Join(t.TempDir(), ".zshrc")
+	profile := shellconfig.Profile{Shell: "zsh", Path: rc}
+	env := shellconfig.Env{Paths: []string{bin}, Completions: completionsDir(bin)}
+	if changed, err := profile.Refresh(env); err != nil || changed {
+		t.Fatalf("refresh added a block: %v, %v", changed, err)
+	}
+	if err := os.WriteFile(rc, []byte("# mine\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if changed, err := profile.Refresh(env); err != nil || changed {
+		t.Fatalf("refresh added a block to a foreign file: %v, %v", changed, err)
+	}
+	if _, err := profile.Ensure(shellconfig.Env{Paths: []string{bin}}); err != nil {
+		t.Fatal(err)
+	}
+	if changed, err := profile.Refresh(env); err != nil || !changed {
+		t.Fatalf("refresh did not update the block: %v, %v", changed, err)
+	}
+	if data, _ := os.ReadFile(rc); !strings.HasPrefix(string(data), "# mine\n") || !strings.Contains(string(data), "compdef _gobrew gobrew gob") {
+		t.Fatalf("startup file = %q", data)
 	}
 }

@@ -40,6 +40,12 @@ test "$(readlink "$work/bin/gob")" = gobrew
 test ! -e "$work/prefix"
 # New shells find the commands without manual PATH edits.
 test "$(zsh -c 'source "$HOME/.zshrc"; whence -p gob')" = "$work/bin/gob"
+# zsh completes gobrew and gob whether compinit runs before or after the block.
+for f in _gobrew gobrew.bash gobrew.fish; do test -s "$work/bin/.gobrew/completions/$f"; done
+test "$(zsh -fc 'source "$HOME/.zshrc"; autoload -Uz compinit; compinit -u -d "$HOME/.zcd1"; print -r -- ${_comps[gob]} ${_comps[gobrew]}')" = "_gobrew _gobrew"
+test "$(zsh -fc 'autoload -Uz compinit; compinit -u -d "$HOME/.zcd2"; source "$HOME/.zshrc"; print -r -- ${_comps[gob]} ${_comps[gobrew]}')" = "_gobrew _gobrew"
+"$work/bin/gob" __complete ins | grep -q '^install'
+rm -f "$work/home/.zcd1" "$work/home/.zcd2"
 "$work/bin/gob" --version
 "$work/bin/gobrew" --version
 sh "$repo/install.sh"
@@ -78,7 +84,9 @@ test "$(cat "$work/home/.zshrc")" = "$(printf '%s\n%s' '# user settings' 'export
 test ! -e "$work/bin/gobrew" && test ! -L "$work/bin/gobrew"
 test ! -e "$work/bin/gob" && test ! -L "$work/bin/gob"
 test -f "$work/bin/.gobrew/receipt.json"
+test ! -e "$work/bin/.gobrew/completions"
 "$work/assets/gobrew_0.2.0_darwin_arm64/gobrew" self install --bin-dir "$work/bin"
+test -s "$work/bin/.gobrew/completions/_gobrew"
 test "$(readlink "$work/bin/gob")" = gobrew
 test "$(grep -c '>>> gobrew >>>' "$work/home/.zshrc")" = 1
 "$work/bin/gobrew" self uninstall
@@ -136,4 +144,4 @@ test -z "$(ls -A "$work/home")"
 printf '%s\n' "$hint" | grep -qF "eval \"\$($work/bin/gobrew shellenv)\""
 test "$(readlink "$work/bin/gob")" = gobrew
 sh "$repo/uninstall.sh"
-printf '%s\n' 'Bootstrap, alias, repeat installation, integrity rejection, uninstall, reinstall, self lifecycle and shell branches passed.'
+printf '%s\n' 'Bootstrap, alias, completions, repeat installation, integrity rejection, uninstall, reinstall, self lifecycle and shell branches passed.'

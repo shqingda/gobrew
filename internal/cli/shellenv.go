@@ -32,6 +32,9 @@ func (a *application) shellenvCommand() *cobra.Command {
 		// managed command directory so the evaluated line also finds gobrew.
 		if bin := managedBinDir(); bin != "" {
 			env.Paths = append([]string{bin}, env.Paths...)
+			if info, err := os.Stat(completionsDir(bin)); err == nil && info.IsDir() {
+				env.Completions = completionsDir(bin)
+			}
 		}
 		script, err := env.Script(shell)
 		if err != nil {

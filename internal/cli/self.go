@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"os"
 
 	"github.com/shqingda/gobrew/internal/platform"
 	"github.com/shqingda/gobrew/internal/selfupdate"
@@ -67,6 +68,9 @@ func (a *application) selfCommand() *cobra.Command {
 		}
 		result, err := manager.Uninstall(ctx)
 		if err != nil {
+			return err
+		}
+		if err := os.RemoveAll(completionsDir(manager.BinDir)); err != nil {
 			return err
 		}
 		message := "Removed gobrew and gob. Installed Formulae, configuration and caches are retained. Small ownership and lock records remain for safe retries."

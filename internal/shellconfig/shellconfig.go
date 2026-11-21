@@ -23,11 +23,17 @@ const (
 // Directories listed first win, so gobrew precedes anything already on PATH.
 type Env struct {
 	Paths  []string // executable directories, in priority order
-	Prefix string   // Formula prefix for GOBREW_PREFIX, MANPATH and INFOPATH; optional
+	Prefix string   // Formula prefix for GOBREW_PREFIX, FPATH and INFOPATH; optional
+	// Completions holds gobrew's own completion scripts (_gobrew,
+	// gobrew.bash, gobrew.fish); optional.
+	Completions string
 }
 
-// Script prints export statements for shell. Like brew shellenv, unknown
-// shells get POSIX exports.
+// Script prints what brew shellenv prints, for gobrew's directories: exports,
+// zsh's fpath for the prefix's site-functions, MANPATH normalized to a leading
+// colon (so man keeps its defaults and finds pages beside each PATH entry) and
+// INFOPATH. Unknown shells get POSIX exports. Completions, when set, are
+// loaded for gobrew and gob.
 func (e Env) Script(shell string) (string, error) {
 	var b strings.Builder
 	switch shell {
@@ -43,10 +49,9 @@ func (e Env) Script(shell string) (string, error) {
 			b.WriteString("setenv PATH " + strings.Join(parts, ":") + ":\"$PATH\";\n")
 		}
 		if e.Prefix != "" {
-			b.WriteString("test ${?MANPATH} -eq 1 || setenv MANPATH \"\";\n")
-			b.WriteString("setenv MANPATH " + quote(filepath.Join(e.Prefix, "share/man")) + ":\"$MANPATH\";\n")
-			b.WriteString("test ${?INFOPATH} -eq 1 || setenv INFOPATH \"\";\n")
-			b.WriteString("setenv INFOPATH " + quote(filepath.Join(e.Prefix, "share/info")) + ":\"$INFOPATH\";\n")
+			b.WriteString("test ${?MANPATH} -eq 1 && test -n \"${MANPATH}\" && setenv MANPATH :`printf '%s' \"${MANPATH}\" | /usr/bin/sed -e 's/^:*//' -e 's/:*$//'`;\n")
+			b.WriteString("test ${?INFOPATH} -eq 1 || setenv INFOPATH '';\n")
+			b.WriteString("setenv INFOPATH " + quote(filepath.Join(e.Prefix, "share/info")) + ":\"${INFOPATH}\";\n")
 		}
 	case "pwsh", "pwsh-preview":
 		pwshQuote := func(s string) string { return "'" + strings.ReplaceAll(s, "'", "''") + "'" }
@@ -60,23 +65,48 @@ func (e Env) Script(shell string) (string, error) {
 			set("PATH", "$("+pwshQuote(strings.Join(e.Paths, ":")+":")+"+$ENV:PATH)")
 		}
 		if e.Prefix != "" {
-			set("MANPATH", "$("+pwshQuote(filepath.Join(e.Prefix, "share/man")+":")+"+$ENV:MANPATH)")
-			set("INFOPATH", "$("+pwshQuote(filepath.Join(e.Prefix, "share/info")+":")+"+$ENV:INFOPATH)")
+			b.WriteString("if (${ENV:MANPATH}) { ")
+			set("MANPATH", "(':'+${ENV:MANPATH}.Trim(':'))")
+			b.WriteString("}\n")
+			set("INFOPATH", "("+pwshQuote(filepath.Join(e.Prefix, "share/info")+":")+"+${ENV:INFOPATH})")
 		}
 	default:
 		if e.Prefix != "" {
 			b.WriteString("export GOBREW_PREFIX=" + quote(e.Prefix) + "\n")
+		}
+		if shell == "zsh" {
+			// Like brew, the prefix's site-functions come first in fpath, so
+			// zsh completions of installed formulae work after compinit.
+			var dirs []string
+			if e.Completions != "" {
+				dirs = append(dirs, quote(e.Completions))
+			}
+			if e.Prefix != "" {
+				dirs = append(dirs, quote(filepath.Join(e.Prefix, "share/zsh/site-functions")))
+			}
+			if len(dirs) > 0 {
+				b.WriteString("fpath[1,0]=(" + strings.Join(dirs, " ") + ")\nexport FPATH\n")
+			}
+			if e.Completions != "" {
+				// When compinit has already run, register gobrew's own now.
+				b.WriteString("(( $+functions[compdef] )) && autoload -Uz _gobrew && compdef _gobrew gobrew gob\n")
+			}
 		}
 		if len(e.Paths) > 0 {
 			parts := make([]string, len(e.Paths))
 			for i, p := range e.Paths {
 				parts[i] = quote(p)
 			}
-			b.WriteString("export PATH=" + strings.Join(parts, ":") + ":\"$PATH\"\n")
+			b.WriteString("export PATH=" + strings.Join(parts, ":") + "\"${PATH+:$PATH}\"\n")
 		}
 		if e.Prefix != "" {
-			b.WriteString("export MANPATH=" + quote(filepath.Join(e.Prefix, "share/man")) + ":\"${MANPATH:-}\"\n")
+			b.WriteString("[ -z \"${MANPATH-}\" ] || { export MANPATH=\"${MANPATH%\"${MANPATH##*[!:]}\"}\"; export MANPATH=\":${MANPATH#\"${MANPATH%%[!:]*}\"}\"; }\n")
 			b.WriteString("export INFOPATH=" + quote(filepath.Join(e.Prefix, "share/info")) + ":\"${INFOPATH:-}\"\n")
+		}
+		if shell == "bash" && e.Completions != "" {
+			// The script needs bash-completion, as brew's bash completion does.
+			script := quote(filepath.Join(e.Completions, "gobrew.bash"))
+			b.WriteString("case $- in *i*) declare -F _get_comp_words_by_ref >/dev/null && [ -r " + script + " ] && . " + script + " ;; esac\n")
 		}
 	case "fish":
 		fishQuote := func(s string) string {
@@ -86,20 +116,19 @@ func (e Env) Script(shell string) (string, error) {
 			b.WriteString("set -gx GOBREW_PREFIX " + fishQuote(e.Prefix) + "\n")
 		}
 		if len(e.Paths) > 0 {
-			b.WriteString("fish_add_path --move --prepend --path")
+			b.WriteString("fish_add_path --global --move --prepend --path")
 			for _, p := range e.Paths {
 				b.WriteString(" " + fishQuote(p))
 			}
 			b.WriteString("\n")
 		}
 		if e.Prefix != "" {
-			// Like brew's fish shellenv: an unset MANPATH gains an empty element,
-			// which man(1) reads as "and the system defaults". Without it, setting
-			// MANPATH would hide every system manual page.
-			b.WriteString("! set -q MANPATH; and set MANPATH ''\n")
-			b.WriteString("set -gx MANPATH " + fishQuote(filepath.Join(e.Prefix, "share/man")) + " $MANPATH\n")
-			b.WriteString("! set -q INFOPATH; and set INFOPATH ''\n")
-			b.WriteString("set -gx INFOPATH " + fishQuote(filepath.Join(e.Prefix, "share/info")) + " $INFOPATH\n")
+			b.WriteString("if test -n \"$MANPATH\"; set --global --export MANPATH (string replace --regex '^:*(.*?):*$' ':$1' -- \"$MANPATH\"); end\n")
+			b.WriteString("if not set --query INFOPATH; set INFOPATH ''; end; set --global --export INFOPATH " + fishQuote(filepath.Join(e.Prefix, "share/info")) + " $INFOPATH\n")
+		}
+		if e.Completions != "" {
+			script := fishQuote(filepath.Join(e.Completions, "gobrew.fish"))
+			b.WriteString("status is-interactive; and test -r " + script + "; and source " + script + "\n")
 		}
 	}
 	return b.String(), nil
@@ -192,6 +221,20 @@ func (p Profile) Ensure(env Env) (bool, error) {
 		return false, nil
 	}
 	return true, write(target, next, mode)
+}
+
+// Refresh rewrites the managed block only where one already exists, so a
+// newer gobrew updates what it once added without adding to a startup file
+// whose owner set PATH some other way.
+func (p Profile) Refresh(env Env) (bool, error) {
+	_, data, _, err := p.read()
+	if err != nil {
+		return false, err
+	}
+	if !bytes.Contains(data, []byte(begin+"\n")) {
+		return false, nil
+	}
+	return p.Ensure(env)
 }
 
 // Check reports, without changing anything, a startup file that Ensure and

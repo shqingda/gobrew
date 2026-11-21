@@ -154,42 +154,76 @@ func appendFile(path, text string) error {
 
 // An unset MANPATH must end up with an empty element, which man(1) reads as
 // "and the system defaults"; otherwise `man ls` stops working.
-func TestScriptsKeepSystemManualPages(t *testing.T) {
+// Like brew shellenv: MANPATH is never set when unset (man then finds pages
+// beside each PATH entry), an existing one is normalized to one leading colon
+// so man keeps its defaults, and INFOPATH gains the prefix with a trailing colon.
+func TestScriptsNormalizeManpathLikeBrew(t *testing.T) {
 	env := Env{Paths: []string{"/opt/gobrew/bin"}, Prefix: "/opt/gobrew"}
 	for shell, run := range map[string][]string{
-		"sh":  {"sh", "-c"},
-		"csh": {"/bin/csh", "-f", "-c"},
+		"sh":   {"sh", "-c"},
+		"zsh":  {"/bin/zsh", "-f", "-c"},
+		"bash": {"/bin/bash", "--noprofile", "--norc", "-c"},
+		"csh":  {"/bin/csh", "-f", "-c"},
 	} {
-		script, err := env.Script(shell)
-		if err != nil {
-			t.Fatal(err)
-		}
-		probe := `printf '%s' "$MANPATH"`
 		if _, err := exec.LookPath(run[0]); err != nil {
 			t.Logf("skipping %s: %v", shell, err)
 			continue
 		}
-		cmd := exec.Command(run[0], append(run[1:], script+"\n"+probe)...)
-		cmd.Env = []string{"PATH=/usr/bin:/bin"}
-		got, err := cmd.CombinedOutput()
+		script, err := env.Script(shell)
 		if err != nil {
-			t.Fatalf("%s: %v: %s", shell, err, got)
+			t.Fatal(err)
 		}
-		if string(got) != "/opt/gobrew/share/man:" {
-			t.Fatalf("%s MANPATH = %q", shell, got)
+		probe := `printf '%s|%s|%s' "$MANPATH" "$INFOPATH" "$PATH"`
+		if shell == "csh" {
+			// csh rejects reading an unset variable, and an empty command
+			// substitution would drop the word, so it gets a leading x.
+			probe = "printf 'x%s|%s|%s' \"x`printenv MANPATH`\" \"$INFOPATH\" \"$PATH\" | cut -c3-"
+		}
+		for manpath, want := range map[string]string{"": "", "::/usr/share/man:/x::": ":/usr/share/man:/x"} {
+			cmd := exec.Command(run[0], append(run[1:], script+"\n"+probe)...)
+			cmd.Env = []string{"PATH=/usr/bin:/bin"}
+			if manpath != "" {
+				cmd.Env = append(cmd.Env, "MANPATH="+manpath)
+			}
+			got, err := cmd.CombinedOutput()
+			if err != nil {
+				t.Fatalf("%s: %v: %s", shell, err, got)
+			}
+			if w := want + "|/opt/gobrew/share/info:|/opt/gobrew/bin:/usr/bin:/bin"; strings.TrimSuffix(string(got), "\n") != w {
+				t.Fatalf("%s with MANPATH=%q: got %q, want %q", shell, manpath, got, w)
+			}
 		}
 	}
-	// fish is rarely installed; check that it sets the empty element the way
-	// brew's own fish shellenv does before prepending.
+	if _, err := exec.LookPath("/bin/zsh"); err == nil {
+		script, _ := env.Script("zsh")
+		got, err := exec.Command("/bin/zsh", "-f", "-c", script+"\nprint -r -- $fpath[1]").CombinedOutput()
+		if err != nil || strings.TrimSpace(string(got)) != "/opt/gobrew/share/zsh/site-functions" {
+			t.Fatalf("zsh fpath[1] = %q, %v", got, err)
+		}
+	}
+	// fish is rarely installed; check brew's fish lines.
 	script, err := env.Script("fish")
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, name := range []string{"MANPATH", "INFOPATH"} {
-		guard := "! set -q " + name + "; and set " + name + " ''\n"
-		i, j := strings.Index(script, guard), strings.Index(script, "set -gx "+name+" ")
-		if i < 0 || j < i {
-			t.Fatalf("fish script does not keep an empty %s element:\n%s", name, script)
+	for _, want := range []string{"if test -n \"$MANPATH\"; set --global --export MANPATH (string replace --regex '^:*(.*?):*$' ':$1' -- \"$MANPATH\"); end", "if not set --query INFOPATH; set INFOPATH ''; end; set --global --export INFOPATH '/opt/gobrew/share/info' $INFOPATH"} {
+		if !strings.Contains(script, want) {
+			t.Fatalf("fish script lacks %q:\n%s", want, script)
 		}
+	}
+}
+
+func TestPwshScriptFollowsBrew(t *testing.T) {
+	script, err := Env{Paths: []string{"/opt/gobrew/bin", "/opt/gobrew/sbin"}, Prefix: "/opt/gobrew"}.Script("pwsh")
+	if err != nil {
+		t.Fatal(err)
+	}
+	const target = ",[System.EnvironmentVariableTarget]::Process)"
+	want := "[System.Environment]::SetEnvironmentVariable('GOBREW_PREFIX','/opt/gobrew'" + target + "\n" +
+		"[System.Environment]::SetEnvironmentVariable('PATH',$('/opt/gobrew/bin:/opt/gobrew/sbin:'+$ENV:PATH)" + target + "\n" +
+		"if (${ENV:MANPATH}) { [System.Environment]::SetEnvironmentVariable('MANPATH',(':'+${ENV:MANPATH}.Trim(':'))" + target + "\n}\n" +
+		"[System.Environment]::SetEnvironmentVariable('INFOPATH',('/opt/gobrew/share/info:'+${ENV:INFOPATH})" + target + "\n"
+	if script != want {
+		t.Fatalf("pwsh script:\n%s\nwant:\n%s", script, want)
 	}
 }

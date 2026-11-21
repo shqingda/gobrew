@@ -25,6 +25,7 @@ func (a *application) pathEnv(binDir, prefix string) shellconfig.Env {
 	var env shellconfig.Env
 	if binDir != "" {
 		env.Paths = append(env.Paths, binDir)
+		env.Completions = completionsDir(binDir)
 	}
 	if prefix == a.systemPrefix {
 		env.Paths = append(env.Paths, filepath.Join(prefix, "bin"), filepath.Join(prefix, "sbin"))
@@ -42,6 +43,27 @@ func (a *application) setupPath(env shellconfig.Env, binDir string) string {
 	if len(env.Paths) == 0 || onPath(env.Paths...) {
 		return ""
 	}
+	return a.writePath(env, binDir)
+}
+
+// refreshPath updates a startup block gobrew already wrote, for self install
+// and update: new shells then also load completions. It never adds a block
+// and stays silent unless it fails.
+func (a *application) refreshPath(env shellconfig.Env) string {
+	if os.Getenv("GOBREW_NO_MODIFY_PATH") != "" || len(env.Paths) == 0 {
+		return ""
+	}
+	profile, err := a.profile()
+	if err != nil {
+		return ""
+	}
+	if _, err := profile.Refresh(env); err != nil {
+		return "Could not update " + tildePath(profile.Path) + ": " + err.Error()
+	}
+	return ""
+}
+
+func (a *application) writePath(env shellconfig.Env, binDir string) string {
 	manual := "Add this line to your shell startup file:\n  " + shellenvLine(binDir)
 	if os.Getenv("GOBREW_NO_MODIFY_PATH") != "" {
 		return "gobrew is not on PATH. " + manual

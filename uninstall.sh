@@ -15,7 +15,8 @@ fail() {
 }
 
 # check_store accepts only entries the CLI store creates: the receipt, lock,
-# current link, digest-named executables and interrupted atomic writes.
+# current link, digest-named executables, shell completion scripts and
+# interrupted atomic writes.
 check_store() {
     store=$1
     [ -d "$store" ] && [ ! -L "$store" ] || fail "$store is not a gobrew store"
@@ -32,6 +33,18 @@ check_store() {
                     if ! printf '%s\n' "$name" | LC_ALL=C grep -Eq '^[0-9a-f]{64}$'; then
                         fail "unrecognized file $file"
                     fi
+                done
+                ;;
+            completions)
+                [ -d "$entry" ] && [ ! -L "$entry" ] || fail "$entry is not a gobrew directory"
+                for file in "$entry"/* "$entry"/.[!.]*; do
+                    [ -e "$file" ] || [ -L "$file" ] || continue
+                    case ${file##*/} in
+                        _gobrew | gobrew.bash | gobrew.fish | ._gobrew.* | .gobrew.bash.* | .gobrew.fish.*)
+                            [ -f "$file" ] && [ ! -L "$file" ] || fail "$file is not a regular file"
+                            ;;
+                        *) fail "unrecognized file $file" ;;
+                    esac
                 done
                 ;;
             *) fail "unrecognized entry $entry" ;;

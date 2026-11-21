@@ -116,7 +116,7 @@ func TestCancellationIsReportedBeforeMutation(t *testing.T) {
 func TestShellenvQuotesPrefix(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	prefix := "/tmp/a'b space/$(printf unexpected)"
-	args := []string{"--prefix", prefix, "shellenv"}
+	args := []string{"--prefix", prefix, "shellenv", "sh"}
 	if code := Run(context.Background(), args, &stdout, &stderr, BuildInfo{}); code != 0 {
 		t.Fatalf("exit = %d: %s", code, &stderr)
 	}
