@@ -118,7 +118,7 @@ func (p *progress) event(event model.Event) error {
 		}
 		_, err := fmt.Fprintln(p.w, cleanText(event.Message))
 		return err
-	case "relocate":
+	case "relocate", "metadata", "sync", "prepared", "stage", "link":
 		return nil
 	case "step":
 		// A titled stage with no byte count, such as verifying the catalog.

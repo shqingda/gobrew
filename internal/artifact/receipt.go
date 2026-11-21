@@ -30,6 +30,30 @@ type ociDescriptor struct {
 // https://github.com/Homebrew/brew/blob/main/Library/Homebrew/resource.rb
 // A missing receipt is never interpreted as an empty dependency set.
 func (m *Manager) runtimeDependencies(ctx context.Context, keg string, p model.Package) ([]model.RuntimeDependency, error) {
+	return m.runtimeDependenciesFrom(ctx, keg, p, nil)
+}
+
+// metadataFetch is an OCI runtime-dependency lookup started before the bottle
+// is downloaded, so its two GHCR round trips overlap the download instead of
+// following extraction. Only the result is shared; validation is unchanged.
+type metadataFetch struct {
+	done chan struct{}
+	deps []model.RuntimeDependency
+	err  error
+}
+
+func (m *Manager) prefetchMetadata(ctx context.Context, p model.Package) *metadataFetch {
+	f := &metadataFetch{done: make(chan struct{})}
+	go func() {
+		defer close(f.done)
+		f.deps, f.err = m.ociRuntimeDependencies(ctx, p)
+	}()
+	return f
+}
+
+// runtimeDependenciesFrom prefers the bottle's own receipt, then the OCI tab,
+// using prefetched when it is not nil.
+func (m *Manager) runtimeDependenciesFrom(ctx context.Context, keg string, p model.Package, prefetched *metadataFetch) ([]model.RuntimeDependency, error) {
 	deps, err := readReceipt(keg)
 	if err == nil {
 		return deps, nil
@@ -37,6 +61,18 @@ func (m *Manager) runtimeDependencies(ctx context.Context, keg string, p model.P
 	if !errors.Is(err, os.ErrNotExist) {
 		return nil, err
 	}
+	if prefetched == nil {
+		return m.ociRuntimeDependencies(ctx, p)
+	}
+	select {
+	case <-prefetched.done:
+		return prefetched.deps, prefetched.err
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+}
+
+func (m *Manager) ociRuntimeDependencies(ctx context.Context, p model.Package) ([]model.RuntimeDependency, error) {
 	base, err := url.Parse(p.Bottle.URL)
 	if err != nil {
 		return nil, err

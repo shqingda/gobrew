@@ -114,6 +114,7 @@ func (i Installer) finishPackage(ctx context.Context, tx *state.Session, snap *m
 			return err
 		}
 	}
+	model.Emit(events, model.Event{Phase: "link", Package: name})
 	links, err := i.links(rec.Keg, rec.Keg, name, rec.Linked)
 	if err != nil {
 		return fail(err)

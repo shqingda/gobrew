@@ -78,7 +78,7 @@ func TestInterruptedUpgradeAndReinstallRestoreTheOldKeg(t *testing.T) {
 					if err != nil {
 						return err
 					}
-					j, err := inst.stage(context.Background(), next, snap)
+					j, err := inst.stage(context.Background(), next, snap, nil)
 					if err != nil {
 						return err
 					}

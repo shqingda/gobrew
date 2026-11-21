@@ -84,44 +84,6 @@ func (i Installer) CleanupWith(ctx context.Context, opts CleanupOptions) ([]mode
 					keep[filepath.Join(cellar, name, version)] = true
 				}
 			}
-			err = filepath.WalkDir(rec.Keg, func(path string, d fs.DirEntry, walkErr error) error {
-				if walkErr != nil {
-					return walkErr
-				}
-				if err := ctx.Err(); err != nil {
-					return err
-				}
-				if !d.Type().IsRegular() {
-					return nil
-				}
-				if fat, err := macho.OpenFat(path); err == nil {
-					defer fat.Close()
-					for _, arch := range fat.Arches {
-						libs, err := arch.File.ImportedLibraries()
-						if err != nil {
-							return err
-						}
-						for _, lib := range libs {
-							protect(lib)
-						}
-					}
-					return nil
-				}
-				if thin, err := macho.Open(path); err == nil {
-					defer thin.Close()
-					libs, err := thin.ImportedLibraries()
-					if err != nil {
-						return err
-					}
-					for _, lib := range libs {
-						protect(lib)
-					}
-				}
-				return nil
-			})
-			if err != nil {
-				return err
-			}
 		}
 		racks, err := os.ReadDir(cellar)
 		if err != nil {
@@ -167,6 +129,52 @@ func (i Installer) CleanupWith(ctx context.Context, opts CleanupOptions) ([]mode
 				}
 				j.Moves = append(j.Moves, state.Move{From: path, To: trash, Owner: owner})
 			}
+		}
+		// Imports are read from every installed keg's Mach-O files, which is
+		// the slow part. They can only protect more kegs, so skip reading them
+		// when no keg is a candidate in the first place.
+		if len(j.Moves) > 0 {
+			for _, rec := range snap.Records {
+				err = filepath.WalkDir(rec.Keg, func(path string, d fs.DirEntry, walkErr error) error {
+					if walkErr != nil {
+						return walkErr
+					}
+					if err := ctx.Err(); err != nil {
+						return err
+					}
+					if !d.Type().IsRegular() {
+						return nil
+					}
+					if fat, err := macho.OpenFat(path); err == nil {
+						defer fat.Close()
+						for _, arch := range fat.Arches {
+							libs, err := arch.File.ImportedLibraries()
+							if err != nil {
+								return err
+							}
+							for _, lib := range libs {
+								protect(lib)
+							}
+						}
+						return nil
+					}
+					if thin, err := macho.Open(path); err == nil {
+						defer thin.Close()
+						libs, err := thin.ImportedLibraries()
+						if err != nil {
+							return err
+						}
+						for _, lib := range libs {
+							protect(lib)
+						}
+					}
+					return nil
+				})
+				if err != nil {
+					return err
+				}
+			}
+			j.Moves = slices.DeleteFunc(j.Moves, func(m state.Move) bool { return keep[m.From] })
 		}
 		slices.SortFunc(j.Moves, func(a, b state.Move) int { return strings.Compare(a.From, b.From) })
 		sizes := make(map[string]model.Removed, len(j.Moves))

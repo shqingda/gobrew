@@ -28,6 +28,9 @@ func (a *application) installCommand(action string) *cobra.Command {
 		if displayTimes || a.verbose {
 			a.times = &installTimes{}
 		}
+		if a.debug {
+			a.times.stages, a.times.last = map[string]map[string]time.Duration{}, map[string]model.Event{}
+		}
 		if a.minimumVersion = cmp.Or(minimum, minimumAlias); a.minimumVersion != "" && len(names) != 1 {
 			return usageError{errors.New("`--minimum-version` requires exactly one formula argument")}
 		}
@@ -409,6 +412,10 @@ type installTimes struct {
 	started map[string]time.Time
 	order   []string
 	took    map[string]time.Duration
+	// stages, with --debug, splits each package's time by the phase that
+	// was running: each phase lasts until the package's next event.
+	stages map[string]map[string]time.Duration
+	last   map[string]model.Event
 }
 
 func (t *installTimes) observe(event model.Event, now time.Time) {
@@ -420,6 +427,17 @@ func (t *installTimes) observe(event model.Event, now time.Time) {
 	}
 	if _, ok := t.started[event.Package]; !ok {
 		t.started[event.Package] = now
+	}
+	if t.stages != nil && !event.At.IsZero() {
+		if prior, ok := t.last[event.Package]; ok && prior.Phase != event.Phase {
+			if t.stages[event.Package] == nil {
+				t.stages[event.Package] = map[string]time.Duration{}
+			}
+			t.stages[event.Package][prior.Phase] += event.At.Sub(prior.At)
+		}
+		if prior, ok := t.last[event.Package]; !ok || prior.Phase != event.Phase {
+			t.last[event.Package] = event
+		}
 	}
 	if _, done := t.took[event.Package]; event.Phase == "installed" && !done {
 		t.took[event.Package] = now.Sub(t.started[event.Package])
@@ -435,6 +453,29 @@ func (t *installTimes) lines() []string {
 	for _, name := range t.order {
 		lines = append(lines, fmt.Sprintf("%-20s %10.3f s", name, t.took[name].Seconds()))
 	}
+	if t.stages == nil {
+		return lines
+	}
+	// Stages in pipeline order. "prepared" lasts until Apply stages the
+	// package, so it shows as wait; "stage" lasts until its post-install or,
+	// without one, its links begin; links run until installed.
+	phases := []string{"download", "extract", "metadata", "relocate", "sync", "prepared", "stage", "postinstall", "link"}
+	labels := []string{"download", "extract", "metadata", "relocate", "sync", "wait", "stage", "postinst", "link"}
+	lines = append(lines, "==> Stage times (ms)")
+	header := fmt.Sprintf("%-20s", "")
+	for _, label := range labels {
+		header += fmt.Sprintf(" %9s", label)
+	}
+	lines = append(lines, header)
+	for _, name := range t.order {
+		row := fmt.Sprintf("%-20s", name)
+		for _, phase := range phases {
+			row += fmt.Sprintf(" %9.1f", float64(t.stages[name][phase])/float64(time.Millisecond))
+		}
+		lines = append(lines, row)
+	}
+	c := engine.Durability()
+	lines = append(lines, fmt.Sprintf("==> Syncs: %d device barriers, %d inode fsyncs, %d state write transactions", c.DeviceBarriers, c.InodeSyncs, c.StateWrites))
 	return lines
 }
 

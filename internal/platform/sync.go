@@ -7,13 +7,24 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"sync/atomic"
 
 	"golang.org/x/sys/unix"
 )
 
 // SyncFile flushes a file and asks the device to persist prior writes. On macOS
 // fsync alone does not flush a drive's volatile write cache; F_FULLFSYNC does.
-func SyncFile(file *os.File) error { return fullSync(file) }
+func SyncFile(file *os.File) error {
+	deviceBarriers.Add(1)
+	return fullSync(file)
+}
+
+var deviceBarriers, inodeSyncs atomic.Uint64
+
+// SyncCounts reports how many device barriers (F_FULLFSYNC) and plain inode
+// fsyncs this process has issued through this package, for --debug. Database
+// commits sync through bbolt and are not included.
+func SyncCounts() (barriers, inodes uint64) { return deviceBarriers.Load(), inodeSyncs.Load() }
 
 // SyncDir persists namespace changes made directly inside a real directory.
 // Call this after publishing a file or moving a directory into its parent.
@@ -156,6 +167,7 @@ func syncEntry(path string, directory, full bool) error {
 }
 
 func syncInode(fd int) error {
+	inodeSyncs.Add(1)
 	for {
 		err := unix.Fsync(fd)
 		if !errors.Is(err, unix.EINTR) {

@@ -5,8 +5,10 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -92,5 +94,24 @@ func TestOCIReceiptRejectsUnboundOrMissingRuntimeFacts(t *testing.T) {
 				t.Fatal("unbound receipt accepted")
 			}
 		})
+	}
+}
+
+// The OCI lookup may start before extraction, but a bottle's own receipt still
+// wins, and a prefetched failure only matters when the receipt is missing.
+func TestPrefetchedMetadataDefersToTheReceipt(t *testing.T) {
+	keg := t.TempDir()
+	if err := os.WriteFile(filepath.Join(keg, "INSTALL_RECEIPT.json"), []byte(`{"runtime_dependencies":[{"full_name":"dep","version":"1"}]}`), 0644); err != nil {
+		t.Fatal(err)
+	}
+	failed := &metadataFetch{done: make(chan struct{}), err: errors.New("network down")}
+	close(failed.done)
+	m := New(Config{CacheDir: t.TempDir(), Prefix: "/opt/gobrew"})
+	deps, err := m.runtimeDependenciesFrom(context.Background(), keg, model.Package{}, failed)
+	if err != nil || len(deps) != 1 || deps[0].Name != "dep" {
+		t.Fatalf("receipt lost to prefetch: %v %v", deps, err)
+	}
+	if _, err := m.runtimeDependenciesFrom(context.Background(), t.TempDir(), model.Package{}, failed); err == nil || err.Error() != "network down" {
+		t.Fatalf("missing receipt did not use the prefetched result: %v", err)
 	}
 }

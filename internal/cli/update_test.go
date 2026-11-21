@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -20,12 +21,16 @@ import (
 )
 
 type updateFailure struct {
+	// mu guards the counters: Prepare fetches metadata and downloads at once.
+	mu           sync.Mutex
 	calls        int
 	catalogCalls int
 	cancel       context.CancelFunc
 }
 
 func (f *updateFailure) RoundTrip(req *http.Request) (*http.Response, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	f.calls++
 	if req.URL.Host == "formulae.brew.sh" {
 		f.catalogCalls++

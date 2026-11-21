@@ -58,6 +58,49 @@ func extractBottle(ctx context.Context, blob, dest string, options ...extraction
 	}
 	var links []link
 	seen := map[string]bool{}
+	// made records directories already created, and dirs keeps a few open
+	// roots for recent parent directories: os.Root resolves every component
+	// of a path with its own openat, which dominated extraction. Links are
+	// created only after this loop, so no cached directory can be replaced by
+	// a symlink while it is in use, and every root stays inside root.
+	made := map[string]bool{".": true}
+	dirs := map[string]*os.Root{}
+	closeDirs := func() {
+		for _, d := range dirs {
+			d.Close()
+		}
+		clear(dirs)
+	}
+	defer closeDirs()
+	mkdirAll := func(dir string, mode os.FileMode) error {
+		if made[dir] {
+			return nil
+		}
+		if err := root.MkdirAll(dir, mode); err != nil {
+			return err
+		}
+		for d := dir; !made[d]; d = path.Dir(d) {
+			made[d] = true
+		}
+		return nil
+	}
+	parentRoot := func(dir string) (*os.Root, error) {
+		if dir == "." {
+			return root, nil
+		}
+		if d, ok := dirs[dir]; ok {
+			return d, nil
+		}
+		if len(dirs) >= 64 {
+			closeDirs()
+		}
+		d, err := root.OpenRoot(dir)
+		if err != nil {
+			return nil, err
+		}
+		dirs[dir] = d
+		return d, nil
+	}
 	var count int
 	var size int64
 	for {
@@ -93,17 +136,21 @@ func extractBottle(ctx context.Context, blob, dest string, options ...extraction
 			return fmt.Errorf("duplicate archive path %q", name)
 		}
 		seen[name] = true
-		if err := root.MkdirAll(path.Dir(name), 0755); err != nil {
+		if err := mkdirAll(path.Dir(name), 0755); err != nil {
 			return err
 		}
 		mode := os.FileMode(header.Mode) & 0777 // Never preserve privilege bits.
 		switch header.Typeflag {
 		case tar.TypeDir:
-			if err := root.MkdirAll(name, mode|0700); err != nil {
+			if err := mkdirAll(name, mode|0700); err != nil {
 				return err
 			}
 		case tar.TypeReg: // The reader normalizes legacy TypeRegA entries.
-			out, err := root.OpenFile(name, os.O_CREATE|os.O_EXCL|os.O_WRONLY, mode|0600)
+			parent, err := parentRoot(path.Dir(name))
+			if err != nil {
+				return err
+			}
+			out, err := parent.OpenFile(path.Base(name), os.O_CREATE|os.O_EXCL|os.O_WRONLY, mode|0600)
 			if err != nil {
 				return err
 			}
@@ -135,6 +182,7 @@ func extractBottle(ctx context.Context, blob, dest string, options ...extraction
 	if cfg.SHA256 != "" && hex.EncodeToString(hash.Sum(nil)) != cfg.SHA256 {
 		return errChecksum
 	}
+	closeDirs()
 	for _, link := range links {
 		if err := ctx.Err(); err != nil {
 			return err

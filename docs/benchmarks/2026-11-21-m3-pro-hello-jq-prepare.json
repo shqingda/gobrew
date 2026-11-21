@@ -1,0 +1,106 @@
+{
+ "schema_version": 1,
+ "date": "2026-11-21",
+ "machine": "Apple M3 Pro, macOS 27.2.1, go1.27.4",
+ "packages": [
+  "hello",
+  "jq"
+ ],
+ "method": "scripts/benchmark --rounds 1, old and new run alternately five times; isolated prefix, cache and HOME; CGO_ENABLED=0 dev builds",
+ "builds": {
+  "old": {
+   "source": "f65a8f5",
+   "sha256": "0218bf107928b92bd8540e8dce63f4d828e45430af4d009c9c786081c2644697",
+   "scenarios": {
+    "cold": {
+     "wall_ms": [
+      2037.6,
+      1981.5,
+      2073.3,
+      2295.0,
+      2040.7
+     ],
+     "median_wall_ms": 2040.7,
+     "median_prepare_ms": 1796.6,
+     "median_apply_ms": 204.1
+    },
+    "warm": {
+     "wall_ms": [
+      275.3,
+      302.3,
+      293.5,
+      282.8,
+      219.1
+     ],
+     "median_wall_ms": 282.8,
+     "median_prepare_ms": 1.0,
+     "median_apply_ms": 210.9
+    },
+    "noop": {
+     "wall_ms": [
+      17.4,
+      18.2,
+      19.2,
+      18.5,
+      6.9
+     ],
+     "median_wall_ms": 18.2,
+     "median_prepare_ms": 0,
+     "median_apply_ms": 0
+    }
+   },
+   "package_versions": {
+    "hello": "2.12.3",
+    "jq": "1.8.2",
+    "oniguruma": "6.9.10"
+   }
+  },
+  "new": {
+   "source": "f65a8f5 + phase 3 working tree",
+   "sha256": "81a1acf84cb8f793cd675f5c3beae6c052fe50701c55306be96211f40de324d4",
+   "scenarios": {
+    "cold": {
+     "wall_ms": [
+      1362.4,
+      1585.3,
+      1449.3,
+      1301.4,
+      1341.8
+     ],
+     "median_wall_ms": 1362.4,
+     "median_prepare_ms": 1124.9,
+     "median_apply_ms": 184.8
+    },
+    "warm": {
+     "wall_ms": [
+      270.2,
+      261.5,
+      300.4,
+      229.1,
+      243.0
+     ],
+     "median_wall_ms": 261.5,
+     "median_prepare_ms": 0.8,
+     "median_apply_ms": 193.4
+    },
+    "noop": {
+     "wall_ms": [
+      8.7,
+      19.8,
+      18.4,
+      6.8,
+      7.0
+     ],
+     "median_wall_ms": 8.7,
+     "median_prepare_ms": 0,
+     "median_apply_ms": 0
+    }
+   },
+   "package_versions": {
+    "hello": "2.12.3",
+    "jq": "1.8.2",
+    "oniguruma": "6.9.10"
+   }
+  }
+ }
+}

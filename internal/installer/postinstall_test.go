@@ -63,7 +63,7 @@ func TestPostinstallRecoveryPreservesPromotionsAndCompletedStatus(t *testing.T) 
 					return err
 				}
 				app := model.Prepared{Plan: model.Plan{Prefix: prefix, Promote: []string{"lib"}}, Packages: []model.PreparedPackage{{Package: model.Package{Formula: model.Formula{Name: "app", Version: "1"}}, Tree: tree}}}
-				j, err := inst.stage(context.Background(), app, snap)
+				j, err := inst.stage(context.Background(), app, snap, nil)
 				if err != nil {
 					return err
 				}

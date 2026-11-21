@@ -348,11 +348,19 @@ type Event struct {
 	Completed int64  `json:"completed,omitempty"`
 	Total     int64  `json:"total,omitempty"`
 	Message   string `json:"message,omitempty"`
+	// At is when the event happened; Emit sets it. It is not part of JSON.
+	At time.Time `json:"-"`
 }
 
 // Emit never lets a slow renderer block an installation. The caller owns and
 // closes the channel after the operation has returned; final results are returned.
 func Emit(events chan<- Event, event Event) {
+	if events == nil {
+		return
+	}
+	if event.At.IsZero() {
+		event.At = time.Now()
+	}
 	select {
 	case events <- event:
 	default:

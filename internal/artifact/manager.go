@@ -206,6 +206,11 @@ func (m *Manager) prepare(ctx context.Context, p model.Package, downloads, prepa
 	if err := os.RemoveAll(entry); err != nil {
 		return result, err
 	}
+	// Fetch OCI metadata while the bottle downloads; a bottle with its own
+	// receipt ignores the result. Cancelling metaCtx ends an unused fetch.
+	metaCtx, cancelMeta := context.WithCancel(ctx)
+	defer cancelMeta()
+	metadata := m.prefetchMetadata(metaCtx, p)
 	// Hold the blob lease across both stages so eviction cannot race the
 	// handoff from a completed download to an extraction worker.
 	unlock, err := platform.AcquireLock(ctx, filepath.Join(m.cfg.CacheDir, "locks", "blob-"+p.Bottle.SHA256))
@@ -252,7 +257,8 @@ func (m *Manager) prepare(ctx context.Context, p model.Package, downloads, prepa
 	if info, err := os.Lstat(keg); err != nil || !info.IsDir() {
 		return result, fmt.Errorf("bottle does not contain %s/%s", p.Formula.Name, p.Formula.PkgVersion())
 	}
-	deps, err := m.runtimeDependencies(ctx, keg, p)
+	model.Emit(events, model.Event{Phase: "metadata", Package: p.Formula.Name})
+	deps, err := m.runtimeDependenciesFrom(ctx, keg, p, metadata)
 	if err != nil {
 		return result, err
 	}
@@ -267,6 +273,7 @@ func (m *Manager) prepare(ctx context.Context, p model.Package, downloads, prepa
 	if err != nil {
 		return result, err
 	}
+	model.Emit(events, model.Event{Phase: "sync", Package: p.Formula.Name})
 	if err := platform.SyncTree(ctx, filepath.Join(stage, "tree")); err != nil {
 		return result, fmt.Errorf("sync prepared tree: %w", err)
 	}
@@ -302,6 +309,7 @@ func (m *Manager) prepare(ctx context.Context, p model.Package, downloads, prepa
 	result.RuntimeDependencies = deps
 	result.LinkedDependencies = linked
 	result.LinkageChecked = true
+	model.Emit(events, model.Event{Phase: "prepared", Package: p.Formula.Name})
 	return result, nil
 }
 

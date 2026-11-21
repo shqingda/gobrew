@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"sync/atomic"
 	"time"
 
 	"github.com/shqingda/gobrew/internal/model"
@@ -201,6 +202,12 @@ func (s Store) WithLock(ctx context.Context, fn func(*Session) error) error {
 	return fn(&Session{store: s})
 }
 
+var writeTransactions atomic.Uint64
+
+// WriteTransactions reports how many state write transactions this process
+// committed or attempted, for --debug. Each bbolt commit syncs the file.
+func WriteTransactions() uint64 { return writeTransactions.Load() }
+
 // transaction opens the database for one transaction. Writers wait up to a
 // second for readers, whose transactions are short; readers wait for writers'
 // single transactions, never for a whole operation.
@@ -213,6 +220,7 @@ func (s Store) transaction(write bool, timeout time.Duration, fn func(*bolt.Tx) 
 		return dbError(err)
 	}
 	if write {
+		writeTransactions.Add(1)
 		err = db.Update(fn)
 	} else {
 		err = db.View(fn)

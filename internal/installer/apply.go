@@ -49,7 +49,7 @@ func (i Installer) Apply(ctx context.Context, p model.Prepared, events chan<- mo
 			}
 			return nil
 		}
-		j, err := i.stage(ctx, p, before)
+		j, err := i.stage(ctx, p, before, events)
 		if err != nil {
 			return err
 		}
@@ -83,7 +83,7 @@ func (i Installer) Apply(ctx context.Context, p model.Prepared, events chan<- mo
 	return result, err
 }
 
-func (i Installer) stage(ctx context.Context, p model.Prepared, before model.Snapshot) (*state.Journal, error) {
+func (i Installer) stage(ctx context.Context, p model.Prepared, before model.Snapshot, events chan<- model.Event) (*state.Journal, error) {
 	id := newID()
 	j := &state.Journal{ID: id, Phase: "switching", Before: before, After: cloneSnapshot(before)}
 	for _, name := range p.Plan.Promote {
@@ -111,6 +111,7 @@ func (i Installer) stage(ctx context.Context, p model.Prepared, before model.Sna
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
+		model.Emit(events, model.Event{Phase: "stage", Package: prepared.Package.Formula.Name})
 		if err := i.stagePackage(ctx, j, staging, before, prepared); err != nil {
 			return nil, err
 		}

@@ -69,10 +69,14 @@ func relocateTreeChecked(ctx context.Context, tree, prefix string, p model.Packa
 		if info.Size() == 0 {
 			return nil
 		}
-		if err := os.Chmod(path, info.Mode().Perm()|0600); err != nil {
-			return err
+		// Extraction already creates files owner-readable and writable, so
+		// the temporary chmod is needed only for a tree that is not.
+		if perm := info.Mode().Perm(); perm&0600 != 0600 {
+			if err := os.Chmod(path, perm|0600); err != nil {
+				return err
+			}
+			defer os.Chmod(path, perm)
 		}
-		defer os.Chmod(path, info.Mode().Perm())
 		file, err := os.OpenFile(path, os.O_RDWR, 0)
 		if err != nil {
 			return err

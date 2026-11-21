@@ -123,3 +123,13 @@ func (e *Engine) Update(ctx context.Context, events chan<- model.Event) (catalog
 	return c.Update(ctx)
 }
 func (e *Engine) Installed() (model.Snapshot, error) { return e.store().Load() }
+
+// DurabilityCounts are this process's sync operations so far, for --debug.
+type DurabilityCounts struct {
+	DeviceBarriers, InodeSyncs, StateWrites uint64
+}
+
+func Durability() DurabilityCounts {
+	barriers, inodes := platform.SyncCounts()
+	return DurabilityCounts{DeviceBarriers: barriers, InodeSyncs: inodes, StateWrites: state.WriteTransactions()}
+}
