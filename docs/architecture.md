@@ -286,10 +286,16 @@ Explicit older versions (`version-install formula[@version] [version]`, as in
 Homebrew) are the one source outside the signed snapshot. As in Homebrew,
 plain `install` never splits names at "@".
 `catalog.History` lists GHCR tags, reads the version's OCI index, and takes
-its creation time and homebrew-core source path. The index names the
-version-bump commit, whose bottle block is still stale, so History queries that
-file's commits in the following seven days and accepts the first one whose
-bottle block records the same digest for the chosen host tag. Disagreement, a
+its creation time and homebrew-core source path. Older uploads record only a
+date, which History reads as one day earlier in UTC. The index names the
+version-bump commit, whose bottle block is still stale. `brew pr-upload
+--keep-old` also adds bottles for a new macOS to an existing index months later
+without changing its annotations. So History lists that file's commits since
+the creation time with no upper bound, reads the files of at most ten commits
+whose subject is Homebrew's `<name>: update|add <pkg_version> bottle.`, oldest
+first, and accepts the first one whose bottle block records the same digest for
+the chosen host tag. The subject only limits which files are read; the digest in
+the file is the check. Disagreement, a
 Ruby `post_install` or `pour_bottle?`, or a revision, rebuild or version that
 does not match rejects the request before planning. Only the dual-verified host
 bottle enters the plan's private catalog copy; Prepare re-verifies its manifest
